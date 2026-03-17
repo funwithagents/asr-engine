@@ -121,6 +121,8 @@ Write tests that verify **observable behavior**, not implementation details.
 
 6. **Merge lifecycle tests.** start/stop, connect/disconnect, pause/resume sequences belong in one test that exercises the full cycle, not split across two.
 
+**Speed rule** — the full unit test suite (`pytest tests/`) must complete in under 5 seconds. If it doesn't, treat it as a bug: find the slow tests with `pytest --durations=10` and fix the root cause (usually a real timer firing in production code that needs to be made patchable, or a missing stop signal).
+
 **Smell checklist** — delete or merge a test if it:
 - Asserts a private attribute (e.g. `assert obj._foo == ...`)
 - Is fully subsumed by another test in the same file
