@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 from asr_mcp.modules.base import ASRModule
+from asr_mcp.modules.deepgram import DeepgramModule
 
-# Maps asr.type string → ASRModule subclass.
-# Deepgram will be added in plan 05.
-REGISTRY: dict[str, type[ASRModule]] = {}
+REGISTRY: dict[str, type[ASRModule]] = {
+    "deepgram": DeepgramModule,
+}
 
 
 def load_module(asr_config: dict) -> ASRModule:
