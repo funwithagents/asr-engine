@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 
-from asr_mcp.audio import AudioCapture
+from asr_mcp.audio import AudioCapture, AudioSource
 from asr_mcp.config import ASRConfig, AudioConfig
 from asr_mcp.modules import REGISTRY
 from asr_mcp.modules.base import ASRResult, ResultCallback
@@ -16,6 +16,7 @@ class ASREngine:
         audio_config: AudioConfig,
         asr_config: ASRConfig,
         on_result: ResultCallback,
+        audio_source: AudioSource | None = None,
     ) -> None:
         if asr_config.type not in REGISTRY:
             available = ", ".join(sorted(REGISTRY)) or "(none)"
@@ -25,16 +26,20 @@ class ASREngine:
         self._audio_config = audio_config
         self._asr_module = REGISTRY[asr_config.type](config=asr_config.extra)
         self._on_result = on_result
+        self._audio_source = audio_source
         self._paused = False
         self._running = False
         self._connected = False
-        self._audio_capture: AudioCapture | None = None
+        self._audio_capture: AudioSource | None = None
         self._task: asyncio.Task | None = None
 
     async def start(self) -> None:
         """Start audio capture and the ASR module."""
-        loop = asyncio.get_running_loop()
-        self._audio_capture = AudioCapture(self._audio_config.device, loop)
+        if self._audio_source is not None:
+            self._audio_capture = self._audio_source
+        else:
+            loop = asyncio.get_running_loop()
+            self._audio_capture = AudioCapture(self._audio_config.device, loop)
         audio_queue = self._audio_capture.start()
         self._task = asyncio.create_task(
             self._asr_module.start(audio_queue, self._handle_result, self.set_connected)

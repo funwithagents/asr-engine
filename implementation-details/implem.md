@@ -13,6 +13,7 @@ Each file explains non-obvious choices, gotchas, and deviations from the origina
 | 06 — ASR Engine | [06-asr-engine.md](06-asr-engine.md) | Engine wiring and state machine notes | yes |
 | 07 — MCP Server | [07-mcp-server.md](07-mcp-server.md) | Resource, tools, StreamableHTTP notes | yes |
 | 08 — Demo Client | [08-demo-client.md](08-demo-client.md) | Client subscription and logging notes | yes |
+| 09 — E2E Testing | [09-e2e-testing.md](09-e2e-testing.md) | AudioSource protocol, FileAudioSource, engine injection, e2e tests | yes |
 
 **Legend:** no = not yet written · yes = written
 

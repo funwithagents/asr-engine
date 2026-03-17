@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import wave
+from pathlib import Path
+from typing import Protocol
 
 import numpy as np
 import sounddevice as sd
@@ -9,6 +12,83 @@ SAMPLE_RATE = 16000
 CHANNELS = 1
 DTYPE = "int16"
 CHUNK_SAMPLES = 1600  # ~100 ms at 16 kHz
+
+
+class AudioSource(Protocol):
+    """Shared interface for microphone and file-based audio sources."""
+
+    def start(self) -> asyncio.Queue[bytes]:
+        """Open the source and return a queue that receives PCM chunks."""
+        ...
+
+    def stop(self) -> None:
+        """Stop and close the source."""
+        ...
+
+    def pause(self) -> None:
+        """Pause feeding the queue."""
+        ...
+
+    def resume(self) -> None:
+        """Resume feeding the queue."""
+        ...
+
+
+class FileAudioSource:
+    """Reads a WAV file and feeds PCM chunks into an asyncio queue at real-time pace."""
+
+    def __init__(
+        self,
+        path: Path | str,
+        chunk_samples: int = CHUNK_SAMPLES,
+        trailing_silence_s: float = 0.0,
+    ) -> None:
+        self._path = Path(path)
+        self._chunk_samples = chunk_samples
+        self._trailing_silence_s = trailing_silence_s
+        self._queue: asyncio.Queue[bytes] | None = None
+        self._task: asyncio.Task | None = None
+
+    def start(self) -> asyncio.Queue[bytes]:
+        self._queue = asyncio.Queue()
+        self._task = asyncio.create_task(self._feed())
+        return self._queue
+
+    async def _feed(self) -> None:
+        chunk_duration = self._chunk_samples / SAMPLE_RATE
+        with wave.open(str(self._path), "rb") as wf:
+            assert wf.getframerate() == SAMPLE_RATE, (
+                f"Expected sample rate {SAMPLE_RATE}, got {wf.getframerate()}"
+            )
+            assert wf.getnchannels() == CHANNELS, (
+                f"Expected {CHANNELS} channel(s), got {wf.getnchannels()}"
+            )
+            assert wf.getsampwidth() == 2, (
+                f"Expected 2-byte samples (s16), got {wf.getsampwidth()}"
+            )
+            while True:
+                data = wf.readframes(self._chunk_samples)
+                if not data:
+                    break
+                await self._queue.put(data)
+                await asyncio.sleep(chunk_duration)
+
+        silence_chunk = b"\x00" * (self._chunk_samples * 2)
+        silence_chunks = int(self._trailing_silence_s / chunk_duration)
+        for _ in range(silence_chunks):
+            await self._queue.put(silence_chunk)
+            await asyncio.sleep(chunk_duration)
+
+    def stop(self) -> None:
+        if self._task is not None:
+            self._task.cancel()
+            self._task = None
+
+    def pause(self) -> None:
+        pass  # file playback is not interruptible
+
+    def resume(self) -> None:
+        pass  # file playback is not interruptible
 
 
 class AudioCapture:

@@ -12,5 +12,6 @@
 | 6 | [Deepgram Module](deepgram-module.md) | WebSocket details, config fields, message mapping | no |
 | 7 | [Demo Client](demo-client.md) | CLI, log format, behavior | no |
 | 8 | [Project Structure](project-structure.md) | Folder layout, entry points, dependencies | no |
+| 9 | [E2E Testing](e2e-testing.md) | File-based e2e tests: audio source abstraction, fixture format, assertions | yes |
 
 **Legend:** no = not implemented · yes = implemented
