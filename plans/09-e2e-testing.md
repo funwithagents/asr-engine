@@ -43,19 +43,19 @@ Spec: [specs/e2e-testing.md](../specs/e2e-testing.md)
   - Store the source in `self._audio_capture` so `stop()`, `pause()`, `resume()`
     work transparently
 
-### 4. Create `tests/e2e/`
+### 4. Create `e2e/`
 
-- [x] Create `tests/e2e/` directory with `__init__.py`
-- [x] Add `tests/e2e/fixtures/` sub-directory
-- [x] Add `tests/e2e/fixtures/README.md` documenting the expected WAV format:
+- [x] Create `e2e/` directory with `__init__.py`
+- [x] Add `e2e/fixtures/` sub-directory
+- [x] Add `e2e/fixtures/README.md` documenting the expected WAV format:
   16 kHz, mono, signed 16-bit PCM, content = "the sky is blue"
 
-### 5. Write `tests/e2e/test_file_asr.py`
+### 5. Write `e2e/test_file_asr.py`
 
 - [x] Helper `_normalize(text: str) -> str`: lowercase + strip non-`[a-z0-9 ]`
 - [x] Helper `_load_api_key() -> str`: parse `config.json` at repo root
 - [x] Shared coroutine `_run_e2e(module_type, module_config, port, trailing_silence_s)`:
-  - Construct `FileAudioSource("tests/e2e/fixtures/sample.wav")`
+  - Construct `FileAudioSource("e2e/fixtures/sample.wav")`
   - Construct `ASREngine` with the file source
   - Call `create_mcp_server(engine)` → get `FastMCP`
   - Start uvicorn in a background task; wait for `server.started`

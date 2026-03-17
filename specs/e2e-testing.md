@@ -43,7 +43,7 @@ it is used instead of constructing an `AudioCapture` from config.
 
 - **Format:** WAV, 16 kHz, mono, signed 16-bit PCM (matches pipeline constants in
   `audio.py`)
-- **Location:** `tests/e2e/fixtures/sample.wav`
+- **Location:** `e2e/fixtures/sample.wav`
 - **Content:** a short utterance whose transcript is known in advance
 - **Expected transcript constant:** `"the sky is blue"` (lowercase, no punctuation)
 - **Playback rate:** real-time (one 100 ms chunk every 100 ms) so the streaming

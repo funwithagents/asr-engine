@@ -11,9 +11,9 @@
 - `ASREngine` now accepts an optional `audio_source: AudioSource | None = None`
   constructor parameter. When provided it is used in `start()` instead of
   constructing `AudioCapture`.
-- `tests/e2e/__init__.py` and `tests/e2e/fixtures/README.md` documenting the WAV
+- `e2e/__init__.py` and `e2e/fixtures/README.md` documenting the WAV
   fixture requirements.
-- `tests/e2e/test_file_asr.py` with `test_e2e_deepgram_v1` and
+- `e2e/test_file_asr.py` with `test_e2e_deepgram_v1` and
   `test_e2e_deepgram_v2`, each wiring a `FileAudioSource` → `ASREngine` →
   in-process uvicorn MCP server → in-process MCP client → transcript assertion.
 

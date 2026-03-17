@@ -28,7 +28,7 @@ def _normalize(text: str) -> str:
 
 
 def _load_api_key() -> str:
-    config_path = Path(__file__).parent.parent.parent / "config.json"
+    config_path = Path(__file__).parent.parent / "config.json"
     with open(config_path) as f:
         data = json.load(f)
     return data["asr"]["api_key"]
