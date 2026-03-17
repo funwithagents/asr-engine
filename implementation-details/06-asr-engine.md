@@ -2,15 +2,19 @@
 
 ## What was implemented
 
-- `ASREngine` class in `src/asr_mcp/engine.py` wiring `AudioCapture` to an `ASRModule`
+- `ASREngine` class in `src/asr_mcp/engine.py` — validates ASR type, instantiates the module from `REGISTRY`, wires `AudioCapture` to it
 - `pause()` and `resume()` methods added to `AudioCapture` in `audio.py`
-- 15 unit tests in `tests/test_engine.py` covering all public methods and state transitions
+- 17 unit tests in `tests/test_engine.py` covering all public methods, state transitions, and constructor validation
 
 ## Deviations from spec
 
 - **`AudioCapture.pause()/resume()` added**: The plan said "stop audio capture stream" for pause and "restart audio capture stream" for resume. `AudioCapture.stop()` closes the stream (destroying the queue reference), which would break the ASR module task still reading from the old queue. Instead, `pause()` calls `self._stream.stop()` (pauses capture without closing) and `resume()` calls `self._stream.start()`. The queue reference is preserved across the pause/resume cycle.
 
 - **`stop()` cancels the asyncio task**: The plan listed `asr_module.stop()` and `audio_capture.stop()` but did not mention cancelling the background task. `stop()` also cancels and awaits `self._task` to ensure clean shutdown.
+
+## Deviations added post-plan-06
+
+- **Constructor takes `ASRConfig`, not `ASRModule`**: The original plan passed a pre-built `ASRModule` instance. The constructor now takes `ASRConfig` (containing `type` and `extra`) and owns validation + instantiation itself. This keeps all ASR lifecycle logic inside the engine and removes that responsibility from callers (`run_server`, `cli`).
 
 ## Non-obvious decisions
 

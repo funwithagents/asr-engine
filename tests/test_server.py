@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from asr_mcp.config import AppConfig, AudioConfig
+from asr_mcp.config import AppConfig, ASRConfig, AudioConfig
 from asr_mcp.engine import ASREngine
 from asr_mcp.modules.base import ASRResult
 from asr_mcp.server import create_mcp_server, run_server
@@ -21,9 +21,12 @@ def make_engine(on_result=None) -> ASREngine:
     module = MagicMock()
     module.start = AsyncMock(return_value=None)
     module.stop = AsyncMock(return_value=None)
+    mock_class = MagicMock(return_value=module)
     if on_result is None:
         on_result = AsyncMock()
-    return ASREngine(audio_config, module, on_result)
+    asr_config = ASRConfig(type="mock")
+    with patch.dict("asr_mcp.engine.REGISTRY", {"mock": mock_class}):
+        return ASREngine(audio_config, asr_config, on_result)
 
 
 def tool_result_json(result) -> dict:

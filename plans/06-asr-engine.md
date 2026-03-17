@@ -5,7 +5,9 @@ Implement the engine that wires audio capture to the ASR module and manages paus
 ## Tasks
 
 - [x] Implement `ASREngine` class in `engine.py`:
-  - Constructor accepts `audio_config: AudioConfig`, `asr_module: ASRModule`, `on_result: ResultCallback`
+  - Constructor accepts `audio_config: AudioConfig`, `asr_config: ASRConfig`, `on_result: ResultCallback`
+  - Validates `asr_config.type` against `REGISTRY`; raises `ValueError` if unknown
+  - Instantiates the ASR module from `REGISTRY` using `asr_config.extra` as config
   - Internal state: `_paused: bool`, `_running: bool`, `_connected: bool`
 
 - [x] Implement `ASREngine.start()`:

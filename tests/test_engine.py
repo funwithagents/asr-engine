@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from asr_mcp.config import AudioConfig
+from asr_mcp.config import ASRConfig, AudioConfig
 from asr_mcp.engine import ASREngine
 from asr_mcp.modules.base import ASRResult
 
@@ -16,14 +16,40 @@ from asr_mcp.modules.base import ASRResult
 # ---------------------------------------------------------------------------
 
 def make_engine(on_result=None):
-    """Return an ASREngine with a mock ASRModule and AudioCapture."""
+    """Return an ASREngine backed by a mock ASRModule, patching REGISTRY."""
     audio_config = AudioConfig(device=None)
     module = MagicMock()
     module.start = AsyncMock(return_value=None)
     module.stop = AsyncMock(return_value=None)
+    mock_class = MagicMock(return_value=module)
     if on_result is None:
         on_result = AsyncMock()
-    return ASREngine(audio_config, module, on_result), module, on_result
+    asr_config = ASRConfig(type="mock")
+    with patch.dict("asr_mcp.engine.REGISTRY", {"mock": mock_class}):
+        engine = ASREngine(audio_config, asr_config, on_result)
+    return engine, module, on_result
+
+
+# ---------------------------------------------------------------------------
+# Constructor — validation
+# ---------------------------------------------------------------------------
+
+def test_unknown_asr_type_raises():
+    audio_config = AudioConfig(device=None)
+    asr_config = ASRConfig(type="no_such_module")
+    with pytest.raises(ValueError, match="no_such_module"):
+        ASREngine(audio_config, asr_config, AsyncMock())
+
+
+def test_known_asr_type_instantiates_module():
+    audio_config = AudioConfig(device=None)
+    mock_module = MagicMock()
+    mock_class = MagicMock(return_value=mock_module)
+    asr_config = ASRConfig(type="fake", extra={"key": "val"})
+    with patch.dict("asr_mcp.engine.REGISTRY", {"fake": mock_class}):
+        engine = ASREngine(audio_config, asr_config, AsyncMock())
+    mock_class.assert_called_once_with(config={"key": "val"})
+    assert engine._asr_module is mock_module
 
 
 # ---------------------------------------------------------------------------

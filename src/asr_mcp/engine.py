@@ -3,21 +3,27 @@ from __future__ import annotations
 import asyncio
 
 from asr_mcp.audio import AudioCapture
-from asr_mcp.config import AudioConfig
-from asr_mcp.modules.base import ASRModule, ASRResult, ResultCallback
+from asr_mcp.config import ASRConfig, AudioConfig
+from asr_mcp.modules import REGISTRY
+from asr_mcp.modules.base import ASRResult, ResultCallback
 
 
 class ASREngine:
-    """Wires AudioCapture to an ASRModule and manages pause/resume/status."""
+    """Validates config, instantiates the ASR module, wires AudioCapture, and manages pause/resume/status."""
 
     def __init__(
         self,
         audio_config: AudioConfig,
-        asr_module: ASRModule,
+        asr_config: ASRConfig,
         on_result: ResultCallback,
     ) -> None:
+        if asr_config.type not in REGISTRY:
+            available = ", ".join(sorted(REGISTRY)) or "(none)"
+            raise ValueError(
+                f"Unknown ASR type '{asr_config.type}'. Available: {available}"
+            )
         self._audio_config = audio_config
-        self._asr_module = asr_module
+        self._asr_module = REGISTRY[asr_config.type](config=asr_config.extra)
         self._on_result = on_result
         self._paused = False
         self._running = False

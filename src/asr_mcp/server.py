@@ -9,9 +9,8 @@ import uvicorn
 from mcp.server.fastmcp import FastMCP
 from pydantic import AnyUrl
 
-from asr_mcp.config import AppConfig, validate_asr_type
+from asr_mcp.config import AppConfig
 from asr_mcp.engine import ASREngine
-from asr_mcp.modules import REGISTRY
 from asr_mcp.modules.base import ASRResult
 
 logger = logging.getLogger(__name__)
@@ -106,22 +105,17 @@ def create_mcp_server(engine: ASREngine) -> FastMCP:
 
 
 async def run_server(config: AppConfig) -> None:
-    """Validate config, instantiate the ASR module + engine, create the MCP server, run uvicorn."""
-    validate_asr_type(config, REGISTRY)
-
+    """Create the ASR engine, the MCP server, and run uvicorn."""
     print(
         f"ASR MCP Server starting — "
         f"host={config.server.host} port={config.server.port} "
         f"asr={config.asr.type}"
     )
 
-    module_class = REGISTRY[config.asr.type]
-    module = module_class(config=config.asr.extra)
-
     async def _noop(result):
         pass
 
-    engine = ASREngine(config.audio, module, _noop)
+    engine = ASREngine(config.audio, config.asr, _noop)
 
     mcp = create_mcp_server(engine)
 
