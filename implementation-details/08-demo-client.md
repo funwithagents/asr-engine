@@ -31,6 +31,18 @@
 - **`asyncio.sleep(float("inf"))` as idle wait**: Keeps the coroutine alive without polling. `CancelledError` from Ctrl+C flows naturally through `asyncio.run` and the `finally` block unsubscribes cleanly.
 - **`_run_with_reconnect` re-raises `CancelledError`**: The reconnect loop only catches generic `Exception`, so cancellation (from Ctrl+C via `asyncio.run`) propagates immediately without triggering a retry.
 
+## Post-implementation fixes
+
+### `asyncio.create_task` required in `_on_message`
+
+`_on_message` is called directly from `BaseSession._receive_loop` (the loop that reads all incoming messages). If `_on_message` awaits anything on the same session (like `read_resource`), it deadlocks: the response arrives as a new message in `_read_stream`, but the loop is frozen waiting for `_on_message` to return.
+
+Fix: `_on_message` calls `asyncio.create_task(_fetch_and_print(session))` and returns immediately. The fetch task runs independently on the event loop and is free to call `read_resource` without blocking the loop.
+
+### `on_connected` callback not wired (fixed in engine/modules)
+
+`ASREngine.set_connected()` existed but was never called — `connected` stayed `False` forever. Fixed by adding `ConnectedCallback` to `ASRModule.start()` and calling `on_connected(True/False)` in both Deepgram modules on connect/disconnect.
+
 ## Known limitations
 
 - `[INFO] Reconnected` is not printed separately — on reconnect the full connect/subscribe banner is printed instead.
