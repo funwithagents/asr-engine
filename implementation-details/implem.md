@@ -6,7 +6,7 @@ Each file explains non-obvious choices, gotchas, and deviations from the origina
 | Plan | File | Description | Written |
 |---|---|---|---|
 | 01 — Project Setup | [01-project-setup.md](01-project-setup.md) | uv setup, dependency notes | yes |
-| 02 — Configuration | [02-config.md](02-config.md) | Config loading, validation notes | no |
+| 02 — Configuration | [02-config.md](02-config.md) | Config loading, validation notes | yes |
 | 03 — Audio Capture | [03-audio-capture.md](03-audio-capture.md) | sounddevice integration notes | no |
 | 04 — ASR Module Interface | [04-asr-module-interface.md](04-asr-module-interface.md) | ABC and registry notes | no |
 | 05 — Deepgram Module | [05-deepgram-module.md](05-deepgram-module.md) | Deepgram SDK integration notes | no |

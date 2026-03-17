@@ -4,21 +4,21 @@ Implement config file loading, validation, and typed dataclasses.
 
 ## Tasks
 
-- [ ] Define dataclasses in `config.py`:
+- [x] Define dataclasses in `config.py`:
   - `ServerConfig` (host, port)
   - `AudioConfig` (device: `str | None`)
   - `ASRConfig` (type: str, extra fields as `dict`)
   - `AppConfig` (server, audio, asr)
-- [ ] Implement `load_config(path: str) -> AppConfig`:
+- [x] Implement `load_config(path: str) -> AppConfig`:
   - Read and parse the JSON file
   - Raise `FileNotFoundError` with clear message if file is missing
   - Raise `ValueError` with clear message if JSON is invalid
   - Raise `ValueError` if `asr.type` is missing
   - Apply defaults: `server.host = "127.0.0.1"`, `server.port = 8080`, `audio.device = None`
-- [ ] Implement `validate_asr_type(config: AppConfig, registry: dict) -> None`:
+- [x] Implement `validate_asr_type(config: AppConfig, registry: dict) -> None`:
   - Raise `ValueError` listing available types if `asr.type` is not in the registry
-- [ ] Implement `cli.py`:
+- [x] Implement `cli.py`:
   - Parse `--config` argument (default: `config.json`)
   - Call `load_config` and `validate_asr_type`
   - Print a clear startup banner with resolved host/port and ASR type
-- [ ] Manual test: run server with missing file, bad JSON, unknown asr type — verify error messages
+- [x] Manual test: run server with missing file, bad JSON, unknown asr type — verify error messages
