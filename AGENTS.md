@@ -103,6 +103,30 @@ uv run pytest tests-e2e/                              # E2E tests only (requires
 
 E2E tests feed a pre-recorded WAV fixture (`tests-e2e/fixtures/sample.wav`, content: *"the sky is blue"*) through the pipeline and assert the returned transcript matches. Two test cases cover `deepgram_v1` (Nova-3) and `deepgram_v2` (Flux).
 
+## Unit testing strategy
+
+Write tests that verify **observable behavior**, not implementation details.
+
+**Rules:**
+
+1. **Test scenarios, not fields.** When verifying a constructed/parsed object, one test asserts all relevant fields together. Don't write one test per field.
+
+2. **Test observable behavior only.** Assert return values, raised exceptions, calls to collaborators, and changes to public state. Never assert on private attributes (`_foo`).
+
+3. **One test per distinct code path.** Two tests that exercise the same branch with slightly different data should be one test. Keep variants only when they trigger genuinely different logic (e.g. `is_final=True` vs `is_final=False`).
+
+4. **Delete trivial structural tests.** `isinstance(x, SomeClass)` or `x.name == "literal"` are not worth a dedicated test — they only break if you intentionally change the type or name.
+
+5. **Error paths deserve individual tests.** `missing_key`, `empty_key`, `unknown_type` are distinct scenarios because they exercise different validation branches and may produce different error messages.
+
+6. **Merge lifecycle tests.** start/stop, connect/disconnect, pause/resume sequences belong in one test that exercises the full cycle, not split across two.
+
+**Smell checklist** — delete or merge a test if it:
+- Asserts a private attribute (e.g. `assert obj._foo == ...`)
+- Is fully subsumed by another test in the same file
+- Checks something that cannot break independently (structural/isinstance)
+- Is one of N identical tests differing only in which field they check
+
 ## Audio format contract
 
 All ASR modules receive audio as: **16kHz, 16-bit signed PCM, mono, ~100ms chunks (3200 bytes)**.

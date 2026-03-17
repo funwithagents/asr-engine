@@ -62,34 +62,8 @@ class _SessionCM:
 
 
 @pytest.mark.asyncio
-async def test_start_creates_background_task():
-    collected: list[dict] = []
-
-    async def _on_event(payload: dict) -> None:
-        collected.append(payload)
-
-    subscriber = ResourceSubscriber("http://x", "r://u", _on_event)
-
-    with patch("asr_mcp.resource_subscriber.streamable_http_client") as mock_transport, \
-         patch("asr_mcp.resource_subscriber.ClientSession"):
-        mock_transport.return_value.__aenter__ = AsyncMock(
-            return_value=(MagicMock(), MagicMock(), lambda: None)
-        )
-        mock_transport.return_value.__aexit__ = AsyncMock(return_value=None)
-
-        await subscriber.start()
-        assert subscriber._task is not None
-        assert not subscriber._task.done()
-        await subscriber.stop()
-        assert subscriber._task is None
-
-
-@pytest.mark.asyncio
-async def test_stop_cancels_task():
-    async def _on_event(payload: dict) -> None:
-        pass
-
-    subscriber = ResourceSubscriber("http://x", "r://u", _on_event)
+async def test_start_stop_lifecycle():
+    subscriber = ResourceSubscriber("http://x", "r://u", AsyncMock())
 
     with patch("asr_mcp.resource_subscriber.streamable_http_client") as mock_transport, \
          patch("asr_mcp.resource_subscriber.ClientSession"):
@@ -100,6 +74,7 @@ async def test_stop_cancels_task():
 
         await subscriber.start()
         task = subscriber._task
+        assert task is not None and not task.done()
         await subscriber.stop()
 
     assert task.cancelled() or task.done()

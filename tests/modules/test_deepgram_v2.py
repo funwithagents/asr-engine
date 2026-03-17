@@ -79,11 +79,6 @@ def test_init_empty_api_key_raises() -> None:
         DeepgramV2Module(config={"api_key": ""})
 
 
-def test_init_stores_api_key() -> None:
-    m = DeepgramV2Module(config={"api_key": "sk-test"})
-    assert m._api_key == "sk-test"
-
-
 def test_init_defaults() -> None:
     m = DeepgramV2Module(config={"api_key": "sk-test"})
     assert m._model == "flux-general-en"
@@ -103,19 +98,6 @@ def test_init_custom_values() -> None:
     assert m._model == "flux-custom"
     assert m._eot_threshold == 0.5
     assert m._eot_timeout_ms == 3000
-
-
-# ---------------------------------------------------------------------------
-# stop()
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_stop_sets_event() -> None:
-    m = DeepgramV2Module(config={"api_key": "sk-test"})
-    assert not m._stop_event.is_set()
-    await m.stop()
-    assert m._stop_event.is_set()
 
 
 # ---------------------------------------------------------------------------
@@ -175,6 +157,7 @@ async def test_audio_loop_sends_chunks() -> None:
 @pytest.mark.asyncio
 async def test_audio_loop_sends_keepalive_on_timeout() -> None:
     m = DeepgramV2Module(config={"api_key": "sk-test"})
+    m._KEEPALIVE_TIMEOUT = 0.05
     conn = MagicMock()
     conn.send_media = AsyncMock()
 
@@ -189,7 +172,7 @@ async def test_audio_loop_sends_keepalive_on_timeout() -> None:
     q: asyncio.Queue[bytes] = asyncio.Queue()
 
     async def stopper():
-        await asyncio.wait_for(keepalive_sent.wait(), timeout=10.0)
+        await asyncio.wait_for(keepalive_sent.wait(), timeout=5.0)
         await m.stop()
 
     await asyncio.gather(m._audio_loop(conn, q), stopper())

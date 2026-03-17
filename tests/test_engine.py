@@ -65,21 +65,16 @@ def test_initial_status():
 # set_connected()
 # ---------------------------------------------------------------------------
 
-def test_set_connected_true():
+def test_set_connected():
     engine, _, _ = make_engine()
     engine.set_connected(True)
     assert engine.status()["connected"] is True
-
-
-def test_set_connected_false():
-    engine, _, _ = make_engine()
-    engine.set_connected(True)
     engine.set_connected(False)
     assert engine.status()["connected"] is False
 
 
 # ---------------------------------------------------------------------------
-# pause() / resume() — without audio capture
+# pause() / resume()
 # ---------------------------------------------------------------------------
 
 def test_pause_raises_when_already_paused():
@@ -95,37 +90,22 @@ def test_resume_raises_when_not_paused():
         engine.resume()
 
 
-def test_pause_sets_flag():
-    engine, _, _ = make_engine()
-    engine.pause()
-    assert engine.status()["paused"] is True
-
-
-def test_resume_clears_flag():
-    engine, _, _ = make_engine()
-    engine.pause()
-    engine.resume()
-    assert engine.status()["paused"] is False
-
-
-# ---------------------------------------------------------------------------
-# pause() / resume() — delegates to AudioCapture
-# ---------------------------------------------------------------------------
-
-def test_pause_calls_audio_capture_pause():
+def test_pause():
     engine, _, _ = make_engine()
     mock_capture = MagicMock()
     engine._audio_capture = mock_capture
     engine.pause()
+    assert engine.status()["paused"] is True
     mock_capture.pause.assert_called_once()
 
 
-def test_resume_calls_audio_capture_resume():
+def test_resume():
     engine, _, _ = make_engine()
     mock_capture = MagicMock()
     engine._audio_capture = mock_capture
     engine._paused = True
     engine.resume()
+    assert engine.status()["paused"] is False
     mock_capture.resume.assert_called_once()
 
 

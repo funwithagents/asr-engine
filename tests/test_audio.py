@@ -101,22 +101,12 @@ class TestStart:
         finally:
             loop.close()
 
-    def test_raises_on_unknown_device(self):
-        loop = asyncio.new_event_loop()
-        try:
-            capture = AudioCapture(device="Nonexistent", loop=loop)
-            with patch.object(AudioCapture, "list_devices", return_value=["Mic A", "Mic B"]):
-                with pytest.raises(ValueError, match="Nonexistent"):
-                    capture.start()
-        finally:
-            loop.close()
-
-    def test_error_message_lists_available_devices(self):
+    def test_raises_on_unknown_device_lists_available(self):
         loop = asyncio.new_event_loop()
         try:
             capture = AudioCapture(device="Bad", loop=loop)
             with patch.object(AudioCapture, "list_devices", return_value=["Mic A", "Mic B"]):
-                with pytest.raises(ValueError) as exc_info:
+                with pytest.raises(ValueError, match="Bad") as exc_info:
                     capture.start()
             msg = str(exc_info.value)
             assert "Mic A" in msg
@@ -150,18 +140,6 @@ class TestStop:
             capture.stop()
             mock_stream.stop.assert_called_once()
             mock_stream.close.assert_called_once()
-        finally:
-            loop.close()
-
-    def test_stop_clears_stream_reference(self):
-        loop = asyncio.new_event_loop()
-        try:
-            capture = AudioCapture(device=None, loop=loop)
-            mock_stream = MagicMock()
-            with patch("asr_mcp.audio.sd.InputStream", return_value=mock_stream):
-                capture.start()
-            capture.stop()
-            assert capture._stream is None
         finally:
             loop.close()
 

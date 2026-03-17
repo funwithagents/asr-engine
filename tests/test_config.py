@@ -71,14 +71,6 @@ def test_load_config_partial_server_defaults(tmp_path: Path) -> None:
     assert cfg.server.port == 7777
 
 
-def test_load_config_audio_device_null(tmp_path: Path) -> None:
-    path = write_config(
-        tmp_path, {"audio": {"device": None}, "asr": {"type": "deepgram"}}
-    )
-    cfg = load_config(path)
-    assert cfg.audio.device is None
-
-
 # ---------------------------------------------------------------------------
 # load_config — error cases
 # ---------------------------------------------------------------------------

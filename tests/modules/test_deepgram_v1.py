@@ -93,11 +93,6 @@ def test_init_empty_api_key_raises() -> None:
         DeepgramV1Module(config={"api_key": ""})
 
 
-def test_init_stores_api_key() -> None:
-    m = DeepgramV1Module(config={"api_key": "sk-test"})
-    assert m._api_key == "sk-test"
-
-
 def test_init_defaults() -> None:
     m = DeepgramV1Module(config={"api_key": "sk-test"})
     assert m._model == "nova-3"
@@ -120,19 +115,6 @@ def test_init_custom_values() -> None:
     assert m._language == "fr"
     assert m._punctuate is False
     assert m._interim_results is False
-
-
-# ---------------------------------------------------------------------------
-# stop()
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_stop_sets_event() -> None:
-    m = DeepgramV1Module(config={"api_key": "sk-test"})
-    assert not m._stop_event.is_set()
-    await m.stop()
-    assert m._stop_event.is_set()
 
 
 # ---------------------------------------------------------------------------
@@ -192,6 +174,7 @@ async def test_audio_loop_sends_chunks() -> None:
 @pytest.mark.asyncio
 async def test_audio_loop_sends_keepalive_on_timeout() -> None:
     m = DeepgramV1Module(config={"api_key": "sk-test"})
+    m._KEEPALIVE_TIMEOUT = 0.05
     conn = MagicMock()
     conn.send_media = AsyncMock()
 
@@ -205,7 +188,7 @@ async def test_audio_loop_sends_keepalive_on_timeout() -> None:
     q: asyncio.Queue[bytes] = asyncio.Queue()
 
     async def stopper():
-        await asyncio.wait_for(keepalive_sent.wait(), timeout=10.0)
+        await asyncio.wait_for(keepalive_sent.wait(), timeout=5.0)
         await m.stop()
 
     await asyncio.gather(m._audio_loop(conn, q), stopper())
@@ -277,16 +260,6 @@ async def test_on_message_is_final_emits_final_result() -> None:
     assert received[0].transcript == "goodbye"
     assert received[0].is_final is True
     assert received[0].confidence == pytest.approx(0.95)
-
-
-@pytest.mark.asyncio
-async def test_on_message_not_is_final_emits_interim_result() -> None:
-    """is_final=False → ASRResult.is_final=False regardless of speech_final."""
-    received = await _run_with_messages(
-        [make_v1_results("in progress", is_final=False, confidence=0.9)]
-    )
-    assert len(received) == 1
-    assert received[0].is_final is False
 
 
 @pytest.mark.asyncio

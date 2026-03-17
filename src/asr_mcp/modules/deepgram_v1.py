@@ -127,19 +127,47 @@ class DeepgramV1Module(ASRModule):
                 attempt += 1
                 await self._drain_queue_for(audio_queue, delay)
 
+    _KEEPALIVE_TIMEOUT: float = 5.0
+
     async def _audio_loop(
         self,
         conn: object,
         audio_queue: asyncio.Queue[bytes],
     ) -> None:
-        """Send audio chunks; send KeepAlive on 5-second silence."""
-        while not self._stop_event.is_set():
+        """Send audio chunks; send KeepAlive on silence. Exits immediately on stop()."""
+        stop_task = asyncio.create_task(self._stop_event.wait())
+        try:
+            while True:
+                get_task = asyncio.create_task(audio_queue.get())
+                done, _ = await asyncio.wait(
+                    {get_task, stop_task},
+                    timeout=self._KEEPALIVE_TIMEOUT,
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                if stop_task in done or self._stop_event.is_set():
+                    get_task.cancel()
+                    try:
+                        await get_task
+                    except (asyncio.CancelledError, Exception):
+                        pass
+                    break
+                if get_task in done:
+                    await conn.send_media(get_task.result())  # type: ignore[union-attr]
+                else:
+                    # No audio for _KEEPALIVE_TIMEOUT seconds — keep the connection alive.
+                    get_task.cancel()
+                    try:
+                        await get_task
+                    except (asyncio.CancelledError, Exception):
+                        pass
+                    # v1 has a public send_keep_alive() method.
+                    await conn.send_keep_alive()  # type: ignore[union-attr]
+        finally:
+            stop_task.cancel()
             try:
-                chunk = await asyncio.wait_for(audio_queue.get(), timeout=5.0)
-                await conn.send_media(chunk)  # type: ignore[union-attr]
-            except asyncio.TimeoutError:
-                # v1 has a public send_keep_alive() method.
-                await conn.send_keep_alive()  # type: ignore[union-attr]
+                await stop_task
+            except (asyncio.CancelledError, Exception):
+                pass
 
     async def _drain_queue_for(
         self,

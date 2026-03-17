@@ -38,20 +38,6 @@ def tool_result_json(result) -> dict:
 # create_mcp_server — basic structure
 # ---------------------------------------------------------------------------
 
-def test_create_mcp_server_returns_fastmcp():
-    from mcp.server.fastmcp import FastMCP
-
-    engine = make_engine()
-    mcp = create_mcp_server(engine)
-    assert isinstance(mcp, FastMCP)
-
-
-def test_create_mcp_server_name():
-    engine = make_engine()
-    mcp = create_mcp_server(engine)
-    assert mcp.name == "asr-mcp"
-
-
 @pytest.mark.asyncio
 async def test_asr_result_resource_registered():
     engine = make_engine()
@@ -231,16 +217,6 @@ async def test_is_running_tool_returns_engine_status():
 
     result = await mcp.call_tool("is_running", {})
     assert tool_result_json(result) == {"running": True, "paused": False, "connected": True}
-
-
-@pytest.mark.asyncio
-async def test_is_running_tool_reflects_paused_state():
-    engine = make_engine()
-    mcp = create_mcp_server(engine)
-    engine._paused = True
-
-    result = await mcp.call_tool("is_running", {})
-    assert tool_result_json(result)["paused"] is True
 
 
 # ---------------------------------------------------------------------------
