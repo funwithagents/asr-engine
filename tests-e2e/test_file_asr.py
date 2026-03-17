@@ -10,13 +10,12 @@ import pytest
 import uvicorn
 
 from asr_mcp.audio import FileAudioSource
-from asr_mcp.client import ResourceSubscriber
+from asr_mcp.client import AsrMcpClient
 from asr_mcp.config import ASRConfig, AudioConfig
 from asr_mcp.engine import ASREngine
 from asr_mcp.server import create_mcp_server
 
 _FIXTURE_WAV = Path(__file__).parent / "fixtures" / "sample.wav"
-_RESOURCE_URI = "asr://result"
 _EXPECTED = "the sky is blue"
 
 
@@ -70,18 +69,14 @@ async def _run_e2e(
             final_event.set()
 
     server_url = f"http://127.0.0.1:{port}/mcp"
-    subscriber = ResourceSubscriber(server_url, _RESOURCE_URI, _on_event)
-    subscriber_task = asyncio.create_task(subscriber.run())
+    client = AsrMcpClient(server_url, _on_event)
 
     try:
         await engine.start()
+        await client.start()
         await asyncio.wait_for(final_event.wait(), timeout=30.0)
     finally:
-        subscriber_task.cancel()
-        try:
-            await subscriber_task
-        except asyncio.CancelledError:
-            pass
+        await client.stop()
         await engine.stop()
         server.should_exit = True
         await server_task
