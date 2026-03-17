@@ -12,13 +12,20 @@ from asr_mcp.modules.base import ASRModule, ASRResult, ResultCallback
 log = logging.getLogger(__name__)
 
 
-class DeepgramModule(ASRModule):
-    """ASR module backed by the Deepgram Listen v2 (Flux) WebSocket API."""
+class DeepgramV2Module(ASRModule):
+    """ASR module backed by the Deepgram Listen v2 (Flux) WebSocket API.
+
+    Uses the Flux model with built-in contextual turn detection.
+    EndOfTurn events signal is_final=True; all other TurnInfo events are interim.
+
+    Supported models: flux-general-en (and other flux-* variants).
+    Not suitable for non-English or for models outside the Flux family.
+    """
 
     def __init__(self, config: dict) -> None:
         super().__init__(config)
         if not config.get("api_key"):
-            raise ValueError("Deepgram module requires 'api_key' in config")
+            raise ValueError("deepgram_v2 module requires 'api_key' in config")
 
         self._api_key: str = config["api_key"]
         self._model: str = config.get("model", "flux-general-en")
@@ -63,7 +70,7 @@ class DeepgramModule(ASRModule):
                         )
 
                     async def on_error(error: object) -> None:
-                        log.error("Deepgram error: %s", error)
+                        log.error("Deepgram v2 error: %s", error)
 
                     conn.on(EventType.MESSAGE, on_message)
                     conn.on(EventType.ERROR, on_error)
@@ -93,7 +100,7 @@ class DeepgramModule(ASRModule):
                 if self._stop_event.is_set():
                     break
                 log.error(
-                    "Deepgram connection error (attempt %d): %s", attempt + 1, e
+                    "Deepgram v2 connection error (attempt %d): %s", attempt + 1, e
                 )
                 delay = min(2**attempt, 8)
                 attempt += 1
