@@ -2,8 +2,7 @@ import argparse
 import asyncio
 import sys
 
-from asr_mcp.config import load_config, validate_asr_type
-from asr_mcp.modules import REGISTRY
+from asr_mcp.config import load_config
 from asr_mcp.server import run_server
 
 
@@ -19,15 +18,12 @@ def main() -> None:
 
     try:
         config = load_config(args.config)
-        validate_asr_type(config, REGISTRY)
     except (FileNotFoundError, ValueError) as exc:
         print(f"Error: {exc}", file=sys.stderr)
         sys.exit(1)
 
-    print(
-        f"ASR MCP Server starting — "
-        f"host={config.server.host} port={config.server.port} "
-        f"asr={config.asr.type}"
-    )
-
-    asyncio.run(run_server(config))
+    try:
+        asyncio.run(run_server(config))
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        sys.exit(1)

@@ -2,14 +2,14 @@
 from __future__ import annotations
 
 import json
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from asr_mcp.config import AudioConfig
+from asr_mcp.config import AppConfig, AudioConfig
 from asr_mcp.engine import ASREngine
 from asr_mcp.modules.base import ASRResult
-from asr_mcp.server import create_mcp_server
+from asr_mcp.server import create_mcp_server, run_server
 
 
 # ---------------------------------------------------------------------------
@@ -286,3 +286,50 @@ async def test_dead_session_removed_on_send_failure():
 
     # Send again — dead session is gone, no exception raised
     await engine._on_result(ASRResult(transcript="t2", is_final=True, confidence=None))
+
+
+# ---------------------------------------------------------------------------
+# run_server — validation and banner
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_run_server_raises_on_unknown_asr_type() -> None:
+    from asr_mcp.config import AppConfig, ASRConfig, ServerConfig, AudioConfig
+
+    config = AppConfig(
+        server=ServerConfig(),
+        audio=AudioConfig(),
+        asr=ASRConfig(type="no_such_module"),
+    )
+    with pytest.raises(ValueError, match="no_such_module"):
+        await run_server(config)
+
+
+@pytest.mark.asyncio
+async def test_run_server_prints_banner(capsys) -> None:
+    import asr_mcp.modules as mod
+    from asr_mcp.config import AppConfig, ASRConfig, ServerConfig, AudioConfig
+
+    fake_module = MagicMock()
+    fake_module.start = AsyncMock(return_value=None)
+    fake_module.stop = AsyncMock(return_value=None)
+    fake_class = MagicMock(return_value=fake_module)
+
+    config = AppConfig(
+        server=ServerConfig(host="0.0.0.0", port=9090),
+        audio=AudioConfig(),
+        asr=ASRConfig(type="fake_banner"),
+    )
+    original = dict(mod.REGISTRY)
+    mod.REGISTRY["fake_banner"] = fake_class
+    try:
+        with patch("asr_mcp.server.uvicorn.Server.serve", new_callable=AsyncMock):
+            await run_server(config)
+    finally:
+        mod.REGISTRY.clear()
+        mod.REGISTRY.update(original)
+
+    out = capsys.readouterr().out
+    assert "0.0.0.0" in out
+    assert "9090" in out
+    assert "fake_banner" in out

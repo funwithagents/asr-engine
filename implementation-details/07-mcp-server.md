@@ -12,9 +12,11 @@
 
 The plan mentioned `mcp.Server` (lowlevel API). The implementation uses `FastMCP` (high-level API) because it provides decorator-based resource and tool registration, built-in StreamableHTTP transport via `streamable_http_app()`, and integrates directly with uvicorn via `run_streamable_http_async`.
 
-### Engine creation lives in `run_server`, not `cli.py`
+### All runtime logic lives in `run_server`; `cli.py` is a thin entry point
 
-`run_server(config)` owns the full lifecycle: it instantiates the ASR module from `REGISTRY`, creates `ASREngine` with a no-op callback, calls `create_mcp_server` (which wires the real callback), starts the engine, runs uvicorn, and stops the engine in a `finally` block. `cli.py` is reduced to config loading, validation, banner printing, and `asyncio.run(run_server(config))`. This keeps all runtime wiring in one place and makes `cli.py` trivially thin.
+`run_server(config)` owns the full lifecycle: validates the ASR type, prints the startup banner, instantiates the ASR module from `REGISTRY`, creates `ASREngine` with a no-op callback, calls `create_mcp_server` (which wires the real callback), starts the engine, runs uvicorn, and stops the engine in a `finally` block.
+
+`cli.py` is reduced to: parse args → `load_config` (the only thing that requires file I/O) → `asyncio.run(run_server(config))`, with two separate `try/except` blocks so config file errors and runtime errors (unknown ASR type, etc.) both produce clean `stderr` messages and `sys.exit(1)`.
 
 ### `create_mcp_server` replaces `engine._on_result`
 
