@@ -33,7 +33,8 @@ asr-mcp/
 │   ├── asr-module-interface.md
 │   ├── deepgram-module.md
 │   ├── demo-client.md
-│   └── project-structure.md
+│   ├── project-structure.md
+│   └── e2e-testing.md
 ├── plans/                       # Phased implementation plans with checkboxes
 │   ├── plans.md                 # Index
 │   ├── 01-project-setup.md
@@ -43,7 +44,8 @@ asr-mcp/
 │   ├── 05-deepgram-module.md
 │   ├── 06-asr-engine.md
 │   ├── 07-mcp-server.md
-│   └── 08-demo-client.md
+│   ├── 08-demo-client.md
+│   └── 09-e2e-testing.md
 ├── implementation-details/      # Post-implementation notes (written after each plan is done)
 │   ├── implem.md                # Index
 │   ├── 01-project-setup.md
@@ -54,30 +56,50 @@ asr-mcp/
 │       ├── cli.py               # Server entry point (argparse → wires everything)
 │       ├── client.py            # Demo client entry point
 │       ├── config.py            # Config dataclasses + load/validate
-│       ├── audio.py             # AudioCapture: sounddevice thread → asyncio.Queue
+│       ├── audio.py             # AudioCapture, AudioSource protocol, FileAudioSource
 │       ├── engine.py            # ASREngine: wires audio + module, pause/resume
 │       ├── server.py            # MCP server: resource, tools, StreamableHTTP
 │       └── modules/
 │           ├── __init__.py      # REGISTRY + load_module()
 │           ├── base.py          # ASRModule ABC, ASRResult dataclass
-│           └── deepgram.py      # DeepgramModule implementation
-└── tests/
-    ├── conftest.py              # Shared fixtures
-    ├── test_config.py
-    ├── test_audio.py
-    ├── test_engine.py
-    ├── test_server.py
-    └── modules/
-        └── test_deepgram.py
+│           ├── deepgram_v1.py   # Deepgram Listen v1 (Nova models, is_final-based)
+│           └── deepgram_v2.py   # Deepgram Listen v2 (Flux models, EndOfTurn-based)
+├── tests/                       # Unit tests (fast, no external services)
+│   ├── conftest.py              # Shared fixtures
+│   ├── test_config.py
+│   ├── test_audio.py
+│   ├── test_engine.py
+│   ├── test_server.py
+│   ├── test_client.py
+│   ├── test_cli.py
+│   └── modules/
+│       ├── test_deepgram_v1.py
+│       └── test_deepgram_v2.py
+└── tests-e2e/                   # End-to-end tests (hit real Deepgram API, require config.json)
+    ├── fixtures/
+    │   ├── sample.wav           # WAV fixture: 16kHz mono s16 PCM, content = "the sky is blue"
+    │   └── README.md            # Fixture format documentation
+    └── test_file_asr.py         # FileAudioSource → ASREngine → MCP server → MCP client
 ```
 
 ## Entry points
 
 ```bash
-uv run asr-mcp-server --config config.json   # Start the MCP server
-uv run asr-mcp-client --server http://host:port/mcp  # Run the demo client
-uv run pytest                                # Run the test suite
+uv run asr-mcp-server --config config.json            # Start the MCP server
+uv run asr-mcp-client --server http://host:port/mcp   # Run the demo client
+uv run pytest                                         # Run all tests (unit + e2e)
+uv run pytest tests/                                  # Unit tests only (no API key needed)
+uv run pytest tests-e2e/                              # E2E tests only (requires config.json with valid API key)
 ```
+
+## Tests
+
+| Suite | Location | What it covers | External deps |
+|-------|----------|----------------|---------------|
+| Unit tests | `tests/` | Config, audio capture, engine, MCP server, client, ASR modules — all in-process, no network | None |
+| E2E tests | `tests-e2e/` | Full pipeline: `FileAudioSource` → `ASREngine` → in-process uvicorn MCP server → in-process MCP client → transcript assertion | Real Deepgram API (API key in `config.json`) |
+
+E2E tests feed a pre-recorded WAV fixture (`tests-e2e/fixtures/sample.wav`, content: *"the sky is blue"*) through the pipeline and assert the returned transcript matches. Two test cases cover `deepgram_v1` (Nova-3) and `deepgram_v2` (Flux).
 
 ## Audio format contract
 
