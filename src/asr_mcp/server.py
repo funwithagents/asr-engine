@@ -106,12 +106,6 @@ def create_mcp_server(engine: ASREngine) -> FastMCP:
 
 async def run_server(config: AppConfig) -> None:
     """Create the ASR engine, the MCP server, and run uvicorn."""
-    print(
-        f"ASR MCP Server starting — "
-        f"host={config.server.host} port={config.server.port} "
-        f"asr={config.asr.type}"
-    )
-
     async def _noop(result):
         pass
 
@@ -129,6 +123,11 @@ async def run_server(config: AppConfig) -> None:
         log_level="info",
     )
     server = uvicorn.Server(uv_config)
+    print(
+        f"ASR MCP Server starting — "
+        f"host={config.server.host} port={config.server.port} "
+        f"asr={config.asr.type}"
+    )
     try:
         await server.serve()
     finally:
