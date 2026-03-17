@@ -1,0 +1,48 @@
+# Plan 01 — Project Setup
+
+Initialize the Python project with `uv`, define dependencies, and lay out the source tree.
+
+## Tasks
+
+- [x] Initialize the project with `uv init --lib`
+- [x] Set minimum Python version to 3.11 in `pyproject.toml`
+- [x] Add runtime dependencies in `pyproject.toml`:
+  - `mcp[cli]`
+  - `sounddevice`
+  - `numpy`
+  - `deepgram-sdk`
+- [x] Add dev dependencies:
+  - `pytest`
+  - `pytest-asyncio`
+  - `pytest-mock`
+- [x] Define entry points in `pyproject.toml`:
+  - `asr-mcp-server = "asr_mcp.cli:main"`
+  - `asr-mcp-client = "asr_mcp.client:main"`
+- [x] Create the source tree under `src/asr_mcp/`:
+  - `__init__.py`
+  - `cli.py` (stub)
+  - `client.py` (stub)
+  - `server.py` (stub)
+  - `engine.py` (stub)
+  - `audio.py` (stub)
+  - `config.py` (stub)
+  - `modules/__init__.py` (stub)
+  - `modules/base.py` (stub)
+  - `modules/deepgram.py` (stub)
+- [x] Create `config.example.json` with Deepgram template (no real key)
+- [x] Add `config.json` to `.gitignore`
+- [x] Create the test tree under `tests/`:
+  - `__init__.py`
+  - `conftest.py` (shared fixtures placeholder)
+  - `test_config.py` (stub)
+  - `test_audio.py` (stub)
+  - `test_engine.py` (stub)
+  - `test_server.py` (stub)
+  - `modules/__init__.py`
+  - `modules/test_deepgram.py` (stub)
+- [x] Configure pytest in `pyproject.toml`:
+  - `testpaths = ["tests"]`
+  - `asyncio_mode = "auto"` (pytest-asyncio)
+- [x] Run `uv sync` and verify the environment resolves cleanly
+- [x] Verify entry points are importable: `uv run asr-mcp-server --help`
+- [x] Verify test suite runs with `uv run pytest` (all stubs pass vacuously)

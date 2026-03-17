@@ -1,0 +1,16 @@
+{
+  "server": {
+    "host": "0.0.0.0",
+    "port": 8000
+  },
+  "audio": {
+    "device": null,
+    "sample_rate": 16000,
+    "channels": 1,
+    "chunk_ms": 100
+  },
+  "asr": {
+    "type": "deepgram",
+    "api_key": "YOUR_DEEPGRAM_API_KEY"
+  }
+}
