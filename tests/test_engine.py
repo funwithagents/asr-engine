@@ -146,7 +146,7 @@ async def test_start_sets_running():
 
         assert engine.status()["running"] is True
         instance.start.assert_called_once()
-        module.start.assert_called_once_with(fake_queue, engine._handle_result)
+        module.start.assert_called_once_with(fake_queue, engine._handle_result, engine.set_connected)
 
 
 @pytest.mark.asyncio
@@ -172,7 +172,7 @@ async def test_stop_cancels_task():
     engine, _, _ = make_engine()
     fake_queue: asyncio.Queue[bytes] = asyncio.Queue()
 
-    async def hang(_queue, _cb):
+    async def hang(_queue, _cb, _conn=None):
         await asyncio.sleep(9999)
 
     engine._asr_module.start = hang

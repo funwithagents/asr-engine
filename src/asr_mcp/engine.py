@@ -37,7 +37,7 @@ class ASREngine:
         self._audio_capture = AudioCapture(self._audio_config.device, loop)
         audio_queue = self._audio_capture.start()
         self._task = asyncio.create_task(
-            self._asr_module.start(audio_queue, self._handle_result)
+            self._asr_module.start(audio_queue, self._handle_result, self.set_connected)
         )
         self._running = True
 

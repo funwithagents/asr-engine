@@ -7,7 +7,7 @@ from deepgram import AsyncDeepgramClient
 from deepgram.core.events import EventType
 from deepgram.listen.v2.types.listen_v2turn_info import ListenV2TurnInfo
 
-from asr_mcp.modules.base import ASRModule, ASRResult, ResultCallback
+from asr_mcp.modules.base import ASRModule, ASRResult, ConnectedCallback, ResultCallback
 
 log = logging.getLogger(__name__)
 
@@ -38,6 +38,7 @@ class DeepgramV2Module(ASRModule):
         self,
         audio_queue: asyncio.Queue[bytes],
         on_result: ResultCallback,
+        on_connected: ConnectedCallback | None = None,
     ) -> None:
         self._stop_event.clear()
         client = AsyncDeepgramClient(api_key=self._api_key)
@@ -53,48 +54,53 @@ class DeepgramV2Module(ASRModule):
                     eot_timeout_ms=str(self._eot_timeout_ms),
                 ) as conn:
                     attempt = 0
-
-                    async def on_message(msg: object) -> None:
-                        if not isinstance(msg, ListenV2TurnInfo):
-                            return
-                        transcript = msg.transcript
-                        if not transcript:
-                            return
-                        is_final = msg.event == "EndOfTurn"
-                        await on_result(
-                            ASRResult(
-                                transcript=transcript,
-                                is_final=is_final,
-                                confidence=msg.end_of_turn_confidence,
+                    if on_connected:
+                        on_connected(True)
+                    try:
+                        async def on_message(msg: object) -> None:
+                            if not isinstance(msg, ListenV2TurnInfo):
+                                return
+                            transcript = msg.transcript
+                            if not transcript:
+                                return
+                            is_final = msg.event == "EndOfTurn"
+                            await on_result(
+                                ASRResult(
+                                    transcript=transcript,
+                                    is_final=is_final,
+                                    confidence=msg.end_of_turn_confidence,
+                                )
                             )
+
+                        async def on_error(error: object) -> None:
+                            log.error("Deepgram v2 error: %s", error)
+
+                        conn.on(EventType.MESSAGE, on_message)
+                        conn.on(EventType.ERROR, on_error)
+
+                        listen_task = asyncio.create_task(conn.start_listening())
+                        audio_task = asyncio.create_task(
+                            self._audio_loop(conn, audio_queue)
                         )
 
-                    async def on_error(error: object) -> None:
-                        log.error("Deepgram v2 error: %s", error)
+                        done, pending = await asyncio.wait(
+                            {listen_task, audio_task},
+                            return_when=asyncio.FIRST_COMPLETED,
+                        )
+                        for task in pending:
+                            task.cancel()
+                            try:
+                                await task
+                            except (asyncio.CancelledError, Exception):
+                                pass
 
-                    conn.on(EventType.MESSAGE, on_message)
-                    conn.on(EventType.ERROR, on_error)
-
-                    listen_task = asyncio.create_task(conn.start_listening())
-                    audio_task = asyncio.create_task(
-                        self._audio_loop(conn, audio_queue)
-                    )
-
-                    done, pending = await asyncio.wait(
-                        {listen_task, audio_task},
-                        return_when=asyncio.FIRST_COMPLETED,
-                    )
-                    for task in pending:
-                        task.cancel()
-                        try:
-                            await task
-                        except (asyncio.CancelledError, Exception):
-                            pass
-
-                    for task in done:
-                        exc = task.exception()
-                        if exc is not None:
-                            raise exc
+                        for task in done:
+                            exc = task.exception()
+                            if exc is not None:
+                                raise exc
+                    finally:
+                        if on_connected:
+                            on_connected(False)
 
             except Exception as e:
                 if self._stop_event.is_set():

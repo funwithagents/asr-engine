@@ -14,6 +14,7 @@ class ASRResult:
 
 
 ResultCallback = Callable[[ASRResult], Awaitable[None]]
+ConnectedCallback = Callable[[bool], None]
 
 
 class ASRModule(ABC):
@@ -25,6 +26,7 @@ class ASRModule(ABC):
         self,
         audio_queue: asyncio.Queue[bytes],
         on_result: ResultCallback,
+        on_connected: ConnectedCallback | None = None,
     ) -> None:
         """
         Start the ASR module.
