@@ -10,7 +10,7 @@ Each file explains non-obvious choices, gotchas, and deviations from the origina
 | 03 — Audio Capture | [03-audio-capture.md](03-audio-capture.md) | sounddevice integration notes | yes |
 | 04 — ASR Module Interface | [04-asr-module-interface.md](04-asr-module-interface.md) | ABC and registry notes | yes |
 | 05 — Deepgram Module | [05-deepgram-module.md](05-deepgram-module.md) | Deepgram SDK integration notes | yes |
-| 06 — ASR Engine | [06-asr-engine.md](06-asr-engine.md) | Engine wiring and state machine notes | no |
+| 06 — ASR Engine | [06-asr-engine.md](06-asr-engine.md) | Engine wiring and state machine notes | yes |
 | 07 — MCP Server | [07-mcp-server.md](07-mcp-server.md) | Resource, tools, StreamableHTTP notes | no |
 | 08 — Demo Client | [08-demo-client.md](08-demo-client.md) | Client subscription and logging notes | no |
 

@@ -47,6 +47,16 @@ class AudioCapture:
         self._stream.start()
         return self._queue
 
+    def pause(self) -> None:
+        """Pause the audio stream without closing it (queue reference stays valid)."""
+        if self._stream is not None:
+            self._stream.stop()
+
+    def resume(self) -> None:
+        """Resume a paused audio stream."""
+        if self._stream is not None:
+            self._stream.start()
+
     def stop(self) -> None:
         """Stop and close the audio stream."""
         if self._stream is not None:
