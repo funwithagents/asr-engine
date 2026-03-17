@@ -11,6 +11,6 @@ Plans are meant to be executed in order. Each plan builds on the previous ones.
 | 05 | [Deepgram Module](05-deepgram-module.md) | WebSocket streaming, KeepAlive, reconnection | done |
 | 06 | [ASR Engine](06-asr-engine.md) | Wires audio + module, manages pause/resume/status | done |
 | 07 | [MCP Server](07-mcp-server.md) | Resource `asr://result`, tools, StreamableHTTP, startup wiring | not started |
-| 08 | [Demo Client](08-demo-client.md) | Subscribe, log results, clean disconnect | not started |
+| 08 | [Demo Client](08-demo-client.md) | Subscribe, log results, clean disconnect | done |
 
 **Legend:** not started · in progress · done
