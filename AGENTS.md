@@ -53,12 +53,13 @@ asr-mcp/
 │   └── ...                      # One file per plan, added as implementation progresses
 ├── src/
 │   └── asr_mcp/
-│       ├── cli.py               # Server entry point (argparse → wires everything)
-│       ├── client.py            # Demo client entry point
-│       ├── config.py            # Config dataclasses + load/validate
-│       ├── audio.py             # AudioCapture, AudioSource protocol, FileAudioSource
-│       ├── engine.py            # ASREngine: wires audio + module, pause/resume
-│       ├── server.py            # MCP server: resource, tools, StreamableHTTP
+│       ├── cli.py                    # Server entry point (argparse → wires everything)
+│       ├── config.py                 # Config dataclasses + load/validate
+│       ├── audio.py                  # AudioCapture, AudioSource protocol, FileAudioSource
+│       ├── engine.py                 # ASREngine: wires audio + module, pause/resume
+│       ├── server.py                 # MCP server: resource, tools, StreamableHTTP
+│       ├── resource_subscriber.py    # ResourceSubscriber: generic MCP resource watcher
+│       ├── client.py                 # AsrMcpClient + _format_result + CLI entry point
 │       └── modules/
 │           ├── __init__.py      # REGISTRY + load_module()
 │           ├── base.py          # ASRModule ABC, ASRResult dataclass
@@ -70,6 +71,7 @@ asr-mcp/
 │   ├── test_audio.py
 │   ├── test_engine.py
 │   ├── test_server.py
+│   ├── test_subscriber.py
 │   ├── test_client.py
 │   ├── test_cli.py
 │   └── modules/

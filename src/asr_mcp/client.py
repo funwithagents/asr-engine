@@ -4,7 +4,7 @@ import argparse
 import asyncio
 from typing import Awaitable, Callable
 
-from asr_mcp.subscriber import ResourceSubscriber
+from asr_mcp.resource_subscriber import ResourceSubscriber
 
 _RESOURCE_URI = "asr://result"
 _DEFAULT_SERVER = "http://127.0.0.1:8080/mcp"

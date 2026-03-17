@@ -2,48 +2,70 @@
 
 ## What was implemented
 
-`src/asr_mcp/client.py` — a standalone async demo client that:
+### `src/asr_mcp/resource_subscriber.py` — `ResourceSubscriber`
 
-- Parses `--server` (default `http://127.0.0.1:8080/mcp`) via `argparse`
-- Connects using `mcp.client.streamable_http.streamable_http_client`
-- Creates a `ClientSession` with a `message_handler` callback
-- Subscribes to `asr://result` on startup
-- On each `ResourceUpdatedNotification`, reads the resource and prints a formatted line
-- Reconnects automatically (`_run_with_reconnect`) on any non-cancel exception, printing `[WARN] Connection lost, retrying...`
-- On Ctrl+C: unsubscribes, lets context managers close the session, prints `[INFO] Disconnected`
+Generic MCP resource watcher. Accepts any `server_url`, `resource_uri`, and an
+async `on_event(payload: dict)` callback. Key design:
 
-`tests/test_client.py` — 23 unit tests covering:
+- `start()` launches a background `asyncio.Task`
+- `stop()` cancels it and waits for teardown
+- Reconnects automatically on connection errors when `reconnect=True` (default)
+- Single connection attempt lives in `_connect()`; reconnection loop in `_loop()`
+- `_on_message` handler uses `asyncio.create_task` to avoid deadlocking
+  `BaseSession._receive_loop` (see note below)
 
-- `_format_result` exhaustively (interim/final, with/without confidence, empty transcripts, unicode)
-- Parametrized structural tests over `(transcript, is_final, confidence)` combinations
+### `src/asr_mcp/client.py` — `AsrMcpClient` + CLI
+
+- `AsrMcpClient(server_url, on_event)`: thin wrapper around `ResourceSubscriber`
+  with `asr://result` hardcoded as the resource URI; exposes `start()` / `stop()`
+- `_format_result(payload)`: formats a result dict into a `[FINAL  ]` / `[INTERIM]`
+  log line
+- `_run_client(server_url)`: starts an `AsrMcpClient` with a print callback and
+  sleeps forever (used by `main()`)
+- `main()`: argparse for `--server`, runs `_run_client`, handles `KeyboardInterrupt`
+
+### `tests/test_subscriber.py` — 6 unit tests covering `ResourceSubscriber`
+
+- `start()` creates a background task
+- `stop()` cancels it
+- `on_event` is called with the correct payload on `ResourceUpdatedNotification`
+- Non-notification messages are ignored
+- `_loop` retries after a connection error when `reconnect=True`
+- `_loop` propagates errors when `reconnect=False`
+
+### `tests/test_client.py` — unit tests covering `client.py`
+
+- `_format_result` exhaustively (interim/final, with/without confidence, empty
+  transcripts, unicode)
+- Parametrized structural tests over `(transcript, is_final, confidence)`
 - `main()` default and custom `--server` argument forwarding
 - `main()` Ctrl+C printing `[INFO] Disconnected`
-- `_on_message` handler dispatching a `ResourceUpdatedNotification` → read → print
-- `_on_message` handler ignoring non-notification messages
 
 ## Deviations from spec
 
-- `[INFO] Reconnected` log line is not emitted. After reconnection `_run` reprints `[INFO] Connected to MCP server at <url>` and `[INFO] Subscribed to asr://result` instead. This is equivalent information and avoids a separate reconnect state flag.
+The original spec described a single `client.py` with inline connection logic and
+a `_run_with_reconnect` function. The implementation was later refactored into:
+
+1. `resource_subscriber.py` — generic, reusable subscriber class
+2. `client.py` — ASR-specific `AsrMcpClient` wrapper + CLI
+
+This gives a cleaner separation: `ResourceSubscriber` can be reused (e.g. in e2e
+tests) without coupling to the ASR-specific resource URI or print formatting.
 
 ## Non-obvious decisions
 
-- **`message_handler` + `read_resource` pattern**: `ResourceUpdatedNotification` carries only the URI, not the payload. The handler must call `session.read_resource(uri)` to retrieve the updated JSON. The session reference is captured via a single-element list (`session_holder`) to avoid the chicken-and-egg problem of needing the session before it is created.
-- **`asyncio.sleep(float("inf"))` as idle wait**: Keeps the coroutine alive without polling. `CancelledError` from Ctrl+C flows naturally through `asyncio.run` and the `finally` block unsubscribes cleanly.
-- **`_run_with_reconnect` re-raises `CancelledError`**: The reconnect loop only catches generic `Exception`, so cancellation (from Ctrl+C via `asyncio.run`) propagates immediately without triggering a retry.
-
-## Post-implementation fixes
-
-### `asyncio.create_task` required in `_on_message`
-
-`_on_message` is called directly from `BaseSession._receive_loop` (the loop that reads all incoming messages). If `_on_message` awaits anything on the same session (like `read_resource`), it deadlocks: the response arrives as a new message in `_read_stream`, but the loop is frozen waiting for `_on_message` to return.
-
-Fix: `_on_message` calls `asyncio.create_task(_fetch_and_print(session))` and returns immediately. The fetch task runs independently on the event loop and is free to call `read_resource` without blocking the loop.
-
-### `on_connected` callback not wired (fixed in engine/modules)
-
-`ASREngine.set_connected()` existed but was never called — `connected` stayed `False` forever. Fixed by adding `ConnectedCallback` to `ASRModule.start()` and calling `on_connected(True/False)` in both Deepgram modules on connect/disconnect.
+- **`asyncio.create_task` in `_on_message`**: `_on_message` is called from
+  `BaseSession._receive_loop`. Awaiting `read_resource` inside it deadlocks the
+  loop (response arrives as a new message but the loop is frozen). Fix: call
+  `asyncio.create_task(_fetch(session))` and return immediately.
+- **`start`/`stop` instead of a `run()` coroutine**: callers (demo client, e2e
+  tests) can independently control the subscriber lifecycle without managing a
+  raw task themselves.
+- **`reconnect=True` default**: matches production use (demo client should always
+  reconnect). E2e tests that call `stop()` explicitly are unaffected by this
+  default.
 
 ## Known limitations
 
-- `[INFO] Reconnected` is not printed separately — on reconnect the full connect/subscribe banner is printed instead.
-- End-to-end test (microphone + live server) is a manual step; it is not automated.
+- No `[INFO] Reconnected` log line: on reconnect the full connect/subscribe
+  sequence runs again, which prints equivalent information.

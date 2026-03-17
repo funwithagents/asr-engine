@@ -9,7 +9,7 @@ import mcp.types as types
 import pytest
 from pydantic import AnyUrl
 
-from asr_mcp.subscriber import ResourceSubscriber
+from asr_mcp.resource_subscriber import ResourceSubscriber
 
 
 # ---------------------------------------------------------------------------
@@ -70,8 +70,8 @@ async def test_start_creates_background_task():
 
     subscriber = ResourceSubscriber("http://x", "r://u", _on_event)
 
-    with patch("asr_mcp.subscriber.streamable_http_client") as mock_transport, \
-         patch("asr_mcp.subscriber.ClientSession"):
+    with patch("asr_mcp.resource_subscriber.streamable_http_client") as mock_transport, \
+         patch("asr_mcp.resource_subscriber.ClientSession"):
         mock_transport.return_value.__aenter__ = AsyncMock(
             return_value=(MagicMock(), MagicMock(), lambda: None)
         )
@@ -91,8 +91,8 @@ async def test_stop_cancels_task():
 
     subscriber = ResourceSubscriber("http://x", "r://u", _on_event)
 
-    with patch("asr_mcp.subscriber.streamable_http_client") as mock_transport, \
-         patch("asr_mcp.subscriber.ClientSession"):
+    with patch("asr_mcp.resource_subscriber.streamable_http_client") as mock_transport, \
+         patch("asr_mcp.resource_subscriber.ClientSession"):
         mock_transport.return_value.__aenter__ = AsyncMock(
             return_value=(MagicMock(), MagicMock(), lambda: None)
         )
@@ -126,8 +126,8 @@ async def test_on_event_called_on_resource_updated(capsys):
     subscriber = ResourceSubscriber("http://x", "asr://result", _on_event)
     session_cm = _SessionCM(mock_session, handlers)
 
-    with patch("asr_mcp.subscriber.streamable_http_client") as mock_transport, \
-         patch("asr_mcp.subscriber.ClientSession", session_cm):
+    with patch("asr_mcp.resource_subscriber.streamable_http_client") as mock_transport, \
+         patch("asr_mcp.resource_subscriber.ClientSession", session_cm):
         mock_transport.return_value.__aenter__ = AsyncMock(
             return_value=(MagicMock(), MagicMock(), lambda: None)
         )
@@ -164,8 +164,8 @@ async def test_non_notification_ignored():
     subscriber = ResourceSubscriber("http://x", "asr://result", _on_event)
     session_cm = _SessionCM(mock_session, handlers)
 
-    with patch("asr_mcp.subscriber.streamable_http_client") as mock_transport, \
-         patch("asr_mcp.subscriber.ClientSession", session_cm):
+    with patch("asr_mcp.resource_subscriber.streamable_http_client") as mock_transport, \
+         patch("asr_mcp.resource_subscriber.ClientSession", session_cm):
         mock_transport.return_value.__aenter__ = AsyncMock(
             return_value=(MagicMock(), MagicMock(), lambda: None)
         )
@@ -213,7 +213,7 @@ async def test_reconnects_on_error():
     # Replace the inter-retry sleep with a real yield (sleep(0)) so the event
     # loop can advance without waiting a full second between retries.
     with patch.object(subscriber, "_connect", side_effect=_flaky_connect), \
-         patch("asr_mcp.subscriber.asyncio.sleep", side_effect=lambda _: real_sleep(0)):
+         patch("asr_mcp.resource_subscriber.asyncio.sleep", side_effect=lambda _: real_sleep(0)):
         task = asyncio.create_task(subscriber._loop())
         for _ in range(20):
             await real_sleep(0)
