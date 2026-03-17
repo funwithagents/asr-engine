@@ -26,6 +26,18 @@ def _format_result(payload: dict) -> str:
     return f"[INTERIM] {transcript}"
 
 
+async def _fetch_and_print(session: ClientSession) -> None:
+    """Read asr://result and print the formatted line. Runs as a standalone task."""
+    try:
+        result = await session.read_resource(AnyUrl(_RESOURCE_URI))
+        for content in result.contents:
+            if hasattr(content, "text"):
+                payload = json.loads(content.text)
+                print(_format_result(payload), flush=True)
+    except Exception as exc:
+        print(f"[ERROR] fetch: {exc}", flush=True)
+
+
 async def _run(server_url: str) -> None:
     """Connect, subscribe, and stream results until cancelled."""
     session_holder: list[ClientSession | None] = [None]
@@ -33,6 +45,8 @@ async def _run(server_url: str) -> None:
     async def _on_message(
         msg: types.RequestResponder | types.ServerNotification | Exception,
     ) -> None:
+        # Must return immediately — awaiting session methods here deadlocks
+        # _receive_loop (the response would never be processed).
         if not isinstance(msg, types.ServerNotification):
             return
         if not isinstance(msg.root, types.ResourceUpdatedNotification):
@@ -40,14 +54,7 @@ async def _run(server_url: str) -> None:
         session = session_holder[0]
         if session is None:
             return
-        try:
-            result = await session.read_resource(AnyUrl(_RESOURCE_URI))
-            for content in result.contents:
-                if hasattr(content, "text"):
-                    payload = json.loads(content.text)
-                    print(_format_result(payload), flush=True)
-        except Exception:
-            pass
+        asyncio.create_task(_fetch_and_print(session))
 
     async with streamable_http_client(server_url) as (rs, ws, _):
         async with ClientSession(rs, ws, message_handler=_on_message) as session:
