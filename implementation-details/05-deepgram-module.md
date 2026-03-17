@@ -17,7 +17,7 @@ The v1 and v2 Deepgram APIs have fundamentally different message models:
 | Endpoint | `/v1/listen` | `/v2/listen` |
 | Models | nova-3, nova-2, enhanced, base, … | flux-* only |
 | Languages | all BCP-47 | English only |
-| Utterance signal | `speech_final` on `Results` messages | `EndOfTurn` event on `TurnInfo` messages |
+| Utterance signal | `is_final` on `Results` messages | `EndOfTurn` event on `TurnInfo` messages |
 | KeepAlive | `send_keep_alive()` (public) | `_send({"type": "KeepAlive"})` (private) |
 | Config extras | `language`, `punctuate`, `interim_results` | `eot_threshold`, `eot_timeout_ms` |
 
@@ -37,8 +37,8 @@ The v1 and v2 Deepgram APIs have fundamentally different message models:
 **v1 `ListenV1Results`:**
 - `channel.alternatives[0].transcript` — the text
 - `channel.alternatives[0].confidence` — transcript confidence
-- `speech_final` — True = end of utterance (maps to `ASRResult.is_final`)
-- `is_final` — True = segment won't change (not used for our `is_final`)
+- `is_final` — True = segment committed by Deepgram, won't change → maps to `ASRResult.is_final`
+- `speech_final` — endpointing signal, intentionally not used: nova-3 does not reliably set it without explicit endpointing configuration, causing `[FINAL]` results to never appear in practice
 
 **v2 `ListenV2TurnInfo`:**
 - `transcript` — full accumulated turn text (not per-segment)

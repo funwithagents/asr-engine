@@ -52,13 +52,16 @@ All transcription arrives as `ListenV1Results` messages (type `"Results"`).
 ```
 msg.channel.alternatives[0].transcript  → transcript
 msg.channel.alternatives[0].confidence  → confidence
-msg.speech_final                         → ASRResult.is_final
+msg.is_final                             → ASRResult.is_final
 ```
 
-- `speech_final=True` → end of utterance → `ASRResult(is_final=True)`
-- `speech_final=False` → segment or interim → `ASRResult(is_final=False)`
+- `is_final=True` → Deepgram has committed this segment → `ASRResult(is_final=True)`
+- `is_final=False` → interim, transcript still updating → `ASRResult(is_final=False)`
 - Results with empty transcript are discarded.
 - Non-`ListenV1Results` messages (e.g. `Metadata`) are ignored.
+
+Note: `speech_final` (endpointing signal) is intentionally not used. It depends on
+endpointing configuration and is not reliably set by all models (notably nova-3).
 
 ### KeepAlive
 

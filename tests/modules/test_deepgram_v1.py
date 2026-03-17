@@ -18,7 +18,6 @@ from asr_mcp.modules.deepgram_v1 import DeepgramV1Module
 
 def make_v1_results(
     transcript: str,
-    speech_final: bool = False,
     is_final: bool = True,
     confidence: float = 0.9,
 ) -> Any:
@@ -36,7 +35,7 @@ def make_v1_results(
         duration=1.0,
         start=0.0,
         is_final=is_final,
-        speech_final=speech_final,
+        speech_final=None,
         channel={
             "alternatives": [
                 {"transcript": transcript, "confidence": confidence, "words": []}
@@ -260,7 +259,7 @@ async def _run_with_messages(messages, module_config=None):
 @pytest.mark.asyncio
 async def test_on_message_interim_emits_non_final_result() -> None:
     received = await _run_with_messages(
-        [make_v1_results("hello", speech_final=False, is_final=False, confidence=0.8)]
+        [make_v1_results("hello", is_final=False, confidence=0.8)]
     )
     assert len(received) == 1
     assert received[0].transcript == "hello"
@@ -269,9 +268,10 @@ async def test_on_message_interim_emits_non_final_result() -> None:
 
 
 @pytest.mark.asyncio
-async def test_on_message_speech_final_emits_final_result() -> None:
+async def test_on_message_is_final_emits_final_result() -> None:
+    """is_final=True → ASRResult.is_final=True (segment committed by Deepgram)."""
     received = await _run_with_messages(
-        [make_v1_results("goodbye", speech_final=True, is_final=True, confidence=0.95)]
+        [make_v1_results("goodbye", is_final=True, confidence=0.95)]
     )
     assert len(received) == 1
     assert received[0].transcript == "goodbye"
@@ -280,10 +280,10 @@ async def test_on_message_speech_final_emits_final_result() -> None:
 
 
 @pytest.mark.asyncio
-async def test_on_message_segment_final_not_speech_final_is_interim() -> None:
-    """is_final=True but speech_final=False → ASRResult.is_final should be False."""
+async def test_on_message_not_is_final_emits_interim_result() -> None:
+    """is_final=False → ASRResult.is_final=False regardless of speech_final."""
     received = await _run_with_messages(
-        [make_v1_results("in progress", speech_final=False, is_final=True, confidence=0.9)]
+        [make_v1_results("in progress", is_final=False, confidence=0.9)]
     )
     assert len(received) == 1
     assert received[0].is_final is False
@@ -293,8 +293,8 @@ async def test_on_message_segment_final_not_speech_final_is_interim() -> None:
 async def test_on_message_empty_transcript_is_discarded() -> None:
     received = await _run_with_messages(
         [
-            make_v1_results("", speech_final=False),
-            make_v1_results("hi", speech_final=False, confidence=0.5),
+            make_v1_results("", is_final=False),
+            make_v1_results("hi", is_final=False, confidence=0.5),
         ]
     )
     assert len(received) == 1
@@ -315,7 +315,7 @@ async def test_on_message_non_results_is_ignored() -> None:
         channels=1,
     )
     received = await _run_with_messages(
-        [metadata_msg, make_v1_results("actual", speech_final=False, confidence=0.7)]
+        [metadata_msg, make_v1_results("actual", is_final=False, confidence=0.7)]
     )
     assert len(received) == 1
     assert received[0].transcript == "actual"

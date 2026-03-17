@@ -15,8 +15,12 @@ log = logging.getLogger(__name__)
 class DeepgramV1Module(ASRModule):
     """ASR module backed by the Deepgram Listen v1 WebSocket API.
 
-    Uses Nova-3 (or any v1-compatible model) with speech_final-based utterance
+    Uses Nova-3 (or any v1-compatible model) with is_final-based segment
     detection. Supports language selection, punctuation, and interim results.
+
+    is_final=True (Deepgram segment finality) maps to ASRResult.is_final=True.
+    This fires whenever Deepgram commits a transcript chunk — more reliable than
+    speech_final, which depends on endpointing configuration and model support.
 
     Recommended models: nova-3, nova-2, enhanced, base.
     Use deepgram_v2 for Flux / built-in turn detection.
@@ -67,10 +71,11 @@ class DeepgramV1Module(ASRModule):
                         if not transcript:
                             return
                         confidence = alternatives[0].confidence
-                        # speech_final=True means end of utterance (speaker paused).
-                        # is_final=True means the segment transcript won't change,
-                        # but the utterance may continue.
-                        is_final = bool(msg.speech_final)
+                        # is_final=True means Deepgram has committed this segment
+                        # and its transcript won't change. speech_final is not used
+                        # because it depends on endpointing configuration and is not
+                        # reliably set by all models (notably nova-3).
+                        is_final = bool(msg.is_final)
                         await on_result(
                             ASRResult(
                                 transcript=transcript,
