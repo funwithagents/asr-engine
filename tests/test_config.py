@@ -151,20 +151,24 @@ def test_validate_asr_type_empty_registry() -> None:
 
 
 def test_cli_prints_banner(tmp_path: Path, capsys) -> None:
+    from unittest.mock import MagicMock, patch
     from asr_mcp import cli
 
     path = write_config(
         tmp_path,
         {"server": {"host": "0.0.0.0", "port": 9090}, "asr": {"type": "fake"}},
     )
-    # Patch REGISTRY so "fake" is valid
+    # Patch REGISTRY so "fake" is valid (needs to be a callable class)
     import asr_mcp.modules as mod
 
+    fake_module_class = MagicMock(return_value=MagicMock())
     original = dict(mod.REGISTRY)
-    mod.REGISTRY["fake"] = object()
+    mod.REGISTRY["fake"] = fake_module_class
     try:
         sys.argv = ["asr-mcp-server", "--config", path]
-        cli.main()
+        # Prevent the event loop from actually starting
+        with patch("asr_mcp.cli.asyncio.run", side_effect=lambda coro: coro.close()):
+            cli.main()
     finally:
         mod.REGISTRY.clear()
         mod.REGISTRY.update(original)

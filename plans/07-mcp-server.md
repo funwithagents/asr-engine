@@ -4,38 +4,38 @@ Implement the MCP server exposing the `asr://result` resource and control tools 
 
 ## Tasks
 
-- [ ] Implement `create_mcp_server(engine: ASREngine) -> mcp.Server` in `server.py`:
+- [x] Implement `create_mcp_server(engine: ASREngine) -> mcp.Server` in `server.py`:
   - Instantiate an MCP `Server` with name `"asr-mcp"`
 
-- [ ] Register the `asr://result` resource:
+- [x] Register the `asr://result` resource:
   - Implement the `list_resources` handler returning a single `Resource` descriptor for `asr://result`
   - Implement the `read_resource` handler returning the current JSON payload (or an empty-transcript placeholder if no result yet)
   - Maintain an in-memory `_current_result: dict` updated by the engine callback
 
-- [ ] Implement the engine result callback `_on_asr_result(result: ASRResult)`:
+- [x] Implement the engine result callback `_on_asr_result(result: ASRResult)`:
   - Build the JSON payload: `transcript`, `is_final`, `confidence`, `timestamp` (UTC ISO 8601)
   - Store it as `_current_result`
   - Call `server.request_context.session.send_resource_updated("asr://result")` to notify subscribers
 
-- [ ] Register the `pause` tool:
+- [x] Register the `pause` tool:
   - Call `engine.pause()`
   - Return `{"status": "paused"}`
   - Return MCP error if `engine.pause()` raises `RuntimeError`
 
-- [ ] Register the `resume` tool:
+- [x] Register the `resume` tool:
   - Call `engine.resume()`
   - Return `{"status": "running"}`
   - Return MCP error if `engine.resume()` raises `RuntimeError`
 
-- [ ] Register the `is_running` tool:
+- [x] Register the `is_running` tool:
   - Return `engine.status()`
 
-- [ ] Implement `run_server(config: AppConfig, engine: ASREngine)` in `server.py`:
+- [x] Implement `run_server(config: AppConfig, engine: ASREngine)` in `server.py`:
   - Create the MCP server
   - Create a Starlette app with `StreamableHTTPServerTransport` mounted at `/mcp`
   - Run with `uvicorn` on `config.server.host` and `config.server.port`
 
-- [ ] Update `cli.py` `main()` to wire everything together:
+- [x] Update `cli.py` `main()` to wire everything together:
   - Load config
   - Load ASR module from registry
   - Create `ASREngine`
