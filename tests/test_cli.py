@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -24,9 +24,8 @@ def test_cli_prints_banner(tmp_path: Path, capsys) -> None:
     )
     import asr_mcp.modules as mod
 
-    fake_module_class = MagicMock(return_value=MagicMock())
     original = dict(mod.REGISTRY)
-    mod.REGISTRY["fake"] = fake_module_class
+    mod.REGISTRY["fake"] = object()  # only needs to be a present key for validation
     try:
         sys.argv = ["asr-mcp-server", "--config", path]
         with patch("asr_mcp.cli.asyncio.run", side_effect=lambda coro: coro.close()):

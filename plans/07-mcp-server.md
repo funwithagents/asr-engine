@@ -30,17 +30,19 @@ Implement the MCP server exposing the `asr://result` resource and control tools 
 - [x] Register the `is_running` tool:
   - Return `engine.status()`
 
-- [x] Implement `run_server(config: AppConfig, engine: ASREngine)` in `server.py`:
+- [x] Implement `run_server(config: AppConfig)` in `server.py`:
+  - Instantiate the ASR module from `REGISTRY` using `config.asr`
+  - Create `ASREngine`
   - Create the MCP server
+  - Start the engine
   - Create a Starlette app with `StreamableHTTPServerTransport` mounted at `/mcp`
   - Run with `uvicorn` on `config.server.host` and `config.server.port`
+  - Stop the engine on exit
 
 - [x] Update `cli.py` `main()` to wire everything together:
   - Load config
-  - Load ASR module from registry
-  - Create `ASREngine`
-  - Start `ASREngine` as an asyncio background task
-  - Call `run_server()`
-  - On shutdown (SIGINT/SIGTERM): call `engine.stop()`
+  - Validate ASR type
+  - Print banner
+  - Call `run_server(config)`
 
 - [ ] Manual test: start the server, use the MCP inspector or `curl` to read the resource and call tools

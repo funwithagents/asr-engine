@@ -12,13 +12,13 @@
 
 The plan mentioned `mcp.Server` (lowlevel API). The implementation uses `FastMCP` (high-level API) because it provides decorator-based resource and tool registration, built-in StreamableHTTP transport via `streamable_http_app()`, and integrates directly with uvicorn via `run_streamable_http_async`.
 
-### `run_server` also starts the engine
+### Engine creation lives in `run_server`, not `cli.py`
 
-The plan had `cli.py` start the engine as a background task _before_ calling `run_server`. The implementation moves `engine.start()` inside `run_server` (called right after `create_mcp_server`) to eliminate a race window where the engine could emit results before the MCP callback was wired in. Shutdown (`engine.stop()`) is in the `finally` block of `run_server`.
+`run_server(config)` owns the full lifecycle: it instantiates the ASR module from `REGISTRY`, creates `ASREngine` with a no-op callback, calls `create_mcp_server` (which wires the real callback), starts the engine, runs uvicorn, and stops the engine in a `finally` block. `cli.py` is reduced to config loading, validation, banner printing, and `asyncio.run(run_server(config))`. This keeps all runtime wiring in one place and makes `cli.py` trivially thin.
 
 ### `create_mcp_server` replaces `engine._on_result`
 
-Rather than requiring the caller to pass the right callback at `ASREngine` construction time, `create_mcp_server` assigns `engine._on_result = _on_asr_result` directly. `cli.py` passes a no-op lambda at engine construction.
+Rather than requiring the caller to pass the right callback at `ASREngine` construction time, `create_mcp_server` assigns `engine._on_result = _on_asr_result` directly after constructing the closure state. The no-op passed at engine construction is immediately overwritten before the engine starts.
 
 ## Non-obvious decisions
 

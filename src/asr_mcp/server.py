@@ -11,6 +11,7 @@ from pydantic import AnyUrl
 
 from asr_mcp.config import AppConfig
 from asr_mcp.engine import ASREngine
+from asr_mcp.modules import REGISTRY
 from asr_mcp.modules.base import ASRResult
 
 logger = logging.getLogger(__name__)
@@ -104,8 +105,16 @@ def create_mcp_server(engine: ASREngine) -> FastMCP:
     return mcp
 
 
-async def run_server(config: AppConfig, engine: ASREngine) -> None:
-    """Create the MCP server, start the engine, run uvicorn, stop on exit."""
+async def run_server(config: AppConfig) -> None:
+    """Instantiate the ASR module + engine, create the MCP server, run uvicorn."""
+    module_class = REGISTRY[config.asr.type]
+    module = module_class(config=config.asr.extra)
+
+    async def _noop(result):
+        pass
+
+    engine = ASREngine(config.audio, module, _noop)
+
     mcp = create_mcp_server(engine)
 
     await engine.start()
