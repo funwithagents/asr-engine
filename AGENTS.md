@@ -34,7 +34,8 @@ asr-mcp/
 │   ├── deepgram-module.md
 │   ├── demo-client.md
 │   ├── project-structure.md
-│   └── e2e-testing.md
+│   ├── e2e-testing.md
+│   └── asr-to-terminal.md
 ├── plans/                       # Phased implementation plans with checkboxes
 │   ├── plans.md                 # Index
 │   ├── 01-project-setup.md
@@ -45,7 +46,8 @@ asr-mcp/
 │   ├── 06-asr-engine.md
 │   ├── 07-mcp-server.md
 │   ├── 08-demo-client.md
-│   └── 09-e2e-testing.md
+│   ├── 09-e2e-testing.md
+│   └── 10-asr-to-terminal.md
 ├── implementation-details/      # Post-implementation notes (written after each plan is done)
 │   ├── implem.md                # Index
 │   ├── 01-project-setup.md
@@ -60,6 +62,8 @@ asr-mcp/
 │       ├── server.py                 # MCP server: resource, tools, StreamableHTTP
 │       ├── resource_subscriber.py    # ResourceSubscriber: generic MCP resource watcher
 │       ├── client.py                 # AsrMcpClient + _format_result + CLI entry point
+│       ├── terminal_typer.py         # TerminalTyper: xdotool/ydotool keystroke injection
+│       ├── asr_to_terminal.py        # AsrToTerminal state machine + asr-to-terminal CLI
 │       └── modules/
 │           ├── __init__.py      # REGISTRY + load_module()
 │           ├── base.py          # ASRModule ABC, ASRResult dataclass
@@ -74,14 +78,17 @@ asr-mcp/
 │   ├── test_subscriber.py
 │   ├── test_client.py
 │   ├── test_cli.py
+│   ├── test_asr_to_terminal.py
 │   └── modules/
 │       ├── test_deepgram_v1.py
 │       └── test_deepgram_v2.py
 └── tests-e2e/                   # End-to-end tests (hit real Deepgram API, require config.json)
     ├── fixtures/
-    │   ├── sample.wav           # WAV fixture: 16kHz mono s16 PCM, content = "the sky is blue"
-    │   └── README.md            # Fixture format documentation
-    └── test_file_asr.py         # FileAudioSource → ASREngine → MCP server → MCP client
+    │   ├── sample.wav                # WAV fixture: 16kHz mono s16 PCM, content = "the sky is blue"
+    │   ├── sample_submit.wav         # WAV fixture: same format, content = "the sky is blue validate"
+    │   └── README.md                 # Fixture format documentation
+    ├── test_file_asr.py              # FileAudioSource → ASREngine → MCP server → MCP client
+    └── test_asr_to_terminal.py       # ASREngine → MCP server → AsrToTerminal → xterm (requires xdotool + X11)
 ```
 
 ## Entry points
@@ -89,6 +96,7 @@ asr-mcp/
 ```bash
 uv run asr-mcp-server --config config.json            # Start the MCP server
 uv run asr-mcp-client --server http://host:port/mcp   # Run the demo client
+uv run asr-to-terminal [--server URL] [--submit-words WORD ...] [--display-server x11|wayland]
 uv run pytest                                         # Run all tests (unit + e2e)
 uv run pytest tests/                                  # Unit tests only (no API key needed)
 uv run pytest tests-e2e/                              # E2E tests only (requires config.json with valid API key)
@@ -98,10 +106,32 @@ uv run pytest tests-e2e/                              # E2E tests only (requires
 
 | Suite | Location | What it covers | External deps |
 |-------|----------|----------------|---------------|
-| Unit tests | `tests/` | Config, audio capture, engine, MCP server, client, ASR modules — all in-process, no network | None |
-| E2E tests | `tests-e2e/` | Full pipeline: `FileAudioSource` → `ASREngine` → in-process uvicorn MCP server → in-process MCP client → transcript assertion | Real Deepgram API (API key in `config.json`) |
+| Unit tests | `tests/` | Config, audio capture, engine, MCP server, client, ASR modules, AsrToTerminal — all in-process, no network | None |
+| E2E ASR tests | `tests-e2e/test_file_asr.py` | Full pipeline: `FileAudioSource` → `ASREngine` → in-process uvicorn MCP server → in-process MCP client → transcript assertion | Real Deepgram API (API key in `config.json`) |
+| E2E terminal tests | `tests-e2e/test_asr_to_terminal.py` | Same pipeline → `AsrToTerminal` → `xdotool` → `xterm` → file assertion | Real Deepgram API + `xdotool` + `xterm` + live X11 display |
 
-E2E tests feed a pre-recorded WAV fixture (`tests-e2e/fixtures/sample.wav`, content: *"the sky is blue"*) through the pipeline and assert the returned transcript matches. Two test cases cover `deepgram_v1` (Nova-3) and `deepgram_v2` (Flux).
+E2E ASR tests feed `tests-e2e/fixtures/sample.wav` (*"the sky is blue"*) through the pipeline. E2E terminal tests additionally drive keystroke injection into an xterm window and verify the typed output.
+
+## System dependencies for e2e terminal tests
+
+The `tests-e2e/test_asr_to_terminal.py` tests require two system packages that are **not** installed by `uv`:
+
+```bash
+# Debian / Ubuntu
+sudo apt-get install xdotool xterm
+```
+
+| Package  | Purpose |
+|----------|---------|
+| `xdotool` | Keystroke injection on X11 (used by `TerminalTyper`) |
+| `xterm`   | Minimal terminal emulator used as the injection target in e2e tests |
+
+A live X11 display (`$DISPLAY`) is also required. On a headless server, use Xvfb:
+
+```bash
+Xvfb :99 -screen 0 1024x768x24 &
+export DISPLAY=:99
+```
 
 ## Unit testing strategy
 
