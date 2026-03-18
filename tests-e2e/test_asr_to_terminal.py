@@ -9,8 +9,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import subprocess
-import time
 from pathlib import Path
 
 import pytest
@@ -123,10 +123,13 @@ async def test_e2e_terminal_typing() -> None:
             await atr.stop()
             await engine.stop()
             server.should_exit = True
-            await server_task
+            try:
+                await asyncio.wait_for(server_task, timeout=5.0)
+            except asyncio.TimeoutError:
+                server_task.cancel()
+                await asyncio.gather(server_task, return_exceptions=True)
 
         result = Path(output_file).read_text().strip().lower()
-        import re
         normalized = re.sub(r"[^a-z0-9 ]", "", result)
         assert "the sky is blue" in normalized, (
             f"Expected 'the sky is blue' in typed text, got: {result!r}"
@@ -186,7 +189,11 @@ async def test_e2e_terminal_submit() -> None:
             await atr.stop()
             await engine.stop()
             server.should_exit = True
-            await server_task
+            try:
+                await asyncio.wait_for(server_task, timeout=5.0)
+            except asyncio.TimeoutError:
+                server_task.cancel()
+                await asyncio.gather(server_task, return_exceptions=True)
 
         result = Path(output_file).read_text().strip()
         assert result.startswith("GOT:"), (

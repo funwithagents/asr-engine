@@ -79,7 +79,11 @@ async def _run_e2e(
         await client.stop()
         await engine.stop()
         server.should_exit = True
-        await server_task
+        try:
+            await asyncio.wait_for(server_task, timeout=5.0)
+        except asyncio.TimeoutError:
+            server_task.cancel()
+            await asyncio.gather(server_task, return_exceptions=True)
 
     assert len(last_final_transcript) > 0, "No final result received"
     assert _normalize(last_final_transcript[0]) == _normalize(_EXPECTED), (
