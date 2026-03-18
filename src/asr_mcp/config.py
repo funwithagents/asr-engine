@@ -8,7 +8,7 @@ from typing import Any
 @dataclass
 class ServerConfig:
     host: str = "127.0.0.1"
-    port: int = 8080
+    port: int = 8000
 
 
 @dataclass
@@ -45,7 +45,7 @@ def load_config(path: str) -> AppConfig:
     server_data = data.get("server", {})
     server = ServerConfig(
         host=server_data.get("host", "127.0.0.1"),
-        port=server_data.get("port", 8080),
+        port=server_data.get("port", 8000),
     )
 
     audio_data = data.get("audio", {})

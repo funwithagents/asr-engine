@@ -8,7 +8,7 @@ import sys
 from asr_mcp.client import AsrMcpClient
 from asr_mcp.terminal_typer import TerminalTyper
 
-_DEFAULT_SERVER = "http://127.0.0.1:8080/mcp"
+_DEFAULT_SERVER = "http://127.0.0.1:8000/mcp"
 
 _DEFAULT_SUBMIT_WORDS: list[str] = [
     "submit", "enter", "validate", "send", "confirm", "go",

@@ -95,7 +95,7 @@ asr-mcp/
 
 ```bash
 uv run asr-mcp-server --config config.json            # Start the MCP server
-uv run asr-mcp-client --server http://host:port/mcp   # Run the demo client
+uv run asr-mcp-client                                 # Run the demo client (default: http://127.0.0.1:8000/mcp)
 uv run asr-to-terminal [--server URL] [--submit-words WORD ...] [--display-server x11|wayland]
 uv run pytest                                         # Run all tests (unit + e2e)
 uv run pytest tests/                                  # Unit tests only (no API key needed)

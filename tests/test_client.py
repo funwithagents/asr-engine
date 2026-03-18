@@ -44,7 +44,7 @@ def test_main_default_server():
         with patch.object(sys, "argv", ["asr-mcp-client"]):
             main()
         called_url = mock_run.call_args[0][0]
-    assert called_url == "http://127.0.0.1:8080/mcp"
+    assert called_url == "http://127.0.0.1:8000/mcp"
 
 
 def test_main_custom_server():

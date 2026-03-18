@@ -57,7 +57,7 @@ def test_load_config_defaults(tmp_path: Path) -> None:
     cfg = load_config(path)
 
     assert cfg.server.host == "127.0.0.1"
-    assert cfg.server.port == 8080
+    assert cfg.server.port == 8000
     assert cfg.audio.device is None
     assert cfg.asr.extra == {}
 

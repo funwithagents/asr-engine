@@ -61,7 +61,11 @@ class ResourceSubscriber:
             except Exception as exc:
                 if not self._reconnect:
                     raise
-                log.warning("Connection lost, retrying in 1 s: %s", exc)
+                # ExceptionGroup wraps the real cause — unwrap one level for clarity
+                cause = exc
+                if isinstance(exc, BaseExceptionGroup) and len(exc.exceptions) == 1:
+                    cause = exc.exceptions[0]
+                log.warning("Connection lost, retrying in 1 s: %s", cause)
                 await asyncio.sleep(1)
 
     async def _connect(self) -> None:
