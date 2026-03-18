@@ -1,6 +1,7 @@
 """Unit tests for server.py — create_mcp_server and the MCP tools/resource."""
 from __future__ import annotations
 
+import asyncio
 import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -53,7 +54,7 @@ async def test_tools_registered():
     mcp = create_mcp_server(engine)
     tools = await mcp.list_tools()
     names = {t.name for t in tools}
-    assert {"pause", "resume", "is_running"} <= names
+    assert {"start", "stop", "is_running"} <= names
 
 
 # ---------------------------------------------------------------------------
@@ -152,55 +153,36 @@ def test_create_mcp_server_replaces_engine_on_result():
 
 
 # ---------------------------------------------------------------------------
-# Tools — pause
+# Tools — start / stop
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_pause_tool_calls_engine_pause():
+async def test_start_tool_starts_engine():
     engine = make_engine()
     mcp = create_mcp_server(engine)
 
-    result = await mcp.call_tool("pause", {})
-    assert tool_result_json(result) == {"status": "paused"}
-    assert engine.status()["paused"] is True
+    fake_queue: asyncio.Queue[bytes] = asyncio.Queue()
+    with patch("asr_mcp.engine.AudioCapture") as MockCapture:
+        MockCapture.return_value.start.return_value = fake_queue
+        result = await mcp.call_tool("start", {})
 
-
-@pytest.mark.asyncio
-async def test_pause_tool_raises_when_already_paused():
-    from mcp.server.fastmcp.exceptions import ToolError
-
-    engine = make_engine()
-    mcp = create_mcp_server(engine)
-    engine._paused = True  # pre-paused
-
-    with pytest.raises(ToolError):
-        await mcp.call_tool("pause", {})
-
-
-# ---------------------------------------------------------------------------
-# Tools — resume
-# ---------------------------------------------------------------------------
-
-@pytest.mark.asyncio
-async def test_resume_tool_calls_engine_resume():
-    engine = make_engine()
-    mcp = create_mcp_server(engine)
-
-    engine._paused = True  # pre-paused so resume is valid
-    result = await mcp.call_tool("resume", {})
     assert tool_result_json(result) == {"status": "running"}
-    assert engine.status()["paused"] is False
+    assert engine.status()["running"] is True
 
 
 @pytest.mark.asyncio
-async def test_resume_tool_raises_when_not_paused():
-    from mcp.server.fastmcp.exceptions import ToolError
-
+async def test_stop_tool_stops_engine():
     engine = make_engine()
     mcp = create_mcp_server(engine)
 
-    with pytest.raises(ToolError):
-        await mcp.call_tool("resume", {})
+    fake_queue: asyncio.Queue[bytes] = asyncio.Queue()
+    with patch("asr_mcp.engine.AudioCapture") as MockCapture:
+        MockCapture.return_value.start.return_value = fake_queue
+        await mcp.call_tool("start", {})
+        result = await mcp.call_tool("stop", {})
+
+    assert tool_result_json(result) == {"status": "stopped"}
+    assert engine.status()["running"] is False
 
 
 # ---------------------------------------------------------------------------
@@ -212,11 +194,10 @@ async def test_is_running_tool_returns_engine_status():
     engine = make_engine()
     mcp = create_mcp_server(engine)
     engine._running = True
-    engine._paused = False
     engine._connected = True
 
     result = await mcp.call_tool("is_running", {})
-    assert tool_result_json(result) == {"running": True, "paused": False, "connected": True}
+    assert tool_result_json(result) == {"running": True, "connected": True}
 
 
 # ---------------------------------------------------------------------------

@@ -63,16 +63,16 @@ def create_mcp_server(engine: ASREngine) -> FastMCP:
     # --- Tools ---
 
     @mcp.tool()
-    def pause() -> dict:
-        """Pause audio capture and ASR streaming."""
-        engine.pause()
-        return {"status": "paused"}
+    async def start() -> dict:
+        """Start audio capture and ASR streaming."""
+        await engine.start()
+        return {"status": "running"}
 
     @mcp.tool()
-    def resume() -> dict:
-        """Resume audio capture and ASR streaming."""
-        engine.resume()
-        return {"status": "running"}
+    async def stop() -> dict:
+        """Stop audio capture and ASR streaming."""
+        await engine.stop()
+        return {"status": "stopped"}
 
     @mcp.tool()
     def is_running() -> dict:

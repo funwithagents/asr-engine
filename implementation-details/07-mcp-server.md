@@ -4,7 +4,7 @@
 
 - `src/asr_mcp/server.py` — `create_mcp_server(engine)` and `run_server(config, engine)`
 - `src/asr_mcp/cli.py` — updated `main()` to instantiate the module + engine and call `run_server`
-- `tests/test_server.py` — 17 unit tests covering the resource, tools, and result callback
+- `tests/test_server.py` — unit tests covering the resource, tools, and result callback
 
 ## Deviations from spec
 

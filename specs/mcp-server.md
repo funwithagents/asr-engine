@@ -69,21 +69,19 @@ Final result:
 
 ## Tools
 
-### `pause`
+### `start`
 
-Pauses audio capture and the ASR stream. The resource is no longer updated while paused.
-
-- **Input:** none
-- **Output:** `{ "status": "paused" }`
-- **Error:** returns an error if already paused
-
-### `resume`
-
-Resumes audio capture and the ASR stream after a pause.
+Starts audio capture and ASR streaming.
 
 - **Input:** none
 - **Output:** `{ "status": "running" }`
-- **Error:** returns an error if not paused
+
+### `stop`
+
+Stops audio capture and ASR streaming.
+
+- **Input:** none
+- **Output:** `{ "status": "stopped" }`
 
 ### `is_running`
 
@@ -94,7 +92,6 @@ Returns the current operational state of the ASR engine.
 ```json
 {
   "running": true,
-  "paused": false,
   "connected": true
 }
 ```
@@ -102,7 +99,6 @@ Returns the current operational state of the ASR engine.
 | Field | Type | Description |
 |---|---|---|
 | `running` | boolean | Whether the ASR engine has been started |
-| `paused` | boolean | Whether the engine is currently paused |
 | `connected` | boolean | Whether the ASR backend WebSocket is currently connected |
 
 ## Lifecycle

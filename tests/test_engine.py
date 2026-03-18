@@ -58,7 +58,7 @@ def test_known_asr_type_instantiates_module():
 
 def test_initial_status():
     engine, _, _ = make_engine()
-    assert engine.status() == {"running": False, "paused": False, "connected": False}
+    assert engine.status() == {"running": False, "connected": False}
 
 
 # ---------------------------------------------------------------------------
@@ -71,42 +71,6 @@ def test_set_connected():
     assert engine.status()["connected"] is True
     engine.set_connected(False)
     assert engine.status()["connected"] is False
-
-
-# ---------------------------------------------------------------------------
-# pause() / resume()
-# ---------------------------------------------------------------------------
-
-def test_pause_raises_when_already_paused():
-    engine, _, _ = make_engine()
-    engine._paused = True
-    with pytest.raises(RuntimeError, match="already paused"):
-        engine.pause()
-
-
-def test_resume_raises_when_not_paused():
-    engine, _, _ = make_engine()
-    with pytest.raises(RuntimeError, match="not paused"):
-        engine.resume()
-
-
-def test_pause():
-    engine, _, _ = make_engine()
-    mock_capture = MagicMock()
-    engine._audio_capture = mock_capture
-    engine.pause()
-    assert engine.status()["paused"] is True
-    mock_capture.pause.assert_called_once()
-
-
-def test_resume():
-    engine, _, _ = make_engine()
-    mock_capture = MagicMock()
-    engine._audio_capture = mock_capture
-    engine._paused = True
-    engine.resume()
-    assert engine.status()["paused"] is False
-    mock_capture.resume.assert_called_once()
 
 
 # ---------------------------------------------------------------------------
@@ -174,38 +138,9 @@ async def test_stop_cancels_task():
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_handle_result_forwards_when_not_paused():
+async def test_handle_result_forwards():
     on_result = AsyncMock()
     engine, _, _ = make_engine(on_result=on_result)
     result = ASRResult(transcript="hello", is_final=True, confidence=0.9)
     await engine._handle_result(result)
     on_result.assert_called_once_with(result)
-
-
-@pytest.mark.asyncio
-async def test_handle_result_discards_when_paused():
-    on_result = AsyncMock()
-    engine, _, _ = make_engine(on_result=on_result)
-    engine._paused = True
-    result = ASRResult(transcript="hello", is_final=True, confidence=0.9)
-    await engine._handle_result(result)
-    on_result.assert_not_called()
-
-
-# ---------------------------------------------------------------------------
-# Full pause/resume cycle — results discarded while paused
-# ---------------------------------------------------------------------------
-
-@pytest.mark.asyncio
-async def test_results_discarded_during_pause_cycle():
-    on_result = AsyncMock()
-    engine, _, _ = make_engine(on_result=on_result)
-    result = ASRResult(transcript="test", is_final=False, confidence=None)
-
-    await engine._handle_result(result)  # not paused → forwarded
-    engine.pause()
-    await engine._handle_result(result)  # paused → discarded
-    engine.resume()
-    await engine._handle_result(result)  # resumed → forwarded
-
-    assert on_result.call_count == 2

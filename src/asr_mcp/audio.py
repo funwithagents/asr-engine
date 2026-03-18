@@ -25,13 +25,6 @@ class AudioSource(Protocol):
         """Stop and close the source."""
         ...
 
-    def pause(self) -> None:
-        """Pause feeding the queue."""
-        ...
-
-    def resume(self) -> None:
-        """Resume feeding the queue."""
-        ...
 
 
 class FileAudioSource:
@@ -84,12 +77,6 @@ class FileAudioSource:
             self._task.cancel()
             self._task = None
 
-    def pause(self) -> None:
-        pass  # file playback is not interruptible
-
-    def resume(self) -> None:
-        pass  # file playback is not interruptible
-
 
 class AudioCapture:
     """Captures audio from a system input device and pushes PCM chunks into an asyncio queue."""
@@ -126,16 +113,6 @@ class AudioCapture:
         )
         self._stream.start()
         return self._queue
-
-    def pause(self) -> None:
-        """Pause the audio stream without closing it (queue reference stays valid)."""
-        if self._stream is not None:
-            self._stream.stop()
-
-    def resume(self) -> None:
-        """Resume a paused audio stream."""
-        if self._stream is not None:
-            self._stream.start()
 
     def stop(self) -> None:
         """Stop and close the audio stream."""

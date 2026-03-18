@@ -6,7 +6,7 @@ A real-time Automatic Speech Recognition (ASR) MCP server written in Python.
 - Captures audio continuously from a system input device
 - Streams audio to a pluggable ASR backend (first: Deepgram)
 - Exposes transcription results as a live MCP resource (`asr://result`) over StreamableHTTP
-- Exposes tools to pause, resume, and query ASR state
+- Exposes tools to start, stop, and query ASR state
 - Includes a demo client that subscribes to the resource and logs results
 
 ## Key design decisions
@@ -56,7 +56,7 @@ asr-mcp/
 │       ├── cli.py                    # Server entry point (argparse → wires everything)
 │       ├── config.py                 # Config dataclasses + load/validate
 │       ├── audio.py                  # AudioCapture, AudioSource protocol, FileAudioSource
-│       ├── engine.py                 # ASREngine: wires audio + module, pause/resume
+│       ├── engine.py                 # ASREngine: wires audio + module, start/stop
 │       ├── server.py                 # MCP server: resource, tools, StreamableHTTP
 │       ├── resource_subscriber.py    # ResourceSubscriber: generic MCP resource watcher
 │       ├── client.py                 # AsrMcpClient + _format_result + CLI entry point
@@ -119,7 +119,7 @@ Write tests that verify **observable behavior**, not implementation details.
 
 5. **Error paths deserve individual tests.** `missing_key`, `empty_key`, `unknown_type` are distinct scenarios because they exercise different validation branches and may produce different error messages.
 
-6. **Merge lifecycle tests.** start/stop, connect/disconnect, pause/resume sequences belong in one test that exercises the full cycle, not split across two.
+6. **Merge lifecycle tests.** start/stop, connect/disconnect sequences belong in one test that exercises the full cycle, not split across two.
 
 **Speed rule** — the full unit test suite (`pytest tests/`) must complete in under 5 seconds. If it doesn't, treat it as a bug: find the slow tests with `pytest --durations=10` and fix the root cause (usually a real timer firing in production code that needs to be made patchable, or a missing stop signal).
 

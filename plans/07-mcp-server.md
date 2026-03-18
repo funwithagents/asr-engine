@@ -17,15 +17,13 @@ Implement the MCP server exposing the `asr://result` resource and control tools 
   - Store it as `_current_result`
   - Call `server.request_context.session.send_resource_updated("asr://result")` to notify subscribers
 
-- [x] Register the `pause` tool:
-  - Call `engine.pause()`
-  - Return `{"status": "paused"}`
-  - Return MCP error if `engine.pause()` raises `RuntimeError`
-
-- [x] Register the `resume` tool:
-  - Call `engine.resume()`
+- [x] Register the `start` tool:
+  - Call `engine.start()`
   - Return `{"status": "running"}`
-  - Return MCP error if `engine.resume()` raises `RuntimeError`
+
+- [x] Register the `stop` tool:
+  - Call `engine.stop()`
+  - Return `{"status": "stopped"}`
 
 - [x] Register the `is_running` tool:
   - Return `engine.status()`
