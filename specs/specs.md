@@ -13,5 +13,6 @@
 | 7 | [Demo Client](demo-client.md) | CLI, log format, behavior | no |
 | 8 | [Project Structure](project-structure.md) | Folder layout, entry points, dependencies | no |
 | 9 | [E2E Testing](e2e-testing.md) | File-based e2e tests: audio source abstraction, fixture format, assertions | yes |
+| 10 | [ASR to Terminal](asr-to-terminal.md) | Progressive terminal injection via xdotool/ydotool, submit word detection | no |
 
 **Legend:** no = not implemented · yes = implemented
