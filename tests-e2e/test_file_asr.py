@@ -2,18 +2,15 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import re
 from pathlib import Path
 
 import pytest
-import uvicorn
 
 from asr_mcp.audio import FileAudioSource
 from asr_mcp.client import AsrMcpClient
-from asr_mcp.config import ASRConfig, AudioConfig
-from asr_mcp.engine import ASREngine
-from asr_mcp.server import create_mcp_server
+
+from helpers import load_api_key, start_mcp_server, stop_mcp_server
 
 _FIXTURE_WAV = Path(__file__).parent / "fixtures" / "sample.wav"
 _EXPECTED = "the sky is blue"
@@ -23,13 +20,6 @@ def _normalize(text: str) -> str:
     return re.sub(r"[^a-z0-9 ]", "", text.lower()).strip()
 
 
-def _load_api_key() -> str:
-    config_path = Path(__file__).parent.parent / "config.json"
-    with open(config_path) as f:
-        data = json.load(f)
-    return data["asr"]["api_key"]
-
-
 async def _run_e2e(
     module_type: str,
     module_config: dict,
@@ -37,27 +27,9 @@ async def _run_e2e(
     trailing_silence_s: float = 0.0,
 ) -> None:
     audio_source = FileAudioSource(_FIXTURE_WAV, trailing_silence_s=trailing_silence_s)
-    audio_config = AudioConfig(device=None)
-    asr_config = ASRConfig(type=module_type, extra=module_config)
-
-    async def _noop(result):
-        pass
-
-    engine = ASREngine(audio_config, asr_config, _noop, audio_source=audio_source)
-    mcp = create_mcp_server(engine)
-
-    starlette_app = mcp.streamable_http_app()
-    uv_config = uvicorn.Config(
-        starlette_app,
-        host="127.0.0.1",
-        port=port,
-        log_level="warning",
+    engine, server, server_task = await start_mcp_server(
+        audio_source, module_type, module_config, port, trailing_silence_s
     )
-    server = uvicorn.Server(uv_config)
-    server_task = asyncio.create_task(server.serve())
-
-    while not server.started:
-        await asyncio.sleep(0.05)
 
     final_event = asyncio.Event()
     last_final_transcript: list[str] = []
@@ -78,12 +50,7 @@ async def _run_e2e(
     finally:
         await client.stop()
         await engine.stop()
-        server.should_exit = True
-        try:
-            await asyncio.wait_for(server_task, timeout=5.0)
-        except asyncio.TimeoutError:
-            server_task.cancel()
-            await asyncio.gather(server_task, return_exceptions=True)
+        await stop_mcp_server(server, server_task)
 
     assert len(last_final_transcript) > 0, "No final result received"
     assert _normalize(last_final_transcript[0]) == _normalize(_EXPECTED), (
@@ -93,7 +60,7 @@ async def _run_e2e(
 
 @pytest.mark.asyncio
 async def test_e2e_deepgram_v1() -> None:
-    api_key = _load_api_key()
+    api_key = load_api_key()
     await _run_e2e(
         "deepgram_v1",
         {"api_key": api_key, "model": "nova-3"},
@@ -103,7 +70,7 @@ async def test_e2e_deepgram_v1() -> None:
 
 @pytest.mark.asyncio
 async def test_e2e_deepgram_v2() -> None:
-    api_key = _load_api_key()
+    api_key = load_api_key()
     await _run_e2e(
         "deepgram_v2",
         {"api_key": api_key, "model": "flux-general-en"},

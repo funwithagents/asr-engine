@@ -25,8 +25,14 @@ build-backend = "uv_build"
 
 [tool.pytest.ini_options]
 testpaths = ["tests", "tests-e2e"]
+pythonpath = ["tests-e2e"]
 asyncio_mode = "auto"
 timeout = 60
+filterwarnings = [
+    "ignore::DeprecationWarning:websockets",
+    "ignore::DeprecationWarning:uvicorn",
+    "ignore::DeprecationWarning:deepgram",
+]
 
 [dependency-groups]
 dev = [
