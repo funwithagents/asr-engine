@@ -34,32 +34,45 @@ class AsrToTerminal:
         self._typer = TerminalTyper(display_server)
         self._client = AsrMcpClient(server_url, self._on_event)
         self._pending: str = ""
+        self._lock = asyncio.Lock()
 
     def _contains_submit_word(self, transcript: str) -> bool:
         lower = transcript.lower()
         return any(word.lower() in lower for word in self._submit_words)
 
+    def _diff_pending(self, new: str) -> tuple[int, str]:
+        """Return (backspaces_needed, suffix_to_type) to transition from _pending to new."""
+        common = 0
+        for a, b in zip(self._pending, new):
+            if a != b:
+                break
+            common += 1
+        return len(self._pending) - common, new[common:]
+
     async def _on_event(self, payload: dict) -> None:
         transcript = payload.get("transcript", "")
         is_final = payload.get("is_final", False)
 
+        async with self._lock:
+            await self._handle_event(transcript, is_final)
+
+    async def _handle_event(self, transcript: str, is_final: bool) -> None:
         if not is_final:
-            # Interim: overwrite previous interim text
-            print(f"[INTERIM] {transcript}", file=sys.stderr)
-            await self._typer.backspace(len(self._pending))
-            await self._typer.type_text(transcript)
+            # Interim: only retype the changed suffix
+            backs, suffix = self._diff_pending(transcript)
+            await self._typer.backspace(backs)
+            await self._typer.type_text(suffix)
             self._pending = transcript
         elif self._contains_submit_word(transcript):
             # Final with submit word: erase interim and send Enter
-            print(f"[SUBMIT] {transcript} → Enter", file=sys.stderr)
             await self._typer.backspace(len(self._pending))
             await self._typer.send_enter()
             self._pending = ""
         else:
             # Final without submit word: commit the transcript
-            print(f"[FINAL] {transcript}", file=sys.stderr)
-            await self._typer.backspace(len(self._pending))
-            await self._typer.type_text(transcript)
+            backs, suffix = self._diff_pending(transcript)
+            await self._typer.backspace(backs)
+            await self._typer.type_text(suffix)
             self._pending = ""
 
     async def start(self) -> None:
