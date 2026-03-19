@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 
 from asr_mcp.audio import AudioCapture, AudioSource
 from asr_mcp.config import ASRConfig, AudioConfig
 from asr_mcp.modules import REGISTRY
 from asr_mcp.modules.base import ASRResult, ResultCallback
+
+log = logging.getLogger(__name__)
 
 
 class ASREngine:
@@ -70,4 +73,8 @@ class ASREngine:
         self._connected = state
 
     async def _handle_result(self, result: ASRResult) -> None:
+        if result.is_final:
+            log.info("ASR final: %s", result.transcript)
+        else:
+            log.info("ASR interim: %s", result.transcript)
         await self._on_result(result)

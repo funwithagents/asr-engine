@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import logging
 from datetime import datetime, timezone
 from typing import Any
 
@@ -14,8 +13,6 @@ from asr_mcp.config import AppConfig, ListenConfig
 from asr_mcp.engine import ASREngine
 from asr_mcp.listen_session import ListenSession
 from asr_mcp.modules.base import ASRResult
-
-log = logging.getLogger(__name__)
 
 _RESOURCE_URI = "asr://result"
 
@@ -121,10 +118,6 @@ def create_mcp_server(engine: ASREngine, listen_config: ListenConfig | None = No
             confidence=result.confidence,
             timestamp=datetime.now(timezone.utc).isoformat(),
         )
-        if result.is_final:
-            log.info("ASR final: %s", result.transcript)
-        else:
-            log.info("ASR interim: %s", result.transcript)
         uri = AnyUrl(_RESOURCE_URI)
         dead: list[Any] = []
         for session in list(_subscribed_sessions):
