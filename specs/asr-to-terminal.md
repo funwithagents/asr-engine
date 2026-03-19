@@ -75,7 +75,7 @@ Two pieces of state are maintained:
 ### On final result
 
 **Case A — transcript contains a submit word** (case-insensitive substring
-match):
+match, detected via `speech_utils.contains_trigger_word`):
 
 1. Send `len(_pending)` Backspace keystrokes (erase the interim).
 2. Send Enter.
@@ -129,9 +129,14 @@ session or interfere with injected keystrokes.
 
 ```
 src/asr_mcp/
+    speech_utils.py       # contains_trigger_word() — shared with listen tool
     terminal_typer.py     # TerminalTyper
     asr_to_terminal.py    # AsrToTerminal + main()
 ```
+
+`AsrToTerminal` uses `speech_utils.contains_trigger_word` for submit word
+detection instead of a private method. The submit word list it passes remains
+independent from the `listen` tool's trigger word list.
 
 Entry point registered in `pyproject.toml`:
 

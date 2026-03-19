@@ -101,10 +101,132 @@ Returns the current operational state of the ASR engine.
 | `running` | boolean | Whether the ASR engine has been started |
 | `connected` | boolean | Whether the ASR backend WebSocket is currently connected |
 
+### `listen`
+
+Provides a blocking, single-shot speech capture session. Designed for use when
+`engine.auto_start` is `false`. Manages the full engine lifecycle internally:
+start → collect → stop → return.
+
+- **Input:** none
+- **Output:**
+```json
+{
+  "transcript": "hello how are you",
+  "end_reason": "trigger_word"
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `transcript` | string | Accumulated text of all committed finals (space-joined). Empty string if no speech detected. |
+| `end_reason` | string | `"trigger_word"`, `"end_of_speech_timeout"`, or `"initial_silence_timeout"` |
+
+**Error responses:**
+- If the ASR engine is already running (either because `auto_start` is `true` or
+  because `start` was called manually): tool error `"ASR is already running. Stop it before calling listen."`
+- If a `listen` call is already in progress: tool error `"A listen session is already in progress."`
+
+#### Engine lifecycle within `listen`
+
+```
+listen called
+  └─ error if engine.is_running
+  └─ engine.start()
+  └─ collect until end condition
+  └─ engine.stop()   ← always, even on error (try/finally)
+  └─ return {transcript, end_reason}
+```
+
+#### End conditions
+
+Controlled by the `listen` config block (see [Configuration](configuration.md)).
+
+**Mode: `trigger_word`**
+
+The session ends when any final ASR result contains one of the configured trigger
+words (case-insensitive substring match, same logic as `asr-to-terminal` submit
+word detection).
+
+- The utterance containing the trigger word is **not** included in the transcript
+  (it fires the action, not the text — same behaviour as `asr-to-terminal`).
+- No timeouts apply in this mode. The session waits indefinitely.
+- `end_reason` = `"trigger_word"`.
+
+**Mode: `timeout`**
+
+Two independent timers govern the session:
+
+| Timer | Config field | Default | Reset trigger | Fires when |
+|---|---|---|---|---|
+| Initial silence | `listen.initial_silence_timeout_s` | `10.0` | Never | No ASR event received since session start |
+| End-of-speech | `listen.end_of_speech_timeout_s` | `5.0` | Every interim or final ASR event | No ASR event received for the configured duration |
+
+- The initial-silence timer starts when the session starts.
+- The end-of-speech timer starts after the first ASR event and resets on every
+  subsequent event (interim or final).
+- Whichever fires first ends the session.
+- `end_reason` = `"initial_silence_timeout"` or `"end_of_speech_timeout"` accordingly.
+
+#### Transcript accumulation
+
+| Event | Action |
+|---|---|
+| Interim result | Track as in-progress; do not commit yet. |
+| Final result — no trigger word | Append to the accumulated finals list. |
+| Final result — trigger word detected | Do not append; end the session. |
+
+The returned `transcript` is `" ".join(committed_finals)`.
+
+#### Internal implementation: `ListenSession`
+
+The session logic lives in a `ListenSession` class used by the `listen` tool
+handler in `server.py`:
+
+```python
+class ListenSession:
+    def __init__(
+        self,
+        mode: str,                         # "trigger_word" or "timeout"
+        trigger_words: list[str],
+        initial_silence_timeout_s: float,  # timeout mode only
+        end_of_speech_timeout_s: float,    # timeout mode only
+    ) -> None: ...
+
+    async def on_result(self, result: ASRResult) -> None:
+        """Feed an ASR result into the session."""
+
+    async def wait(self) -> ListenResult:
+        """Block until the session ends and return the result."""
+```
+
+`ListenResult` is a dataclass with fields `transcript: str` and `end_reason: str`.
+
+#### Shared trigger word detection
+
+Both `listen` and `AsrToTerminal` detect trigger/submit words using the same
+function, extracted to `src/asr_mcp/speech_utils.py`:
+
+```python
+def contains_trigger_word(transcript: str, words: list[str]) -> bool:
+    """Case-insensitive substring match of any word against transcript."""
+```
+
+`AsrToTerminal._contains_submit_word` is replaced by a call to this function.
+
 ## Lifecycle
+
+### With `engine.auto_start = true` (default)
 
 1. Server starts and reads config
 2. Audio capture initializes and starts the input stream
 3. ASR module connects to the backend
 4. MCP HTTP server starts accepting connections
 5. On shutdown (SIGINT / SIGTERM): audio capture stops, ASR connection closes cleanly, HTTP server shuts down
+
+### With `engine.auto_start = false`
+
+1. Server starts and reads config
+2. ASR engine is **initialized** (config validated, audio device verified, ASR module instantiated) but **not started**
+3. MCP HTTP server starts accepting connections
+4. ASR starts only when a client calls `start` or `listen`
+5. On shutdown: if engine is running, it is stopped cleanly before the HTTP server shuts down
