@@ -14,15 +14,13 @@ async `on_event(payload: dict)` callback. Key design:
 - `_on_message` handler uses `asyncio.create_task` to avoid deadlocking
   `BaseSession._receive_loop` (see note below)
 
-### `src/asr_mcp/client.py` — `AsrMcpClient` + CLI
+### `src/asr_mcp/asr_resource_client.py` — demo CLI (moved from `client.py` in Plan 11)
 
 - `AsrMcpClient(server_url, on_event)`: thin wrapper around `ResourceSubscriber`
   with `asr://result` hardcoded as the resource URI; exposes `start()` / `stop()`
-- `_format_result(payload)`: formats a result dict into a `[FINAL  ]` / `[INTERIM]`
-  log line
-- `_run_client(server_url)`: starts an `AsrMcpClient` with a print callback and
-  sleeps forever (used by `main()`)
-- `main()`: argparse for `--server`, runs `_run_client`, handles `KeyboardInterrupt`
+- `_format_result(payload)`, `_run_client(server_url)`, `main()`: moved to `asr_resource_client.py` in Plan 11 so `client.py` becomes a pure library module.
+
+**Plan 11 note:** `client.py` now also contains `McpToolClient` (single-call tool invocation via `streamable_http_client`). Entry point `asr-mcp-client` updated to point to `asr_mcp.asr_resource_client:main`.
 
 ### `tests/test_subscriber.py` — 6 unit tests covering `ResourceSubscriber`
 

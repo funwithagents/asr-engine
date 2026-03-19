@@ -40,8 +40,27 @@ When a tool function raises `RuntimeError` (e.g. `engine.pause()` when already p
 
 The custom `asr://` scheme is accepted by pydantic v2's `AnyUrl`. Used both for the `send_resource_updated` call and in the subscribe/unsubscribe handlers.
 
+## Updates — Plan 11
+
+### `auto_start` wiring in `run_server`
+
+`run_server` now checks `config.engine.auto_start` before calling `engine.start()`. When `False`, the engine is constructed (config/module validation runs) but not started. The engine starts only when a client calls `start` or `listen`.
+
+### `listen` tool
+
+Registered in `create_mcp_server`. Key implementation details:
+
+- **Lock**: an `asyncio.Lock` (`_listen_lock`) is created per `create_mcp_server` call (closure variable). The tool checks `_listen_lock.locked()` before the `async with` block to return an early error rather than silently blocking.
+- **Engine lifecycle**: `engine.start()` is called inside the lock; `engine.stop()` is called in a `finally` block that runs even if `session.wait()` raises.
+- **Callback swap**: the tool saves `engine._on_result` (the MCP resource callback) before replacing it with `session.on_result`, then restores it in the `finally` block so the MCP resource starts receiving results again after `listen` exits.
+- `create_mcp_server` now accepts an optional `listen_config: ListenConfig` parameter (defaults to `ListenConfig()` if omitted).
+
+### `config.listen` threading
+
+`run_server` passes `config.listen` to `create_mcp_server`. The `ListenSession` is instantiated per `listen` call using `listen_config` from the closure.
+
 ## Known limitations
 
 - No session cleanup when a client disconnects cleanly (unsubscribe handler must be called by the client). Dead sessions are only pruned after a failed send.
 - The `run_server` function does not expose a way to shut the HTTP server down programmatically (other than SIGINT/SIGTERM).
-- Manual test (MCP Inspector / curl) has not been performed yet.
+- `trigger_word` mode in `listen` has no timeout: if no trigger word is spoken, the call blocks indefinitely.

@@ -6,6 +6,7 @@ import asyncio
 import sys
 
 from asr_mcp.client import AsrMcpClient
+from asr_mcp.speech_utils import contains_trigger_word
 from asr_mcp.terminal_typer import TerminalTyper
 
 _DEFAULT_SERVER = "http://127.0.0.1:8000/mcp"
@@ -36,10 +37,6 @@ class AsrToTerminal:
         self._pending: str = ""
         self._lock = asyncio.Lock()
 
-    def _contains_submit_word(self, transcript: str) -> bool:
-        lower = transcript.lower()
-        return any(word.lower() in lower for word in self._submit_words)
-
     def _diff_pending(self, new: str) -> tuple[int, str]:
         """Return (backspaces_needed, suffix_to_type) to transition from _pending to new."""
         common = 0
@@ -63,7 +60,7 @@ class AsrToTerminal:
             await self._typer.backspace(backs)
             await self._typer.type_text(suffix)
             self._pending = transcript
-        elif self._contains_submit_word(transcript):
+        elif contains_trigger_word(transcript, self._submit_words):
             # Final with submit word: erase interim and send Enter
             await self._typer.backspace(len(self._pending))
             await self._typer.send_enter()

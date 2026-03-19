@@ -1,12 +1,14 @@
-"""Unit tests for client.py."""
+"""Unit tests for client.py and asr_resource_client.py."""
 from __future__ import annotations
 
+import json
 import sys
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from asr_mcp.client import _format_result, main
+from asr_mcp.asr_resource_client import _format_result, main
+from asr_mcp.client import McpToolClient
 
 
 # ---------------------------------------------------------------------------
@@ -40,7 +42,7 @@ class TestFormatResult:
 
 def test_main_default_server():
     """main() uses the default server URL when --server is not supplied."""
-    with patch("asr_mcp.client._run_client", new_callable=AsyncMock) as mock_run:
+    with patch("asr_mcp.asr_resource_client._run_client", new_callable=AsyncMock) as mock_run:
         with patch.object(sys, "argv", ["asr-mcp-client"]):
             main()
         called_url = mock_run.call_args[0][0]
@@ -50,7 +52,7 @@ def test_main_default_server():
 def test_main_custom_server():
     """main() forwards the --server argument to _run_client."""
     custom_url = "http://192.168.1.10:9000/mcp"
-    with patch("asr_mcp.client._run_client", new_callable=AsyncMock) as mock_run:
+    with patch("asr_mcp.asr_resource_client._run_client", new_callable=AsyncMock) as mock_run:
         with patch.object(sys, "argv", ["asr-mcp-client", "--server", custom_url]):
             main()
         called_url = mock_run.call_args[0][0]
@@ -59,9 +61,67 @@ def test_main_custom_server():
 
 def test_main_keyboard_interrupt_prints_disconnected(capsys):
     """main() prints [INFO] Disconnected on KeyboardInterrupt."""
-    with patch("asr_mcp.client._run_client", new_callable=AsyncMock) as mock_run:
+    with patch("asr_mcp.asr_resource_client._run_client", new_callable=AsyncMock) as mock_run:
         with patch.object(sys, "argv", ["asr-mcp-client"]):
             mock_run.side_effect = KeyboardInterrupt()
             main()
     out = capsys.readouterr().out
     assert "[INFO] Disconnected" in out
+
+
+# ---------------------------------------------------------------------------
+# McpToolClient
+# ---------------------------------------------------------------------------
+
+
+def _make_tool_result(payload: dict, is_error: bool = False):
+    content_item = MagicMock()
+    content_item.text = json.dumps(payload)
+    result = MagicMock()
+    result.isError = is_error
+    result.content = [content_item]
+    return result
+
+
+@pytest.mark.asyncio
+async def test_mcp_tool_client_success():
+    """Successful tool call returns parsed dict."""
+    expected = {"transcript": "hello", "end_reason": "trigger_word"}
+    mock_session = AsyncMock()
+    mock_session.call_tool = AsyncMock(return_value=_make_tool_result(expected))
+
+    with patch("asr_mcp.client.streamable_http_client") as mock_http, \
+         patch("asr_mcp.client.ClientSession") as mock_session_cls:
+        mock_http.return_value.__aenter__ = AsyncMock(return_value=(MagicMock(), MagicMock(), MagicMock()))
+        mock_http.return_value.__aexit__ = AsyncMock(return_value=False)
+        mock_session_cls.return_value.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_session_cls.return_value.__aexit__ = AsyncMock(return_value=False)
+
+        client = McpToolClient("http://127.0.0.1:8000/mcp")
+        result = await client.call_tool("listen", {})
+
+    assert result == expected
+
+
+@pytest.mark.asyncio
+async def test_mcp_tool_client_error_raises():
+    """Tool error response raises RuntimeError."""
+    error_item = MagicMock()
+    error_item.text = "A listen session is already in progress."
+    error_result = MagicMock()
+    error_result.isError = True
+    error_result.content = [error_item]
+
+    mock_session = AsyncMock()
+    mock_session.call_tool = AsyncMock(return_value=error_result)
+
+    with patch("asr_mcp.client.streamable_http_client") as mock_http, \
+         patch("asr_mcp.client.ClientSession") as mock_session_cls:
+        mock_http.return_value.__aenter__ = AsyncMock(return_value=(MagicMock(), MagicMock(), MagicMock()))
+        mock_http.return_value.__aexit__ = AsyncMock(return_value=False)
+        mock_session_cls.return_value.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_session_cls.return_value.__aexit__ = AsyncMock(return_value=False)
+
+        client = McpToolClient("http://127.0.0.1:8000/mcp")
+        with pytest.raises(RuntimeError, match="already in progress"):
+            await client.call_tool("listen", {})

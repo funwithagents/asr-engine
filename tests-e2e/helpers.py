@@ -38,6 +38,8 @@ async def start_mcp_server(
     module_config: dict,
     port: int,
     trailing_silence_s: float = 0.0,
+    engine_config: dict | None = None,
+    listen_config: dict | None = None,
 ) -> tuple[asyncio.subprocess.Process, str]:
     """Start an asr-mcp-server subprocess.  Returns (process, tmp_config_path)."""
     config = {
@@ -48,6 +50,10 @@ async def start_mcp_server(
         },
         "asr": {"type": module_type, **module_config},
     }
+    if engine_config is not None:
+        config["engine"] = engine_config
+    if listen_config is not None:
+        config["listen"] = listen_config
 
     # Write a temp config file — the subprocess reads it on startup.
     fd, config_path = tempfile.mkstemp(suffix=".json", prefix="asr_mcp_e2e_")

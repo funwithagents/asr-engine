@@ -16,7 +16,7 @@ dependencies = [
 
 [project.scripts]
 asr-mcp-server = "asr_mcp.cli:main"
-asr-mcp-client = "asr_mcp.client:main"
+asr-mcp-client = "asr_mcp.asr_resource_client:main"
 asr-to-terminal = "asr_mcp.asr_to_terminal:main"
 
 [build-system]

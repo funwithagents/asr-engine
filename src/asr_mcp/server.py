@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from datetime import datetime, timezone
@@ -9,8 +10,9 @@ import uvicorn
 from mcp.server.fastmcp import FastMCP
 from pydantic import AnyUrl
 
-from asr_mcp.config import AppConfig
+from asr_mcp.config import AppConfig, ListenConfig
 from asr_mcp.engine import ASREngine
+from asr_mcp.listen_session import ListenSession
 from asr_mcp.modules.base import ASRResult
 
 logger = logging.getLogger(__name__)
@@ -18,12 +20,16 @@ logger = logging.getLogger(__name__)
 _RESOURCE_URI = "asr://result"
 
 
-def create_mcp_server(engine: ASREngine) -> FastMCP:
+def create_mcp_server(engine: ASREngine, listen_config: ListenConfig | None = None) -> FastMCP:
     """Create the FastMCP server wired to *engine*.
 
     Side-effect: replaces ``engine._on_result`` with the MCP result callback
     so that ASR results flow into the resource state.
     """
+    if listen_config is None:
+        from asr_mcp.config import ListenConfig as _LC  # noqa: PLC0415
+        listen_config = _LC()
+
     _current_result: dict[str, Any] = {
         "transcript": "",
         "is_final": False,
@@ -33,6 +39,7 @@ def create_mcp_server(engine: ASREngine) -> FastMCP:
     _subscribed_sessions: list[Any] = []
 
     mcp = FastMCP("asr-mcp")
+    _listen_lock = asyncio.Lock()
 
     # --- Subscribe / unsubscribe (lowlevel handlers) ---
 
@@ -79,6 +86,32 @@ def create_mcp_server(engine: ASREngine) -> FastMCP:
         """Return the current ASR engine status."""
         return engine.status()
 
+    @mcp.tool()
+    async def listen() -> dict:
+        """Start ASR, accumulate speech until end-of-utterance, stop ASR, return transcript."""
+        if _listen_lock.locked():
+            raise ValueError("A listen session is already in progress.")
+        if engine.status()["running"]:
+            raise ValueError("ASR is already running. Stop it before calling listen.")
+
+        async with _listen_lock:
+            session = ListenSession(
+                mode=listen_config.end_of_utterance_mode,
+                trigger_words=listen_config.trigger_words,
+                initial_silence_timeout_s=listen_config.initial_silence_timeout_s,
+                end_of_speech_timeout_s=listen_config.end_of_speech_timeout_s,
+            )
+            original_callback = engine._on_result
+            engine._on_result = session.on_result
+            await engine.start()
+            try:
+                result = await session.wait()
+            finally:
+                await engine.stop()
+                engine._on_result = original_callback
+
+            return {"transcript": result.transcript, "end_reason": result.end_reason}
+
     # --- ASR result callback ---
 
     async def _on_asr_result(result: ASRResult) -> None:
@@ -119,9 +152,10 @@ async def run_server(config: AppConfig) -> None:
     else:
         engine = ASREngine(config.audio, config.asr, _noop)
 
-    mcp = create_mcp_server(engine)
+    mcp = create_mcp_server(engine, config.listen)
 
-    await engine.start()
+    if config.engine.auto_start:
+        await engine.start()
 
     starlette_app = mcp.streamable_http_app()
     uv_config = uvicorn.Config(

@@ -4,6 +4,11 @@ import json
 from dataclasses import dataclass, field
 from typing import Any
 
+_DEFAULT_TRIGGER_WORDS: list[str] = [
+    "submit", "enter", "validate", "send", "confirm", "go",
+    "envoyer", "valider", "confirmer", "soumettre", "entree", "entrée",
+]
+
 
 @dataclass
 class ServerConfig:
@@ -25,10 +30,25 @@ class ASRConfig:
 
 
 @dataclass
+class EngineConfig:
+    auto_start: bool = True
+
+
+@dataclass
+class ListenConfig:
+    end_of_utterance_mode: str = "trigger_word"
+    trigger_words: list[str] = field(default_factory=lambda: list(_DEFAULT_TRIGGER_WORDS))
+    initial_silence_timeout_s: float = 10.0
+    end_of_speech_timeout_s: float = 5.0
+
+
+@dataclass
 class AppConfig:
     server: ServerConfig = field(default_factory=ServerConfig)
     audio: AudioConfig = field(default_factory=AudioConfig)
     asr: ASRConfig = field(default_factory=ASRConfig)
+    engine: EngineConfig = field(default_factory=EngineConfig)
+    listen: ListenConfig = field(default_factory=ListenConfig)
 
 
 def load_config(path: str) -> AppConfig:
@@ -65,7 +85,27 @@ def load_config(path: str) -> AppConfig:
     extra = {k: v for k, v in asr_data.items() if k != "type"}
     asr = ASRConfig(type=asr_type, extra=extra)
 
-    return AppConfig(server=server, audio=audio, asr=asr)
+    engine_data = data.get("engine", {})
+    engine = EngineConfig(
+        auto_start=engine_data.get("auto_start", True),
+    )
+
+    listen_data = data.get("listen", {})
+    end_of_utterance_mode = listen_data.get("end_of_utterance_mode", "trigger_word")
+    if end_of_utterance_mode not in ("trigger_word", "timeout"):
+        raise ValueError(
+            f"Invalid end_of_utterance_mode: '{end_of_utterance_mode}'. "
+            f"Must be 'trigger_word' or 'timeout'."
+        )
+    trigger_words = listen_data.get("trigger_words", list(_DEFAULT_TRIGGER_WORDS))
+    listen = ListenConfig(
+        end_of_utterance_mode=end_of_utterance_mode,
+        trigger_words=trigger_words,
+        initial_silence_timeout_s=listen_data.get("initial_silence_timeout_s", 10.0),
+        end_of_speech_timeout_s=listen_data.get("end_of_speech_timeout_s", 5.0),
+    )
+
+    return AppConfig(server=server, audio=audio, asr=asr, engine=engine, listen=listen)
 
 
 def validate_asr_type(config: AppConfig, registry: dict) -> None:

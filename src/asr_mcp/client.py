@@ -1,13 +1,14 @@
 from __future__ import annotations
 
-import argparse
-import asyncio
+import json
 from typing import Awaitable, Callable
+
+from mcp.client.session import ClientSession
+from mcp.client.streamable_http import streamable_http_client
 
 from asr_mcp.resource_subscriber import ResourceSubscriber
 
 _RESOURCE_URI = "asr://result"
-_DEFAULT_SERVER = "http://127.0.0.1:8000/mcp"
 
 
 class AsrMcpClient:
@@ -33,42 +34,22 @@ class AsrMcpClient:
         await self._subscriber.stop()
 
 
-def _format_result(payload: dict) -> str:
-    """Format an ASR result payload into a log line."""
-    transcript = payload.get("transcript", "")
-    is_final = payload.get("is_final", False)
-    confidence = payload.get("confidence")
+class McpToolClient:
+    """Single-call MCP client: connect, call a tool, return the parsed result, disconnect.
 
-    if is_final:
-        if confidence is not None:
-            return f"[FINAL  ] {transcript} (confidence: {confidence})"
-        return f"[FINAL  ] {transcript}"
-    return f"[INTERIM] {transcript}"
+    A new connection is opened per :meth:`call_tool` invocation.
+    """
 
+    def __init__(self, server_url: str) -> None:
+        self._server_url = server_url
 
-async def _run_client(server_url: str) -> None:
-    """Start an AsrMcpClient and run until cancelled."""
-    async def _on_event(payload: dict) -> None:
-        print(_format_result(payload), flush=True)
-
-    client = AsrMcpClient(server_url, _on_event)
-    await client.start()
-    try:
-        await asyncio.sleep(float("inf"))
-    finally:
-        await client.stop()
-
-
-def main() -> None:
-    parser = argparse.ArgumentParser(description="ASR MCP Demo Client")
-    parser.add_argument(
-        "--server",
-        default=_DEFAULT_SERVER,
-        help=f"MCP server URL (default: {_DEFAULT_SERVER})",
-    )
-    args = parser.parse_args()
-
-    try:
-        asyncio.run(_run_client(args.server))
-    except KeyboardInterrupt:
-        print("[INFO] Disconnected", flush=True)
+    async def call_tool(self, name: str, arguments: dict | None = None) -> dict:
+        """Call *name* with *arguments* and return the parsed JSON result dict."""
+        async with streamable_http_client(self._server_url) as (read, write, _):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+                result = await session.call_tool(name, arguments or {})
+                if result.isError:
+                    texts = [c.text for c in result.content if hasattr(c, "text")]
+                    raise RuntimeError(texts[0] if texts else "Tool returned an error")
+                return json.loads(result.content[0].text)

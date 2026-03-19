@@ -43,34 +43,6 @@ class TestTerminalTyperResolution:
 
 
 # ---------------------------------------------------------------------------
-# AsrToTerminal._contains_submit_word
-# ---------------------------------------------------------------------------
-
-
-class TestContainsSubmitWord:
-    def setup_method(self):
-        with patch("asr_mcp.asr_to_terminal.TerminalTyper"), \
-             patch("asr_mcp.asr_to_terminal.AsrMcpClient"):
-            self.atr = AsrToTerminal(submit_words=["validate", "submit"])
-
-    def test_exact_match(self):
-        assert self.atr._contains_submit_word("validate") is True
-
-    def test_case_insensitive(self):
-        assert self.atr._contains_submit_word("SUBMIT now") is True
-
-    def test_substring_match(self):
-        assert self.atr._contains_submit_word("please validate this") is True
-
-    def test_no_match(self):
-        assert self.atr._contains_submit_word("the sky is blue") is False
-
-    def test_partial_word_no_false_positive(self):
-        # "go" is not in our custom list so should not match
-        assert self.atr._contains_submit_word("good morning") is False
-
-
-# ---------------------------------------------------------------------------
 # AsrToTerminal state machine
 # ---------------------------------------------------------------------------
 
@@ -105,30 +77,30 @@ async def test_first_interim_no_backspace():
 
 
 @pytest.mark.asyncio
-async def test_second_interim_backspaces_previous():
-    """Second interim: backspace previous pending length, type new, update _pending."""
+async def test_second_interim_types_suffix():
+    """Second interim: only type the changed suffix (shared prefix is kept), update _pending."""
     typer = _typer_mock()
     atr = _make_atr(typer)
     atr._pending = "hello"
 
     await atr._on_event({"transcript": "hello world", "is_final": False})
 
-    typer.backspace.assert_called_once_with(5)
-    typer.type_text.assert_called_once_with("hello world")
+    typer.backspace.assert_called_once_with(0)  # shared prefix "hello" → no backspaces
+    typer.type_text.assert_called_once_with(" world")
     assert atr._pending == "hello world"
 
 
 @pytest.mark.asyncio
 async def test_final_no_submit_word_commits_text():
-    """Final without submit word: backspace pending, type text, reset _pending."""
+    """Final without submit word: type suffix over shared prefix, reset _pending."""
     typer = _typer_mock()
     atr = _make_atr(typer)
     atr._pending = "hello"
 
     await atr._on_event({"transcript": "hello world", "is_final": True})
 
-    typer.backspace.assert_called_once_with(5)
-    typer.type_text.assert_called_once_with("hello world")
+    typer.backspace.assert_called_once_with(0)  # shared prefix "hello" → no backspaces
+    typer.type_text.assert_called_once_with(" world")
     typer.send_enter.assert_not_called()
     assert atr._pending == ""
 

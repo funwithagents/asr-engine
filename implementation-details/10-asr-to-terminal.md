@@ -17,9 +17,13 @@ Two new source files and their tests:
 
 **`type_text` skips empty strings:** Added an early-return guard for empty text to avoid spawning `xdotool type -- ""` (which would be a no-op but noisy).
 
+## Updates — Plan 11
+
+`_contains_submit_word` was removed and replaced with a call to `speech_utils.contains_trigger_word(transcript, self._submit_words)`. Behaviour is identical; the logic is now shared with `ListenSession`. Existing tests that tested the private method directly were deleted (per the testing rule against asserting on private attributes) — the logic is now covered by `tests/test_speech_utils.py`.
+
 ## Non-obvious decisions
 
-- **`_contains_submit_word` uses substring match, not word-boundary match.** Spec says "substring match", so `"goat"` would match submit word `"go"`. This is intentional per spec (v1 scope note).
+- **Submit word detection uses substring match, not word-boundary match.** Spec says "substring match", so `"goat"` would match submit word `"go"`. This is intentional per spec (v1 scope note).
 - **`backspace(0)` is a no-op** — avoids spawning a subprocess for the common first-interim case where nothing has been typed yet.
 - **Stderr for all logging** — all output goes to stderr so it doesn't pollute stdin of the active terminal window being typed into.
 - **Display server normalised to lowercase** — `os.environ.get("XDG_SESSION_TYPE")` may return `"X11"` on some desktops; `.lower()` before validation handles this.

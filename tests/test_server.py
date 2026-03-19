@@ -7,8 +7,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from asr_mcp.config import AppConfig, ASRConfig, AudioConfig
+from asr_mcp.config import AppConfig, ASRConfig, AudioConfig, EngineConfig, ListenConfig
 from asr_mcp.engine import ASREngine
+from asr_mcp.listen_session import ListenResult
 from asr_mcp.modules.base import ASRResult
 from asr_mcp.server import create_mcp_server, run_server
 
@@ -54,7 +55,7 @@ async def test_tools_registered():
     mcp = create_mcp_server(engine)
     tools = await mcp.list_tools()
     names = {t.name for t in tools}
-    assert {"start", "stop", "is_running"} <= names
+    assert {"start", "stop", "is_running", "listen"} <= names
 
 
 # ---------------------------------------------------------------------------
@@ -263,6 +264,172 @@ async def test_run_server_raises_on_unknown_asr_type() -> None:
     )
     with pytest.raises(ValueError, match="no_such_module"):
         await run_server(config)
+
+
+# ---------------------------------------------------------------------------
+# Tools — listen
+# ---------------------------------------------------------------------------
+
+
+def _listen_config(**kwargs) -> ListenConfig:
+    defaults = dict(
+        end_of_utterance_mode="trigger_word",
+        trigger_words=["validate"],
+        initial_silence_timeout_s=10.0,
+        end_of_speech_timeout_s=5.0,
+    )
+    defaults.update(kwargs)
+    return ListenConfig(**defaults)
+
+
+@pytest.mark.asyncio
+async def test_listen_engine_already_running():
+    """listen raises when engine is already running."""
+    from mcp.server.fastmcp.exceptions import ToolError
+
+    engine = make_engine()
+    engine._running = True
+    mcp = create_mcp_server(engine, _listen_config())
+    with pytest.raises(ToolError, match="already running"):
+        await mcp.call_tool("listen", {})
+
+
+@pytest.mark.asyncio
+async def test_listen_concurrent_calls_blocked():
+    """Second listen call while first is in progress raises."""
+    engine = make_engine()
+    listen_cfg = _listen_config()
+    mcp = create_mcp_server(engine, listen_cfg)
+
+    # First listen: session.wait() blocks until we signal
+    wait_event = asyncio.Event()
+    done_event = asyncio.Event()
+
+    async def _blocking_wait():
+        await wait_event.wait()
+        return ListenResult(transcript="", end_reason="trigger_word")
+
+    fake_session = AsyncMock()
+    fake_session.on_result = AsyncMock()
+    fake_session.wait = _blocking_wait
+
+    with patch("asr_mcp.server.ListenSession", return_value=fake_session), \
+         patch("asr_mcp.engine.AudioCapture") as MockCapture:
+        MockCapture.return_value.start.return_value = asyncio.Queue()
+        first_task = asyncio.create_task(mcp.call_tool("listen", {}))
+        await asyncio.sleep(0)  # let first_task reach the lock
+
+        from mcp.server.fastmcp.exceptions import ToolError
+        with pytest.raises(ToolError, match="already in progress"):
+            await mcp.call_tool("listen", {})
+
+        # Unblock the first task
+        wait_event.set()
+        await first_task
+
+
+@pytest.mark.asyncio
+async def test_listen_trigger_word_success():
+    """Successful listen in trigger_word mode: starts engine, returns transcript, stops engine."""
+    engine = make_engine()
+    listen_cfg = _listen_config(end_of_utterance_mode="trigger_word")
+    mcp = create_mcp_server(engine, listen_cfg)
+
+    fake_result = ListenResult(transcript="the sky is blue", end_reason="trigger_word")
+    fake_session = AsyncMock()
+    fake_session.on_result = AsyncMock()
+    fake_session.wait = AsyncMock(return_value=fake_result)
+
+    with patch("asr_mcp.server.ListenSession", return_value=fake_session), \
+         patch("asr_mcp.engine.AudioCapture") as MockCapture:
+        MockCapture.return_value.start.return_value = asyncio.Queue()
+        result = await mcp.call_tool("listen", {})
+
+    payload = tool_result_json(result)
+    assert payload == {"transcript": "the sky is blue", "end_reason": "trigger_word"}
+    assert engine.status()["running"] is False
+
+
+@pytest.mark.asyncio
+async def test_listen_timeout_mode_success():
+    """Successful listen in timeout mode returns end_of_speech_timeout end_reason."""
+    engine = make_engine()
+    listen_cfg = _listen_config(end_of_utterance_mode="timeout", end_of_speech_timeout_s=0.01)
+    mcp = create_mcp_server(engine, listen_cfg)
+
+    fake_result = ListenResult(transcript="hello", end_reason="end_of_speech_timeout")
+    fake_session = AsyncMock()
+    fake_session.on_result = AsyncMock()
+    fake_session.wait = AsyncMock(return_value=fake_result)
+
+    with patch("asr_mcp.server.ListenSession", return_value=fake_session), \
+         patch("asr_mcp.engine.AudioCapture") as MockCapture:
+        MockCapture.return_value.start.return_value = asyncio.Queue()
+        result = await mcp.call_tool("listen", {})
+
+    payload = tool_result_json(result)
+    assert payload["end_reason"] == "end_of_speech_timeout"
+
+
+@pytest.mark.asyncio
+async def test_listen_engine_stopped_on_exception():
+    """Engine is always stopped even if session.wait() raises."""
+    engine = make_engine()
+    listen_cfg = _listen_config()
+    mcp = create_mcp_server(engine, listen_cfg)
+
+    fake_session = AsyncMock()
+    fake_session.on_result = AsyncMock()
+    fake_session.wait = AsyncMock(side_effect=RuntimeError("boom"))
+
+    from mcp.server.fastmcp.exceptions import ToolError
+
+    with patch("asr_mcp.server.ListenSession", return_value=fake_session), \
+         patch("asr_mcp.engine.AudioCapture") as MockCapture:
+        MockCapture.return_value.start.return_value = asyncio.Queue()
+        with pytest.raises(ToolError, match="boom"):
+            await mcp.call_tool("listen", {})
+
+    assert engine.status()["running"] is False
+
+
+# ---------------------------------------------------------------------------
+# run_server — auto_start
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_run_server_auto_start_false_does_not_start_engine(capsys) -> None:
+    """When auto_start=False the engine is not started on server startup."""
+    import asr_mcp.modules as mod
+
+    fake_module = MagicMock()
+    fake_module.start = AsyncMock(return_value=None)
+    fake_module.stop = AsyncMock(return_value=None)
+    fake_class = MagicMock(return_value=fake_module)
+
+    config = AppConfig(
+        server=AppConfig.__dataclass_fields__["server"].default_factory(),
+        audio=AudioConfig(),
+        asr=ASRConfig(type="fake_auto"),
+        engine=EngineConfig(auto_start=False),
+    )
+    original = dict(mod.REGISTRY)
+    mod.REGISTRY["fake_auto"] = fake_class
+    try:
+        with patch("asr_mcp.server.uvicorn.Server.serve", new_callable=AsyncMock):
+            await run_server(config)
+    finally:
+        mod.REGISTRY.clear()
+        mod.REGISTRY.update(original)
+
+    # fake_module.start should NOT have been called
+    fake_module.start.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# run_server — validation and banner
+# ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio

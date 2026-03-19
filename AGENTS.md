@@ -11,7 +11,7 @@ A real-time Automatic Speech Recognition (ASR) MCP server written in Python.
 
 ## Key design decisions
 
-- **Always-on**: ASR runs from server startup, not triggered by client connections
+- **Always-on by default**: `engine.auto_start=true` (default) starts ASR at server startup. Set `auto_start=false` for on-demand use via the `start` or `listen` tool.
 - **Single rolling resource**: `asr://result` holds only the latest utterance (interim or final), not a full transcript history
 - **Pluggable modules**: one ASR module active at a time, selected via `asr.type` in config
 - **StreamableHTTP transport**: enables remote access on a local network
@@ -59,9 +59,12 @@ asr-mcp/
 │       ├── config.py                 # Config dataclasses + load/validate
 │       ├── audio.py                  # AudioCapture, AudioSource protocol, FileAudioSource
 │       ├── engine.py                 # ASREngine: wires audio + module, start/stop
-│       ├── server.py                 # MCP server: resource, tools, StreamableHTTP
+│       ├── server.py                 # MCP server: resource, tools, StreamableHTTP, listen tool
 │       ├── resource_subscriber.py    # ResourceSubscriber: generic MCP resource watcher
-│       ├── client.py                 # AsrMcpClient + _format_result + CLI entry point
+│       ├── client.py                 # Pure library: AsrMcpClient + McpToolClient
+│       ├── asr_resource_client.py    # Demo CLI: subscribe to asr://result, log results
+│       ├── speech_utils.py           # contains_trigger_word() — shared trigger word detection
+│       ├── listen_session.py         # ListenSession + ListenResult: end-of-utterance logic
 │       ├── terminal_typer.py         # TerminalTyper: xdotool/ydotool keystroke injection
 │       ├── asr_to_terminal.py        # AsrToTerminal state machine + asr-to-terminal CLI
 │       └── modules/
@@ -95,7 +98,7 @@ asr-mcp/
 
 ```bash
 uv run asr-mcp-server --config config.json            # Start the MCP server
-uv run asr-mcp-client                                 # Run the demo client (default: http://127.0.0.1:8000/mcp)
+uv run asr-mcp-client                                 # Run the demo resource client (default: http://127.0.0.1:8000/mcp)
 uv run asr-to-terminal [--server URL] [--submit-words WORD ...] [--display-server x11|wayland]
 uv run pytest                                         # Run all tests (unit + e2e)
 uv run pytest tests/                                  # Unit tests only (no API key needed)

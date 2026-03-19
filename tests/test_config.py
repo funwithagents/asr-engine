@@ -109,6 +109,57 @@ def test_load_config_missing_asr_block(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
+# load_config — engine and listen blocks
+# ---------------------------------------------------------------------------
+
+
+def test_load_config_engine_and_listen_defaults(tmp_path: Path) -> None:
+    """Omitting engine and listen blocks uses defaults."""
+    path = write_config(tmp_path, {"asr": {"type": "deepgram"}})
+    cfg = load_config(path)
+
+    assert cfg.engine.auto_start is True
+    assert cfg.listen.end_of_utterance_mode == "trigger_word"
+    assert cfg.listen.initial_silence_timeout_s == 10.0
+    assert cfg.listen.end_of_speech_timeout_s == 5.0
+    assert "submit" in cfg.listen.trigger_words
+
+
+def test_load_config_auto_start_false(tmp_path: Path) -> None:
+    path = write_config(tmp_path, {"asr": {"type": "x"}, "engine": {"auto_start": False}})
+    cfg = load_config(path)
+    assert cfg.engine.auto_start is False
+
+
+def test_load_config_listen_timeout_mode(tmp_path: Path) -> None:
+    path = write_config(
+        tmp_path,
+        {"asr": {"type": "x"}, "listen": {"end_of_utterance_mode": "timeout", "end_of_speech_timeout_s": 3.0}},
+    )
+    cfg = load_config(path)
+    assert cfg.listen.end_of_utterance_mode == "timeout"
+    assert cfg.listen.end_of_speech_timeout_s == 3.0
+
+
+def test_load_config_custom_trigger_words(tmp_path: Path) -> None:
+    path = write_config(
+        tmp_path,
+        {"asr": {"type": "x"}, "listen": {"trigger_words": ["go", "send"]}},
+    )
+    cfg = load_config(path)
+    assert cfg.listen.trigger_words == ["go", "send"]
+
+
+def test_load_config_invalid_end_of_utterance_mode(tmp_path: Path) -> None:
+    path = write_config(
+        tmp_path,
+        {"asr": {"type": "x"}, "listen": {"end_of_utterance_mode": "bad_mode"}},
+    )
+    with pytest.raises(ValueError, match="end_of_utterance_mode"):
+        load_config(path)
+
+
+# ---------------------------------------------------------------------------
 # validate_asr_type
 # ---------------------------------------------------------------------------
 
