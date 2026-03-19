@@ -14,6 +14,8 @@ class ServerConfig:
 @dataclass
 class AudioConfig:
     device: str | None = None
+    audio_file: str | None = None
+    trailing_silence_s: float = 0.0
 
 
 @dataclass
@@ -49,7 +51,11 @@ def load_config(path: str) -> AppConfig:
     )
 
     audio_data = data.get("audio", {})
-    audio = AudioConfig(device=audio_data.get("device", None))
+    audio = AudioConfig(
+        device=audio_data.get("device", None),
+        audio_file=audio_data.get("audio_file", None),
+        trailing_silence_s=audio_data.get("trailing_silence_s", 0.0),
+    )
 
     asr_data = data.get("asr", {})
     asr_type = asr_data.get("type")

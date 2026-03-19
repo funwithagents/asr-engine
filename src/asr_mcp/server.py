@@ -109,7 +109,15 @@ async def run_server(config: AppConfig) -> None:
     async def _noop(result):
         pass
 
-    engine = ASREngine(config.audio, config.asr, _noop)
+    if config.audio.audio_file:
+        from asr_mcp.audio import FileAudioSource  # noqa: PLC0415
+        audio_source = FileAudioSource(
+            config.audio.audio_file,
+            trailing_silence_s=config.audio.trailing_silence_s,
+        )
+        engine = ASREngine(config.audio, config.asr, _noop, audio_source=audio_source)
+    else:
+        engine = ASREngine(config.audio, config.asr, _noop)
 
     mcp = create_mcp_server(engine)
 

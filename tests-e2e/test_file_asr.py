@@ -7,7 +7,6 @@ from pathlib import Path
 
 import pytest
 
-from asr_mcp.audio import FileAudioSource
 from asr_mcp.client import AsrMcpClient
 
 from helpers import load_api_key, start_mcp_server, stop_mcp_server
@@ -26,9 +25,8 @@ async def _run_e2e(
     port: int,
     trailing_silence_s: float = 0.0,
 ) -> None:
-    audio_source = FileAudioSource(_FIXTURE_WAV, trailing_silence_s=trailing_silence_s)
-    engine, server, server_task = await start_mcp_server(
-        audio_source, module_type, module_config, port, trailing_silence_s
+    proc, config_path = await start_mcp_server(
+        _FIXTURE_WAV, module_type, module_config, port, trailing_silence_s
     )
 
     final_event = asyncio.Event()
@@ -44,13 +42,11 @@ async def _run_e2e(
     client = AsrMcpClient(server_url, _on_event)
 
     try:
-        await engine.start()
         await client.start()
         await asyncio.wait_for(final_event.wait(), timeout=30.0)
     finally:
         await client.stop()
-        await engine.stop()
-        await stop_mcp_server(server, server_task)
+        await stop_mcp_server(proc, config_path)
 
     assert len(last_final_transcript) > 0, "No final result received"
     assert _normalize(last_final_transcript[0]) == _normalize(_EXPECTED), (

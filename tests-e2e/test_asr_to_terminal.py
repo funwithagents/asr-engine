@@ -15,7 +15,6 @@ from pathlib import Path
 import pytest
 
 from asr_mcp.asr_to_terminal import AsrToTerminal
-from asr_mcp.audio import FileAudioSource
 
 from helpers import load_api_key, start_mcp_server, stop_mcp_server
 
@@ -42,9 +41,8 @@ async def test_e2e_terminal_typing() -> None:
         subprocess.run(["xdotool", "windowfocus", window_id], check=True)
         await asyncio.sleep(0.3)  # let focus settle
 
-        audio_source = FileAudioSource(_FIXTURE_WAV)
-        engine, server, server_task = await start_mcp_server(
-            audio_source, "deepgram_v1", {"api_key": api_key, "model": "nova-3"}, port
+        proc, config_path = await start_mcp_server(
+            _FIXTURE_WAV, "deepgram_v1", {"api_key": api_key, "model": "nova-3"}, port
         )
 
         final_event = asyncio.Event()
@@ -66,7 +64,6 @@ async def test_e2e_terminal_typing() -> None:
         atr._client._subscriber._on_event = _tracking_on_event  # type: ignore[attr-defined]
 
         try:
-            await engine.start()
             await atr.start()
             await asyncio.wait_for(final_event.wait(), timeout=30.0)
             await asyncio.sleep(0.5)  # let xdotool finish
@@ -78,8 +75,7 @@ async def test_e2e_terminal_typing() -> None:
             await asyncio.sleep(0.3)
         finally:
             await atr.stop()
-            await engine.stop()
-            await stop_mcp_server(server, server_task)
+            await stop_mcp_server(proc, config_path)
 
         result = Path(output_file).read_text().strip().lower()
         normalized = re.sub(r"[^a-z0-9 ]", "", result)
@@ -110,9 +106,9 @@ async def test_e2e_terminal_submit() -> None:
         subprocess.run(["xdotool", "windowfocus", window_id], check=True)
         await asyncio.sleep(0.3)  # let focus settle
 
-        audio_source = FileAudioSource(_FIXTURE_SUBMIT_WAV, trailing_silence_s=2.0)
-        engine, server, server_task = await start_mcp_server(
-            audio_source, "deepgram_v1", {"api_key": api_key, "model": "nova-3"}, port
+        proc, config_path = await start_mcp_server(
+            _FIXTURE_SUBMIT_WAV, "deepgram_v1", {"api_key": api_key, "model": "nova-3"}, port,
+            trailing_silence_s=2.0,
         )
 
         final_event = asyncio.Event()
@@ -133,14 +129,12 @@ async def test_e2e_terminal_submit() -> None:
         atr._client._subscriber._on_event = _tracking_on_event  # type: ignore[attr-defined]
 
         try:
-            await engine.start()
             await atr.start()
             await asyncio.wait_for(final_event.wait(), timeout=30.0)
             await asyncio.sleep(1.0)  # let xdotool and bash finish
         finally:
             await atr.stop()
-            await engine.stop()
-            await stop_mcp_server(server, server_task)
+            await stop_mcp_server(proc, config_path)
 
         result = Path(output_file).read_text().strip()
         assert result.startswith("GOT:"), (
