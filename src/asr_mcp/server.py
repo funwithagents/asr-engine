@@ -15,7 +15,7 @@ from asr_mcp.engine import ASREngine
 from asr_mcp.listen_session import ListenSession
 from asr_mcp.modules.base import ASRResult
 
-logger = logging.getLogger(__name__)
+log = logging.getLogger(__name__)
 
 _RESOURCE_URI = "asr://result"
 
@@ -121,6 +121,10 @@ def create_mcp_server(engine: ASREngine, listen_config: ListenConfig | None = No
             confidence=result.confidence,
             timestamp=datetime.now(timezone.utc).isoformat(),
         )
+        if result.is_final:
+            log.info("ASR final: %s", result.transcript)
+        else:
+            log.info("ASR interim: %s", result.transcript)
         uri = AnyUrl(_RESOURCE_URI)
         dead: list[Any] = []
         for session in list(_subscribed_sessions):
@@ -157,12 +161,27 @@ async def run_server(config: AppConfig) -> None:
     if config.engine.auto_start:
         await engine.start()
 
+    # Suppress chatty low-level logs that belong at DEBUG, not INFO.
+    # Must be passed as log_config so uvicorn doesn't overwrite them on startup.
+    logging.getLogger("mcp").setLevel(logging.WARNING)
+    log_config = {
+        "version": 1,
+        "disable_existing_loggers": False,
+        "formatters": {"default": {"()": "uvicorn.logging.DefaultFormatter", "fmt": "%(levelprefix)s %(message)s"}},
+        "handlers": {"default": {"class": "logging.StreamHandler", "formatter": "default", "stream": "ext://sys.stderr"}},
+        "loggers": {
+            "uvicorn": {"handlers": ["default"], "level": "INFO", "propagate": False},
+            "uvicorn.error": {"level": "INFO"},
+            "uvicorn.access": {"level": "WARNING", "propagate": False},
+        },
+    }
+
     starlette_app = mcp.streamable_http_app()
     uv_config = uvicorn.Config(
         starlette_app,
         host=config.server.host,
         port=config.server.port,
-        log_level="info",
+        log_config=log_config,
     )
     server = uvicorn.Server(uv_config)
     print(

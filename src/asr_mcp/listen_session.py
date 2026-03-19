@@ -2,10 +2,13 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from dataclasses import dataclass
 
 from asr_mcp.modules.base import ASRResult
 from asr_mcp.speech_utils import contains_trigger_word
+
+log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -83,6 +86,7 @@ class ListenSession:
 
         assert self._result is not None
         self._result.transcript = " ".join(self._committed)
+        log.info("Listen session ended: end_reason=%s transcript=%r", self._result.end_reason, self._result.transcript)
         return self._result
 
     async def _initial_silence_timer(self) -> None:

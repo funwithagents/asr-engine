@@ -165,6 +165,13 @@ Write tests that verify **observable behavior**, not implementation details.
 - Checks something that cannot break independently (structural/isinstance)
 - Is one of N identical tests differing only in which field they check
 
+## Logging conventions
+
+- Every module that logs uses `log = logging.getLogger(__name__)` (variable name: `log`, not `logger`).
+- **Library modules** (`src/asr_mcp/`) never call `basicConfig` or configure handlers — they only get a logger and use it.
+- **Entry points and scripts** (`scripts/`) call `setup_logging()` from `asr_mcp._logging` at startup to configure the root logger with common format.
+- The MCP server (`server.py`) additionally passes a uvicorn-specific `log_config` dict to `uvicorn.Config` to control uvicorn's own loggers — this is separate from `setup_logging()` and should not be changed without good reason.
+
 ## Audio format contract
 
 All ASR modules receive audio as: **16kHz, 16-bit signed PCM, mono, ~100ms chunks (3200 bytes)**.
