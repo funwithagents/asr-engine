@@ -13,9 +13,9 @@
   constructing `AudioCapture`.
 - `tests-e2e/__init__.py` and `tests-e2e/fixtures/README.md` documenting the WAV
   fixture requirements.
-- `tests-e2e/test_file_asr.py` with `test_e2e_deepgram_v1` and
+- `tests-e2e/test_asr_resource_client.py` with `test_e2e_deepgram_v1` and
   `test_e2e_deepgram_v2`, each wiring a `FileAudioSource` → `ASREngine` →
-  in-process uvicorn MCP server → in-process MCP client → transcript assertion.
+  in-process uvicorn MCP server → `AsrResourceClient` → transcript assertion.
 
 ## Deviations from spec
 
@@ -49,7 +49,7 @@ the client, ensuring no race condition on port availability.
 
 The message handler passed to `ClientSession` must return promptly (awaiting
 inside it deadlocks `_receive_loop` — same pattern as `client.py`). Resource
-reads are therefore offloaded to a separate task via `asyncio.create_task`.
+reads are therefore offloaded to a separate task via `asyncio.create_task`. This was the original pattern; `AsrResourceClient` / `ResourceSubscriber` now owns this detail.
 
 ## Known limitations
 

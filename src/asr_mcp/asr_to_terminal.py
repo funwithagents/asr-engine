@@ -5,7 +5,7 @@ import argparse
 import asyncio
 import sys
 
-from asr_mcp.client import AsrMcpClient
+from asr_mcp.resource_client import AsrResourceClient
 from asr_mcp.speech_utils import contains_trigger_word
 from asr_mcp.terminal_typer import TerminalTyper
 
@@ -18,7 +18,7 @@ _DEFAULT_SUBMIT_WORDS: list[str] = [
 
 
 class AsrToTerminal:
-    """Bridge between AsrMcpClient and the active terminal window.
+    """Bridge between AsrResourceClient and the active terminal window.
 
     Progressively types interim transcripts (overwriting the previous interim
     on each update) and handles final results: either committing the text or
@@ -33,7 +33,7 @@ class AsrToTerminal:
     ) -> None:
         self._submit_words = submit_words if submit_words is not None else _DEFAULT_SUBMIT_WORDS
         self._typer = TerminalTyper(display_server)
-        self._client = AsrMcpClient(server_url, self._on_event)
+        self._client = AsrResourceClient(server_url, self._on_event)
         self._pending: str = ""
         self._lock = asyncio.Lock()
 

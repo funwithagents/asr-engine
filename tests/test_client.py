@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from asr_mcp.asr_resource_client import _format_result, main
-from asr_mcp.client import McpToolClient
+from asr_mcp.tool_client import McpToolClient
 
 
 # ---------------------------------------------------------------------------
@@ -90,8 +90,8 @@ async def test_mcp_tool_client_success():
     mock_session = AsyncMock()
     mock_session.call_tool = AsyncMock(return_value=_make_tool_result(expected))
 
-    with patch("asr_mcp.client.streamable_http_client") as mock_http, \
-         patch("asr_mcp.client.ClientSession") as mock_session_cls:
+    with patch("asr_mcp.tool_client.streamable_http_client") as mock_http, \
+         patch("asr_mcp.tool_client.ClientSession") as mock_session_cls:
         mock_http.return_value.__aenter__ = AsyncMock(return_value=(MagicMock(), MagicMock(), MagicMock()))
         mock_http.return_value.__aexit__ = AsyncMock(return_value=False)
         mock_session_cls.return_value.__aenter__ = AsyncMock(return_value=mock_session)
@@ -115,8 +115,8 @@ async def test_mcp_tool_client_error_raises():
     mock_session = AsyncMock()
     mock_session.call_tool = AsyncMock(return_value=error_result)
 
-    with patch("asr_mcp.client.streamable_http_client") as mock_http, \
-         patch("asr_mcp.client.ClientSession") as mock_session_cls:
+    with patch("asr_mcp.tool_client.streamable_http_client") as mock_http, \
+         patch("asr_mcp.tool_client.ClientSession") as mock_session_cls:
         mock_http.return_value.__aenter__ = AsyncMock(return_value=(MagicMock(), MagicMock(), MagicMock()))
         mock_http.return_value.__aexit__ = AsyncMock(return_value=False)
         mock_session_cls.return_value.__aenter__ = AsyncMock(return_value=mock_session)

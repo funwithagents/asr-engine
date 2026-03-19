@@ -48,9 +48,9 @@ class TestTerminalTyperResolution:
 
 
 def _make_atr(typer_mock):
-    """Build AsrToTerminal with a mocked TerminalTyper and AsrMcpClient."""
+    """Build AsrToTerminal with a mocked TerminalTyper and AsrResourceClient."""
     with patch("asr_mcp.asr_to_terminal.TerminalTyper", return_value=typer_mock), \
-         patch("asr_mcp.asr_to_terminal.AsrMcpClient"):
+         patch("asr_mcp.asr_to_terminal.AsrResourceClient"):
         atr = AsrToTerminal(submit_words=["validate"])
     return atr
 

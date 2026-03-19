@@ -5,7 +5,8 @@
 - **`speech_utils.py`**: `contains_trigger_word(transcript, words)` — case-insensitive substring match. Shared between `AsrToTerminal` and `ListenSession`.
 - **`listen_session.py`**: `ListenSession` + `ListenResult`. Two modes: `trigger_word` (waits for a final result containing a trigger word) and `timeout` (two-timer approach: initial-silence and end-of-speech).
 - **`asr_resource_client.py`**: `_format_result`, `_run_client`, `main()` moved out of `client.py` into this dedicated demo CLI file.
-- **`client.py`** (updated): now a pure library — `AsrMcpClient` (resource subscription) + `McpToolClient` (single-call tool invocation). `McpToolClient.call_tool` opens a `streamable_http_client` connection per call, initialises a `ClientSession`, calls the tool, parses the JSON result, and closes the connection.
+- **`resource_client.py`**: `AsrResourceClient` — resource subscription wrapper around `ResourceSubscriber` with `asr://result` hardcoded.
+- **`tool_client.py`**: `McpToolClient` — single-call tool invocation. `McpToolClient.call_tool` opens a `streamable_http_client` connection per call, initialises a `ClientSession`, calls the tool, parses the JSON result, and closes the connection.
 - **`config.py`** (updated): added `EngineConfig` (`auto_start: bool = True`) and `ListenConfig` (`end_of_utterance_mode`, `trigger_words`, `initial_silence_timeout_s`, `end_of_speech_timeout_s`). Both are parsed from optional JSON blocks.
 - **`server.py`** (updated): `create_mcp_server` now accepts `listen_config`; added `listen` tool with `asyncio.Lock` concurrency guard; `run_server` conditionally calls `engine.start()` based on `config.engine.auto_start`.
 - **`asr_to_terminal.py`** (updated): removed `_contains_submit_word` private method; replaced with `speech_utils.contains_trigger_word(transcript, self._submit_words)`.

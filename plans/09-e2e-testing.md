@@ -50,7 +50,7 @@ Spec: [specs/e2e-testing.md](../specs/e2e-testing.md)
 - [x] Add `tests-e2e/fixtures/README.md` documenting the expected WAV format:
   16 kHz, mono, signed 16-bit PCM, content = "the sky is blue"
 
-### 5. Write `tests-e2e/test_file_asr.py`
+### 5. Write `tests-e2e/test_asr_resource_client.py`
 
 - [x] Helper `_normalize(text: str) -> str`: lowercase + strip non-`[a-z0-9 ]`
 - [x] Helper `_load_api_key() -> str`: parse `config.json` at repo root
@@ -60,12 +60,7 @@ Spec: [specs/e2e-testing.md](../specs/e2e-testing.md)
   - Call `create_mcp_server(engine)` → get `FastMCP`
   - Start uvicorn in a background task; wait for `server.started`
   - Start the engine
-  - Run inline MCP client:
-    - Connect with `streamable_http_client`
-    - Subscribe to `asr://result`
-    - On each `ResourceUpdatedNotification`: fetch resource, collect payload,
-      set `final_event` if `is_final=True`
-    - Await `final_event`
+  - Run `AsrResourceClient` to subscribe to `asr://result`; await first final event
   - Wrap with `asyncio.wait_for(timeout=30.0)`
   - Teardown: stop engine, set `server.should_exit = True`, await server task
   - Assert at least one final result received

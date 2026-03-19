@@ -24,7 +24,8 @@ asr-mcp/
         ├── audio.py                 # Audio capture (sounddevice, thread + asyncio.Queue)
         ├── config.py                # Config loading and validation (dataclasses)
         ├── cli.py                   # Entry point for the server (argparse)
-        ├── client.py                # Library: AsrMcpClient (resource subscription) + McpToolClient (tool calls)
+        ├── resource_client.py       # AsrResourceClient: subscribe to asr://result
+        ├── tool_client.py           # McpToolClient: single-call MCP tool invocation
         ├── asr_resource_client.py   # Demo CLI: subscribe to asr://result, log results
         ├── speech_utils.py          # contains_trigger_word() — shared trigger word detection
         ├── listen_session.py        # ListenSession + ListenResult — end-of-utterance state machine

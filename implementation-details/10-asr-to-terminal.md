@@ -5,7 +5,7 @@
 Two new source files and their tests:
 
 - `src/asr_mcp/terminal_typer.py` — `TerminalTyper`: thin async wrapper over `xdotool` (X11) and `ydotool` (Wayland) for keystroke injection (`type_text`, `backspace`, `send_enter`).
-- `src/asr_mcp/asr_to_terminal.py` — `AsrToTerminal`: progressive text-injection state machine that owns a `TerminalTyper` and an `AsrMcpClient`. Also contains `main()` CLI.
+- `src/asr_mcp/asr_to_terminal.py` — `AsrToTerminal`: progressive text-injection state machine that owns a `TerminalTyper` and an `AsrResourceClient`. Also contains `main()` CLI.
 - `tests/test_asr_to_terminal.py` — 14 unit tests covering resolution logic, submit-word detection, and all state machine branches.
 - `tests-e2e/test_asr_to_terminal.py` — two real e2e tests using xterm + xdotool.
 - `tests-e2e/fixtures/sample_submit.wav` — pre-recorded TTS fixture (16 kHz, mono, 16-bit PCM) containing `"the sky is blue validate"`.

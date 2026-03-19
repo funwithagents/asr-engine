@@ -30,7 +30,7 @@ word detection, plus a real e2e test driven by audio fixtures.
 
 - [x] Implement `AsrToTerminal.__init__`:
   - Accept `server_url`, `submit_words`, `display_server`
-  - Instantiate `TerminalTyper` and `AsrMcpClient`
+  - Instantiate `TerminalTyper` and `AsrResourceClient`
   - Initialise `_pending: str = ""`
 - [x] Implement `_contains_submit_word(transcript: str) -> bool`:
   - Case-insensitive substring match against each word in `submit_words`
@@ -40,7 +40,7 @@ word detection, plus a real e2e test driven by audio fixtures.
   - **Final — submit word:** backspace `len(_pending)`, send Enter, reset `_pending = ""`
   - **Final — no submit word:** backspace `len(_pending)`, type transcript, reset `_pending = ""`
   - Log each case to stderr
-- [x] Implement `async start()` / `async stop()` delegating to `AsrMcpClient`
+- [x] Implement `async start()` / `async stop()` delegating to `AsrResourceClient`
 - [x] Implement `main()`:
   - Parse `--server`, `--submit-words` (nargs=`+`), `--display-server`
   - When `--submit-words` absent use the built-in default list
@@ -74,7 +74,7 @@ All `TerminalTyper` calls mocked; suite must complete in < 5 s.
 ### 5. E2E tests (`tests-e2e/test_asr_to_terminal.py`)
 
 Follows the same `FileAudioSource → ASREngine → MCP server → AsrToTerminal`
-chain as `test_file_asr.py`. Requires `xdotool` and a live X11 display.
+chain as `test_asr_resource_client.py`. Requires `xdotool` and a live X11 display.
 
 **Text injection test** (`test_e2e_terminal_typing`):
 

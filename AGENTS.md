@@ -61,7 +61,8 @@ asr-mcp/
 │       ├── engine.py                 # ASREngine: wires audio + module, start/stop
 │       ├── server.py                 # MCP server: resource, tools, StreamableHTTP, listen tool
 │       ├── resource_subscriber.py    # ResourceSubscriber: generic MCP resource watcher
-│       ├── client.py                 # Pure library: AsrMcpClient + McpToolClient
+│       ├── resource_client.py        # AsrResourceClient: subscribe to asr://result
+│       ├── tool_client.py            # McpToolClient: single-call MCP tool invocation
 │       ├── asr_resource_client.py    # Demo CLI: subscribe to asr://result, log results
 │       ├── speech_utils.py           # contains_trigger_word() — shared trigger word detection
 │       ├── listen_session.py         # ListenSession + ListenResult: end-of-utterance logic
@@ -90,7 +91,8 @@ asr-mcp/
     │   ├── sample.wav                # WAV fixture: 16kHz mono s16 PCM, content = "the sky is blue"
     │   ├── sample_submit.wav         # WAV fixture: same format, content = "the sky is blue validate"
     │   └── README.md                 # Fixture format documentation
-    ├── test_file_asr.py              # FileAudioSource → ASREngine → MCP server → MCP client
+    ├── test_asr_resource_client.py   # FileAudioSource → ASREngine → MCP server → AsrResourceClient
+    ├── test_mcp_tool_client.py       # FileAudioSource → ASREngine → MCP server → McpToolClient (listen tool)
     └── test_asr_to_terminal.py       # ASREngine → MCP server → AsrToTerminal → xterm (requires xdotool + X11)
 ```
 
@@ -110,10 +112,11 @@ uv run pytest tests-e2e/                              # E2E tests only (requires
 | Suite | Location | What it covers | External deps |
 |-------|----------|----------------|---------------|
 | Unit tests | `tests/` | Config, audio capture, engine, MCP server, client, ASR modules, AsrToTerminal — all in-process, no network | None |
-| E2E ASR tests | `tests-e2e/test_file_asr.py` | Full pipeline: `FileAudioSource` → `ASREngine` → in-process uvicorn MCP server → in-process MCP client → transcript assertion | Real Deepgram API (API key in `config.json`) |
+| E2E ASR tests | `tests-e2e/test_asr_resource_client.py` | Full pipeline: `FileAudioSource` → `ASREngine` → in-process uvicorn MCP server → `AsrResourceClient` → transcript assertion | Real Deepgram API (API key in `config.json`) |
+| E2E listen tool tests | `tests-e2e/test_mcp_tool_client.py` | Same pipeline → `McpToolClient` `listen` tool (trigger_word and timeout modes) | Real Deepgram API (API key in `config.json`) |
 | E2E terminal tests | `tests-e2e/test_asr_to_terminal.py` | Same pipeline → `AsrToTerminal` → `xdotool` → `xterm` → file assertion | Real Deepgram API + `xdotool` + `xterm` + live X11 display |
 
-E2E ASR tests feed `tests-e2e/fixtures/sample.wav` (*"the sky is blue"*) through the pipeline. E2E terminal tests additionally drive keystroke injection into an xterm window and verify the typed output.
+E2E ASR tests feed `tests-e2e/fixtures/sample.wav` (*"the sky is blue"*) through the pipeline. E2E listen tool tests cover trigger_word and timeout end-of-utterance modes. E2E terminal tests additionally drive keystroke injection into an xterm window and verify the typed output.
 
 ## System dependencies for e2e terminal tests
 

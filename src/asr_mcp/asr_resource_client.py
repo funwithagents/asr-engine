@@ -4,7 +4,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 
-from asr_mcp.client import AsrMcpClient
+from asr_mcp.resource_client import AsrResourceClient
 
 _DEFAULT_SERVER = "http://127.0.0.1:8000/mcp"
 
@@ -23,11 +23,11 @@ def _format_result(payload: dict) -> str:
 
 
 async def _run_client(server_url: str) -> None:
-    """Start an AsrMcpClient and run until cancelled."""
+    """Start an AsrResourceClient and run until cancelled."""
     async def _on_event(payload: dict) -> None:
         print(_format_result(payload), flush=True)
 
-    client = AsrMcpClient(server_url, _on_event)
+    client = AsrResourceClient(server_url, _on_event)
     await client.start()
     try:
         await asyncio.sleep(float("inf"))

@@ -102,9 +102,9 @@ Specs: [mcp-server.md](../specs/mcp-server.md), [configuration.md](../specs/conf
 
 ### 5. Split `client.py`: extract demo CLI into `asr_resource_client.py`
 
-`client.py` currently acts as both a library module and a demo CLI entry point.
-Adding `McpToolClient` alongside `AsrMcpClient` makes this a clean library; the
-resource-subscribing CLI should live in its own explicitly named file.
+`client.py` previously acted as both a library module and a demo CLI entry point.
+It has since been fully split: the demo CLI lives in `asr_resource_client.py`, the
+resource subscription class in `resource_client.py`, and the tool client in `tool_client.py`.
 
 - [x] Create `src/asr_mcp/asr_resource_client.py`:
   - Move `_format_result`, `_run_client`, and `main()` from `client.py` into this file
@@ -117,15 +117,15 @@ resource-subscribing CLI should live in its own explicitly named file.
 
 ---
 
-### 6. `McpToolClient` (`client.py`)
+### 6. `McpToolClient` (`tool_client.py`)
 
-The existing `AsrMcpClient` covers long-lived resource subscriptions. A separate
-`McpToolClient` handles the complementary pattern: connect, call a tool once,
+`AsrResourceClient` (`resource_client.py`) covers long-lived resource subscriptions. A separate
+`McpToolClient` (`tool_client.py`) handles the complementary pattern: connect, call a tool once,
 return the parsed result, disconnect. This is the right client for `listen` (and
 for any programmatic caller that wants to invoke `start`, `stop`, or `is_running`
 without subscribing to events).
 
-- [x] Add `McpToolClient` to `src/asr_mcp/client.py`:
+- [x] Create `src/asr_mcp/tool_client.py` with `McpToolClient`:
   - `__init__(self, server_url: str)`
   - `async call_tool(self, name: str, arguments: dict | None = None) -> dict`:
     - Open a `streamable_http_client` connection
@@ -168,7 +168,7 @@ without subscribing to events).
 
 ---
 
-### 9. E2E tests for `listen` (`tests-e2e/test_file_asr.py`)
+### 9. E2E tests for `listen` (`tests-e2e/test_mcp_tool_client.py`)
 
 Uses `McpToolClient` to call the `listen` tool. The server is started with
 `auto_start=false`; the tool manages the engine lifecycle internally, so no
@@ -180,13 +180,13 @@ resource subscription is needed on the test side.
   - Server config: `auto_start=false`, `end_of_utterance_mode="trigger_word"`,
     `trigger_words=["validate"]`
   - Audio fixture: `sample_submit.wav` (*"the sky is blue validate"*)
-  - Call `listen` tool via `McpToolClient`
+  - Call `listen` tool via `McpToolClient` (from `tool_client.py`)
   - Assert `transcript == "the sky is blue"` and `end_reason == "trigger_word"`
 - [x] Add `test_e2e_listen_timeout`:
   - Server config: `auto_start=false`, `end_of_utterance_mode="timeout"`,
     `end_of_speech_timeout_s=2.0` (low value for test speed)
   - Audio fixture: `sample.wav` (*"the sky is blue"*)
-  - Call `listen` tool via `McpToolClient`
+  - Call `listen` tool via `McpToolClient` (from `tool_client.py`)
   - Assert `transcript == "the sky is blue"` and `end_reason == "end_of_speech_timeout"`
 
 ---
@@ -208,11 +208,11 @@ built and patch any gaps.
   - Add `asr_resource_client.py` — resource-subscribing CLI (replaces `client.py` CLI)
   - Add `speech_utils.py` — shared trigger word detection
   - Add `listen_session.py` — `ListenSession` and `ListenResult`
-  - Update `client.py` description: now a pure library (`AsrMcpClient` + `McpToolClient`)
+  - Replace `client.py` with `resource_client.py` (`AsrResourceClient`) and `tool_client.py` (`McpToolClient`)
   - Update entry point: `asr-mcp-client = "asr_mcp.asr_resource_client:main"`
 - [x] Update `specs/demo-client.md`:
   - Update file name reference from `client.py` to `asr_resource_client.py`
-  - Add note that `client.py` is now the shared library module
+  - Add notes for `resource_client.py` and `tool_client.py`
 - [x] Update `specs/specs.md`:
   - Mark spec entries as implemented where applicable
 
@@ -248,7 +248,7 @@ After all code changes are done and working:
 - [x] Mark Plan 11 as done in `plans/plans.md`
 - [x] Update `AGENTS.md`:
   - Repository layout: add `asr_resource_client.py`, `speech_utils.py`, `listen_session.py`;
-    update `client.py` description to "pure library: AsrMcpClient + McpToolClient"
+    replace `client.py` with `resource_client.py` + `tool_client.py`; rename `AsrMcpClient` → `AsrResourceClient`
   - Entry points: update `asr-mcp-client` to point to `asr_resource_client:main`
   - Key design decisions: update the "Always-on" bullet to reflect `engine.auto_start`
     (default `true` preserves existing behaviour; `false` enables on-demand use via

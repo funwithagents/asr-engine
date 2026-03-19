@@ -39,7 +39,7 @@ the external tool and await completion).
 
 ### `AsrToTerminal`
 
-Owns an `AsrMcpClient` and a `TerminalTyper`. Implements the progressive text
+Owns an `AsrResourceClient` and a `TerminalTyper`. Implements the progressive text
 injection state machine.
 
 **Constructor parameters:**

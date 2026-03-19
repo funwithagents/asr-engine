@@ -41,7 +41,8 @@ Default server URL: `http://127.0.0.1:8080/mcp`
 ## Implementation Notes
 
 - Implemented in `src/asr_mcp/asr_resource_client.py` (CLI entry point)
-- `src/asr_mcp/client.py` is now the shared library module (`AsrMcpClient` + `McpToolClient`)
+- `src/asr_mcp/resource_client.py` — `AsrResourceClient`: resource subscription library class
+- `src/asr_mcp/tool_client.py` — `McpToolClient`: single-call tool invocation library class
 - Uses the official MCP Python SDK client
 - No config file needed — server URL passed as CLI argument (with a sensible default)
 - Minimal dependencies: only `mcp` SDK + standard library
