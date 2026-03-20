@@ -94,3 +94,11 @@ Create `src/asr_mcp/sound_feedback.py`:
   that need the new `audio_config` parameter (pass a default `AudioConfig()`).
 - [ ] `tests/test_config.py` — add assertions for `audio.output_device` and
   `listen.sound_feedback` parsing (defaults and explicit values).
+
+---
+
+### 8. E2E test — update existing listen tests
+
+- [ ] In `tests-e2e/test_mcp_tool_client.py`, add `"sound_feedback": true` to
+  the `listen_config` dict of all existing listen tests so sound feedback is
+  exercised explicitly.

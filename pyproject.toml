@@ -23,6 +23,9 @@ asr-to-terminal = "asr_mcp.asr_to_terminal:main"
 requires = ["uv_build>=0.9.28,<0.10.0"]
 build-backend = "uv_build"
 
+[tool.uv_build]
+include = ["src/asr_mcp/sounds/*.wav"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests", "tests-e2e"]
 pythonpath = ["tests-e2e"]

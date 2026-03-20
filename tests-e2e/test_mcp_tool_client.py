@@ -29,7 +29,7 @@ async def test_e2e_listen_trigger_word() -> None:
         {"api_key": api_key, "model": "nova-3"},
         port=18003,
         engine_config={"auto_start": False},
-        listen_config={"end_of_utterance_mode": "trigger_word", "trigger_words": ["validate"]},
+        listen_config={"end_of_utterance_mode": "trigger_word", "trigger_words": ["validate"], "sound_feedback": True},
     )
     try:
         client = McpToolClient(f"http://127.0.0.1:18003/mcp")
@@ -55,7 +55,7 @@ async def test_e2e_listen_streaming() -> None:
         {"api_key": api_key, "model": "nova-3"},
         port=18005,
         engine_config={"auto_start": False},
-        listen_config={"end_of_utterance_mode": "timeout", "end_of_speech_timeout_s": 2.0},
+        listen_config={"end_of_utterance_mode": "timeout", "end_of_speech_timeout_s": 2.0, "sound_feedback": True},
     )
     try:
         received_messages: list[str] = []
@@ -85,7 +85,7 @@ async def test_e2e_listen_timeout() -> None:
         {"api_key": api_key, "model": "nova-3"},
         port=18004,
         engine_config={"auto_start": False},
-        listen_config={"end_of_utterance_mode": "timeout", "end_of_speech_timeout_s": 2.0},
+        listen_config={"end_of_utterance_mode": "timeout", "end_of_speech_timeout_s": 2.0, "sound_feedback": True},
     )
     try:
         client = McpToolClient(f"http://127.0.0.1:18004/mcp")

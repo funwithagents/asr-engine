@@ -123,6 +123,8 @@ def test_load_config_engine_and_listen_defaults(tmp_path: Path) -> None:
     assert cfg.listen.initial_silence_timeout_s == 10.0
     assert cfg.listen.end_of_speech_timeout_s == 5.0
     assert "submit" in cfg.listen.trigger_words
+    assert cfg.listen.sound_feedback is True
+    assert cfg.audio.output_device is None
 
 
 def test_load_config_auto_start_false(tmp_path: Path) -> None:
@@ -148,6 +150,16 @@ def test_load_config_custom_trigger_words(tmp_path: Path) -> None:
     )
     cfg = load_config(path)
     assert cfg.listen.trigger_words == ["go", "send"]
+
+
+def test_load_config_sound_feedback_and_output_device(tmp_path: Path) -> None:
+    path = write_config(
+        tmp_path,
+        {"asr": {"type": "x"}, "audio": {"output_device": "speakers"}, "listen": {"sound_feedback": False}},
+    )
+    cfg = load_config(path)
+    assert cfg.audio.output_device == "speakers"
+    assert cfg.listen.sound_feedback is False
 
 
 def test_load_config_invalid_end_of_utterance_mode(tmp_path: Path) -> None:

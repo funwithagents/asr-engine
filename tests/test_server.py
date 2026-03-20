@@ -277,6 +277,7 @@ def _listen_config(**kwargs) -> ListenConfig:
         trigger_words=["validate"],
         initial_silence_timeout_s=10.0,
         end_of_speech_timeout_s=5.0,
+        sound_feedback=False,
     )
     defaults.update(kwargs)
     return ListenConfig(**defaults)

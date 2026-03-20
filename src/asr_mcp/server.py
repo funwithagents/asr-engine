@@ -10,15 +10,20 @@ import uvicorn
 from mcp.server.fastmcp import Context, FastMCP
 from pydantic import AnyUrl
 
-from asr_mcp.config import AppConfig, ListenConfig
+from asr_mcp.config import AppConfig, AudioConfig, ListenConfig
 from asr_mcp.engine import ASREngine
 from asr_mcp.end_of_utterance_detector import EndOfUtteranceDetector
 from asr_mcp.modules.base import ASRResult
+from asr_mcp.sound_feedback import NoOpSoundFeedback, SoundFeedback
 
 _RESOURCE_URI = "asr://result"
 
 
-def create_mcp_server(engine: ASREngine, listen_config: ListenConfig | None = None) -> FastMCP:
+def create_mcp_server(
+    engine: ASREngine,
+    listen_config: ListenConfig | None = None,
+    audio_config: AudioConfig | None = None,
+) -> FastMCP:
     """Create the FastMCP server wired to *engine*.
 
     Side-effect: replaces ``engine._on_result`` with the MCP result callback
@@ -27,6 +32,14 @@ def create_mcp_server(engine: ASREngine, listen_config: ListenConfig | None = No
     if listen_config is None:
         from asr_mcp.config import ListenConfig as _LC  # noqa: PLC0415
         listen_config = _LC()
+    if audio_config is None:
+        from asr_mcp.config import AudioConfig as _AC  # noqa: PLC0415
+        audio_config = _AC()
+
+    if listen_config.sound_feedback:
+        sound_feedback = SoundFeedback(output_device=audio_config.output_device)
+    else:
+        sound_feedback = NoOpSoundFeedback()
 
     _current_result: dict[str, Any] = {
         "transcript": "",
@@ -109,11 +122,13 @@ def create_mcp_server(engine: ASREngine, listen_config: ListenConfig | None = No
             )
             original_callback = engine._on_result
             engine._on_result = session.on_result
+            await sound_feedback.play_start()
             await engine.start()
             try:
                 result = await session.wait()
             finally:
                 await engine.stop()
+                await sound_feedback.play_stop()
                 engine._on_result = original_callback
 
             return {"transcript": result.transcript, "end_reason": result.end_reason}
@@ -158,7 +173,7 @@ async def run_server(config: AppConfig) -> None:
     else:
         engine = ASREngine(config.audio, config.asr, _noop)
 
-    mcp = create_mcp_server(engine, config.listen)
+    mcp = create_mcp_server(engine, config.listen, config.audio)
 
     if config.engine.auto_start:
         await engine.start()

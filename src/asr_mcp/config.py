@@ -19,6 +19,7 @@ class ServerConfig:
 @dataclass
 class AudioConfig:
     device: str | None = None
+    output_device: str | None = None
     audio_file: str | None = None
     trailing_silence_s: float = 0.0
 
@@ -40,6 +41,7 @@ class ListenConfig:
     trigger_words: list[str] = field(default_factory=lambda: list(_DEFAULT_TRIGGER_WORDS))
     initial_silence_timeout_s: float = 10.0
     end_of_speech_timeout_s: float = 5.0
+    sound_feedback: bool = True
 
 
 @dataclass
@@ -73,6 +75,7 @@ def load_config(path: str) -> AppConfig:
     audio_data = data.get("audio", {})
     audio = AudioConfig(
         device=audio_data.get("device", None),
+        output_device=audio_data.get("output_device", None),
         audio_file=audio_data.get("audio_file", None),
         trailing_silence_s=audio_data.get("trailing_silence_s", 0.0),
     )
@@ -103,6 +106,7 @@ def load_config(path: str) -> AppConfig:
         trigger_words=trigger_words,
         initial_silence_timeout_s=listen_data.get("initial_silence_timeout_s", 10.0),
         end_of_speech_timeout_s=listen_data.get("end_of_speech_timeout_s", 5.0),
+        sound_feedback=listen_data.get("sound_feedback", True),
     )
 
     return AppConfig(server=server, audio=audio, asr=asr, engine=engine, listen=listen)
