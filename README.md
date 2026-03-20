@@ -32,6 +32,15 @@ The single rolling resource holding the latest ASR utterance. Updated on every i
 
 ---
 
+## Prerequisites
+
+- Python 3.11+
+- [`uv`](https://docs.astral.sh/uv/)
+- A [Deepgram](https://deepgram.com) API key
+- For `asr-to-terminal`: `xdotool` (X11) or `ydotool` (Wayland)
+
+---
+
 ## Installation
 
 ```bash
