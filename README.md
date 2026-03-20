@@ -66,7 +66,8 @@ cp config.example.json config.json
     "port": 8000
   },
   "audio": {
-    "device": null
+    "device": null,
+    "output_device": null
   },
   "asr": {
     "type": "deepgram_v2",
@@ -80,7 +81,8 @@ cp config.example.json config.json
     "end_of_utterance_mode": "trigger_word",
     "trigger_words": ["submit", "validate", "send"],
     "initial_silence_timeout_s": 10.0,
-    "end_of_speech_timeout_s": 5.0
+    "end_of_speech_timeout_s": 5.0,
+    "sound_feedback": true
   }
 }
 ```
@@ -99,6 +101,7 @@ cp config.example.json config.json
 | Field | Default | Description |
 |---|---|---|
 | `device` | `null` | Audio input device name or index. `null` = system default |
+| `output_device` | `null` | Audio output device for sound feedback playback. `null` = system default |
 
 #### `asr`
 
@@ -125,6 +128,7 @@ cp config.example.json config.json
 | `trigger_words` | see above | Words that end the session in `trigger_word` mode |
 | `initial_silence_timeout_s` | `10.0` | (`timeout` mode) Seconds with no speech before giving up |
 | `end_of_speech_timeout_s` | `5.0` | (`timeout` mode) Seconds of silence after last event before ending |
+| `sound_feedback` | `true` | Play audio cues at `listen` start and stop. Set to `false` to disable. |
 
 ---
 
