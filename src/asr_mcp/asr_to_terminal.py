@@ -30,14 +30,14 @@ class AsrToTerminal:
     def __init__(
         self,
         server_url: str = _DEFAULT_SERVER,
-        trigger_words: list[str] | None = None,
         display_server: str | None = None,
         mode: str = "trigger_word",
+        trigger_words: list[str] | None = None,
         end_of_speech_timeout_s: float = 5.0,
         initial_silence_timeout_s: float = 10.0,
     ) -> None:
-        self._trigger_words = trigger_words if trigger_words is not None else _DEFAULT_TRIGGER_WORDS
         self._mode = mode
+        self._trigger_words = trigger_words if trigger_words is not None else _DEFAULT_TRIGGER_WORDS
         self._end_of_speech_timeout_s = end_of_speech_timeout_s
         self._initial_silence_timeout_s = initial_silence_timeout_s
         self._typer = TerminalTyper(display_server)
@@ -117,19 +117,19 @@ class AsrToTerminal:
 
 async def _run(
     server_url: str,
-    trigger_words: list[str] | None,
     display_server: str | None,
     mode: str,
+    trigger_words: list[str] | None,
     end_of_speech_timeout_s: float,
     initial_silence_timeout_s: float,
 ) -> None:
     asr_to_terminal = AsrToTerminal(
-        server_url,
-        trigger_words,
-        display_server,
-        mode,
-        end_of_speech_timeout_s,
-        initial_silence_timeout_s,
+        server_url=server_url,
+        display_server=display_server,
+        mode=mode,
+        trigger_words=trigger_words,
+        end_of_speech_timeout_s=end_of_speech_timeout_s,
+        initial_silence_timeout_s=initial_silence_timeout_s,
     )
     await asr_to_terminal.start()
     print(f"[INFO] Connected to {server_url}", file=sys.stderr)
@@ -147,17 +147,23 @@ def main() -> None:
         help=f"MCP server URL (default: {_DEFAULT_SERVER})",
     )
     parser.add_argument(
-        "--trigger-words",
-        nargs="+",
+        "--display-server",
+        choices=["x11", "wayland"],
         default=None,
-        metavar="WORD",
-        help="Words that trigger Enter instead of typing (replaces built-in defaults)",
+        help="Display server to use (default: auto-detect via $XDG_SESSION_TYPE)",
     )
     parser.add_argument(
         "--mode",
         choices=["trigger_word", "timeout"],
         default="trigger_word",
         help="End-of-utterance mode (default: trigger_word)",
+    )
+    parser.add_argument(
+        "--trigger-words",
+        nargs="+",
+        default=None,
+        metavar="WORD",
+        help="Words that trigger Enter instead of typing (replaces built-in defaults)",
     )
     parser.add_argument(
         "--end-of-speech-timeout",
@@ -173,22 +179,16 @@ def main() -> None:
         metavar="SECONDS",
         help="Seconds of initial silence before giving up (timeout mode, default: 10.0)",
     )
-    parser.add_argument(
-        "--display-server",
-        choices=["x11", "wayland"],
-        default=None,
-        help="Display server to use (default: auto-detect via $XDG_SESSION_TYPE)",
-    )
     args = parser.parse_args()
 
     try:
         asyncio.run(_run(
-            args.server,
-            args.trigger_words,
-            args.display_server,
-            args.mode,
-            args.end_of_speech_timeout,
-            args.initial_silence_timeout,
+            server_url=args.server,
+            display_server=args.display_server,
+            mode=args.mode,
+            trigger_words=args.trigger_words,
+            end_of_speech_timeout_s=args.end_of_speech_timeout,
+            initial_silence_timeout_s=args.initial_silence_timeout,
         ))
     except KeyboardInterrupt:
         print("[INFO] Disconnected", file=sys.stderr)
