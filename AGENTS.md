@@ -66,8 +66,12 @@ asr-mcp/
 │       ├── asr_resource_client.py    # Demo CLI: subscribe to asr://result, log results
 │       ├── speech_utils.py           # contains_trigger_word() — shared trigger word detection
 │       ├── end_of_utterance_detector.py  # EndOfUtteranceDetector + UtteranceResult: end-of-utterance logic
+│       ├── sound_feedback.py         # SoundFeedback + NoOpSoundFeedback: WAV cue playback for listen tool
 │       ├── terminal_typer.py         # TerminalTyper: xdotool/ydotool keystroke injection
 │       ├── asr_to_terminal.py        # AsrToTerminal state machine + asr-to-terminal CLI
+│       ├── sounds/
+│       │   ├── feedback_asr_start.wav  # played when listen begins
+│       │   └── feedback_asr_stop.wav   # played when listen ends
 │       └── modules/
 │           ├── __init__.py      # REGISTRY + load_module()
 │           ├── base.py          # ASRModule ABC, ASRResult dataclass
@@ -83,6 +87,7 @@ asr-mcp/
 │   ├── test_client.py
 │   ├── test_cli.py
 │   ├── test_asr_to_terminal.py
+│   ├── test_sound_feedback.py
 │   └── modules/
 │       ├── test_deepgram_v1.py
 │       └── test_deepgram_v2.py

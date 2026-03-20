@@ -17,6 +17,6 @@ Plans are meant to be executed in order. Each plan builds on the previous ones.
 | 11 | [Listen Tool](11-listen-tool.md) | `auto_start` config, `speech_utils`, `ListenSession`, `listen` tool, e2e tests | done |
 | 12 | [Listen Streaming](12-listen-streaming.md) | Progress notifications for `listen` tool: `on_final_committed` callback, `ctx: Context`, `progress_callback` in `McpToolClient` | done |
 | 13 | [EndOfUtteranceDetector](13-end-of-utterance-detector.md) | Rename `ListenSession` → `EndOfUtteranceDetector`, wire into `AsrToTerminal` with `trigger_word`/`timeout` mode support | done |
-| 14 | [Sound Feedback](14-sound-feedback.md) | Play bundled WAV cues at `listen` start/stop; `audio.output_device` config; `SoundFeedback` module | not started |
+| 14 | [Sound Feedback](14-sound-feedback.md) | Play bundled WAV cues at `listen` start/stop; `audio.output_device` config; `SoundFeedback` module | done |
 
 **Legend:** not started · in progress · done

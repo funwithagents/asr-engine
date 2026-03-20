@@ -18,6 +18,7 @@ Each file explains non-obvious choices, gotchas, and deviations from the origina
 | 11 — Listen Tool | [11-listen-tool.md](11-listen-tool.md) | speech_utils, ListenSession, McpToolClient, auto_start, listen tool, asr_resource_client | yes |
 | 12 — Listen Streaming | [12-listen-streaming.md](12-listen-streaming.md) | Progress notifications for listen: on_final_committed, ctx: Context, progress_callback | yes |
 | 13 — EndOfUtteranceDetector | [13-end-of-utterance-detector.md](13-end-of-utterance-detector.md) | Rename ListenSession → EndOfUtteranceDetector, AsrToTerminal mode support | yes |
+| 14 — Sound Feedback | [14-sound-feedback.md](14-sound-feedback.md) | SoundFeedback/NoOpSoundFeedback, output_device + sound_feedback config, wired into listen tool | yes |
 
 **Legend:** no = not yet written · yes = written
 

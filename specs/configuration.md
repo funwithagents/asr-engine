@@ -17,7 +17,8 @@ uv run asr-mcp-server --config config.json
     "port": 8080
   },
   "audio": {
-    "device": null
+    "device": null,
+    "output_device": null
   },
   "asr": {
     "type": "<module_type>",
@@ -31,7 +32,8 @@ uv run asr-mcp-server --config config.json
     "trigger_words": ["submit", "enter", "validate", "send", "confirm", "go",
                       "envoyer", "valider", "confirmer", "soumettre", "entree", "entrée"],
     "initial_silence_timeout_s": 10.0,
-    "end_of_speech_timeout_s": 5.0
+    "end_of_speech_timeout_s": 5.0,
+    "sound_feedback": true
   }
 }
 ```
@@ -48,6 +50,7 @@ uv run asr-mcp-server --config config.json
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `device` | string or null | `null` | Audio input device name or index. `null` = system default |
+| `output_device` | string or null | `null` | Audio output device name or index for sound feedback playback. `null` = system default |
 
 ### `asr` block
 
@@ -72,6 +75,7 @@ Controls the behaviour of the `listen` MCP tool.
 | `trigger_words` | list of strings | see below | Words that end the session in `trigger_word` mode. Replaces the built-in default list entirely when specified. |
 | `initial_silence_timeout_s` | float | `10.0` | (`timeout` mode only) Seconds of silence from session start before giving up. |
 | `end_of_speech_timeout_s` | float | `5.0` | (`timeout` mode only) Seconds of silence after the last ASR event (interim or final) before ending the session. |
+| `sound_feedback` | boolean | `true` | Play start/stop audio cues during `listen`. Set to `false` to disable. |
 
 **Default trigger words:**
 ```
