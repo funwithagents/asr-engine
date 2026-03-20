@@ -196,9 +196,9 @@ All ASR results carry an `is_final` flag:
 
 The live MCP resource `asr://result` is updated on **every** result (interim and final). Clients that need only committed text should filter on `is_final: true`.
 
-### End-of-utterance detection (for the `listen` tool)
+### End-of-utterance detection
 
-The `listen` tool collects speech until an **end-of-utterance condition** is met. Two modes are available, configured in the `listen` block:
+Both the `listen` tool and `asr-to-terminal` use a shared end-of-utterance detector. Two modes are available:
 
 **`trigger_word` mode (default)**
 
@@ -284,14 +284,22 @@ The `AsrResourceClient` class ([src/asr_mcp/resource_client.py](src/asr_mcp/reso
 
 - **Interim results** are typed immediately and erased (via Backspace) when a new interim or final arrives — giving a live "typeahead" effect.
 - **Final results** replace the interim text with the committed transcript.
-- **Submit words** (configurable, same defaults as `listen` trigger words) erase the current interim and send Enter instead of typing the utterance.
+- **End-of-utterance** is detected by a background session loop that fires Enter once and immediately starts listening for the next utterance.
+
+Two end-of-utterance modes are supported (same semantics as the `listen` tool):
+
+| Mode | How Enter is fired |
+|---|---|
+| `trigger_word` (default) | When a final result contains one of the configured trigger words |
+| `timeout` | After a configurable silence following the last speech event |
 
 This makes it possible to dictate text directly into any terminal application using your voice.
 
 ```bash
 uv run asr-to-terminal
 uv run asr-to-terminal --server http://192.168.1.10:8000/mcp
-uv run asr-to-terminal --submit-words submit validate confirm
+uv run asr-to-terminal --trigger-words submit validate confirm
+uv run asr-to-terminal --mode timeout --end-of-speech-timeout 3.0
 uv run asr-to-terminal --display-server wayland
 ```
 
