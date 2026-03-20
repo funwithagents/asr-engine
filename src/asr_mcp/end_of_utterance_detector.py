@@ -1,4 +1,4 @@
-"""ListenSession: accumulates ASR results and signals end-of-utterance."""
+"""EndOfUtteranceDetector: accumulates ASR results and signals end-of-utterance."""
 from __future__ import annotations
 
 import asyncio
@@ -13,12 +13,12 @@ log = logging.getLogger(__name__)
 
 
 @dataclass
-class ListenResult:
+class UtteranceResult:
     transcript: str
     end_reason: str  # "trigger_word" | "end_of_speech_timeout" | "initial_silence_timeout"
 
 
-class ListenSession:
+class EndOfUtteranceDetector:
     """Accumulates final ASR results and signals when the utterance is complete.
 
     Two modes:
@@ -42,7 +42,7 @@ class ListenSession:
         self._on_final_committed = on_final_committed
         self._committed: list[str] = []
         self._done: asyncio.Event = asyncio.Event()
-        self._result: ListenResult | None = None
+        self._result: UtteranceResult | None = None
         self._received_any = False
         self._eos_timer_task: asyncio.Task | None = None
         self._initial_silence_task: asyncio.Task | None = None
@@ -63,7 +63,7 @@ class ListenSession:
             return  # Interim: reset timer only
 
         if self._mode == "trigger_word" and contains_trigger_word(result.transcript, self._trigger_words):
-            self._result = ListenResult(
+            self._result = UtteranceResult(
                 transcript=" ".join(self._committed),
                 end_reason="trigger_word",
             )
@@ -73,7 +73,7 @@ class ListenSession:
             if self._on_final_committed is not None:
                 await self._on_final_committed(" ".join(self._committed))
 
-    async def wait(self) -> ListenResult:
+    async def wait(self) -> UtteranceResult:
         """Wait until the session ends and return the accumulated result."""
         if self._mode == "timeout":
             self._initial_silence_task = asyncio.get_event_loop().create_task(
@@ -92,7 +92,7 @@ class ListenSession:
 
         assert self._result is not None
         self._result.transcript = " ".join(self._committed)
-        log.info("Listen session ended: end_reason=%s transcript=%r", self._result.end_reason, self._result.transcript)
+        log.info("Utterance ended: end_reason=%s transcript=%r", self._result.end_reason, self._result.transcript)
         return self._result
 
     async def _initial_silence_timer(self) -> None:
@@ -100,7 +100,7 @@ class ListenSession:
         try:
             await asyncio.sleep(self._initial_silence_timeout_s)
             if not self._received_any and not self._done.is_set():
-                self._result = ListenResult(transcript="", end_reason="initial_silence_timeout")
+                self._result = UtteranceResult(transcript="", end_reason="initial_silence_timeout")
                 self._done.set()
         except asyncio.CancelledError:
             pass
@@ -110,7 +110,7 @@ class ListenSession:
         try:
             await asyncio.sleep(self._end_of_speech_timeout_s)
             if not self._done.is_set():
-                self._result = ListenResult(
+                self._result = UtteranceResult(
                     transcript=" ".join(self._committed),
                     end_reason="end_of_speech_timeout",
                 )

@@ -9,7 +9,7 @@ import pytest
 
 from asr_mcp.config import AppConfig, ASRConfig, AudioConfig, EngineConfig, ListenConfig
 from asr_mcp.engine import ASREngine
-from asr_mcp.listen_session import ListenResult
+from asr_mcp.end_of_utterance_detector import UtteranceResult as ListenResult
 from asr_mcp.modules.base import ASRResult
 from asr_mcp.server import create_mcp_server, run_server
 
@@ -313,7 +313,7 @@ async def test_listen_concurrent_calls_blocked():
     fake_session.on_result = AsyncMock()
     fake_session.wait = _blocking_wait
 
-    with patch("asr_mcp.server.ListenSession", return_value=fake_session), \
+    with patch("asr_mcp.server.EndOfUtteranceDetector", return_value=fake_session), \
          patch("asr_mcp.engine.AudioCapture") as MockCapture:
         MockCapture.return_value.start.return_value = asyncio.Queue()
         first_task = asyncio.create_task(mcp.call_tool("listen", {}))
@@ -340,7 +340,7 @@ async def test_listen_trigger_word_success():
     fake_session.on_result = AsyncMock()
     fake_session.wait = AsyncMock(return_value=fake_result)
 
-    with patch("asr_mcp.server.ListenSession", return_value=fake_session), \
+    with patch("asr_mcp.server.EndOfUtteranceDetector", return_value=fake_session), \
          patch("asr_mcp.engine.AudioCapture") as MockCapture:
         MockCapture.return_value.start.return_value = asyncio.Queue()
         result = await mcp.call_tool("listen", {})
@@ -362,7 +362,7 @@ async def test_listen_timeout_mode_success():
     fake_session.on_result = AsyncMock()
     fake_session.wait = AsyncMock(return_value=fake_result)
 
-    with patch("asr_mcp.server.ListenSession", return_value=fake_session), \
+    with patch("asr_mcp.server.EndOfUtteranceDetector", return_value=fake_session), \
          patch("asr_mcp.engine.AudioCapture") as MockCapture:
         MockCapture.return_value.start.return_value = asyncio.Queue()
         result = await mcp.call_tool("listen", {})
@@ -384,7 +384,7 @@ async def test_listen_engine_stopped_on_exception():
 
     from mcp.server.fastmcp.exceptions import ToolError
 
-    with patch("asr_mcp.server.ListenSession", return_value=fake_session), \
+    with patch("asr_mcp.server.EndOfUtteranceDetector", return_value=fake_session), \
          patch("asr_mcp.engine.AudioCapture") as MockCapture:
         MockCapture.return_value.start.return_value = asyncio.Queue()
         with pytest.raises(ToolError, match="boom"):

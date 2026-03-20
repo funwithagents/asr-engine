@@ -12,7 +12,7 @@ from pydantic import AnyUrl
 
 from asr_mcp.config import AppConfig, ListenConfig
 from asr_mcp.engine import ASREngine
-from asr_mcp.listen_session import ListenSession
+from asr_mcp.end_of_utterance_detector import EndOfUtteranceDetector
 from asr_mcp.modules.base import ASRResult
 
 _RESOURCE_URI = "asr://result"
@@ -100,7 +100,7 @@ def create_mcp_server(engine: ASREngine, listen_config: ListenConfig | None = No
                     message=transcript,
                 )
 
-            session = ListenSession(
+            session = EndOfUtteranceDetector(
                 mode=listen_config.end_of_utterance_mode,
                 trigger_words=listen_config.trigger_words,
                 initial_silence_timeout_s=listen_config.initial_silence_timeout_s,
