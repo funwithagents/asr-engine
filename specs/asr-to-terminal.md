@@ -4,8 +4,10 @@
 
 `AsrToTerminal` bridges the ASR MCP client with the active terminal window: it
 types interim and final transcripts progressively, overwriting interim text as
-new results arrive, and triggers Enter (without typing the utterance) when a
-configurable submit word is detected.
+new results arrive, and sends Enter when the end of an utterance is detected.
+End-of-utterance detection is delegated to `EndOfUtteranceDetector`, which
+supports two modes: `trigger_word` (Enter fires when a submit word is spoken)
+and `timeout` (Enter fires after a configurable silence period).
 
 ---
 
@@ -39,18 +41,21 @@ the external tool and await completion).
 
 ### `AsrToTerminal`
 
-Owns an `AsrResourceClient` and a `TerminalTyper`. Implements the progressive text
-injection state machine.
+Owns an `AsrResourceClient`, a `TerminalTyper`, and a background session loop
+that drives `EndOfUtteranceDetector` instances (one per utterance).
 
 **Constructor parameters:**
 
-| Parameter        | Type        | Default                              |
-|------------------|-------------|--------------------------------------|
-| `server_url`     | `str`       | `"http://127.0.0.1:8080/mcp"`        |
-| `submit_words`   | `list[str]` | see *Default submit words* below     |
-| `display_server` | `str\|None` | `None` (auto-detect)                 |
+| Parameter                   | Type        | Default                              |
+|-----------------------------|-------------|--------------------------------------|
+| `server_url`                | `str`       | `"http://127.0.0.1:8000/mcp"`        |
+| `display_server`            | `str\|None` | `None` (auto-detect)                 |
+| `mode`                      | `str`       | `"trigger_word"`                     |
+| `trigger_words`             | `list[str]` | see *Default trigger words* below    |
+| `end_of_speech_timeout_s`   | `float`     | `5.0`                                |
+| `initial_silence_timeout_s` | `float`     | `10.0`                               |
 
-**Default submit words** (case-insensitive):
+**Default trigger words** (case-insensitive, only used in `trigger_word` mode):
 
 ```python
 ["submit", "enter", "validate", "send", "confirm", "go",
@@ -61,10 +66,16 @@ injection state machine.
 
 ## State Machine
 
-Two pieces of state are maintained:
+One piece of mutable state:
 
-- `_pending: str` — the interim text currently displayed in the terminal
-  (not yet committed). Reset to `""` after every final or Enter.
+- `_pending: str` — the interim text currently displayed in the terminal.
+  Reset to `""` after every final result or Enter.
+
+### On any ASR event
+
+Every event (interim and final) is forwarded to the current
+`EndOfUtteranceDetector` session via `session.on_result(result)` so that timers
+stay synchronised with the actual speech stream.
 
 ### On interim result
 
@@ -72,20 +83,34 @@ Two pieces of state are maintained:
 2. Type the new interim transcript.
 3. Set `_pending = new_transcript`.
 
-### On final result
+### On final result (no trigger word / no timeout yet)
 
-**Case A — transcript contains a submit word** (case-insensitive substring
-match, detected via `speech_utils.contains_trigger_word`):
+1. Send `len(_pending) - common_prefix_len` Backspace keystrokes.
+2. Type the suffix that differs.
+3. Set `_pending = ""` (text committed; next interim starts fresh).
 
-1. Send `len(_pending)` Backspace keystrokes (erase the interim).
-2. Send Enter.
-3. Set `_pending = ""`.
+### Session loop (background task)
 
-**Case B — no submit word:**
+Runs continuously while `AsrToTerminal` is active:
 
-1. Send `len(_pending)` Backspace keystrokes.
-2. Type the final transcript.
-3. Set `_pending = ""` (text is now committed; next interim starts fresh).
+1. Create a new `EndOfUtteranceDetector` for the current utterance.
+2. `await session.wait()` — blocks until end-of-utterance is signalled.
+3. Erase `_pending` (send `len(_pending)` Backspaces).
+4. Send Enter.
+5. Set `_pending = ""`.
+6. Go to step 1 (start the next utterance).
+
+#### `trigger_word` mode
+
+The session ends when a final result contains a submit word. The submit word
+utterance is not typed (the trigger detection fires before the text would be
+committed). All preceding finals have already been typed progressively.
+
+#### `timeout` mode
+
+The session ends after `end_of_speech_timeout_s` seconds of silence following
+the last ASR event (or `initial_silence_timeout_s` if nothing was heard at all).
+Enter fires automatically after the silence elapses.
 
 > **Note on character counting:** backspace count is based on `len(str)` (Unicode
 > code points). Display-width issues (CJK wide chars, combining chars) are out of
@@ -96,16 +121,23 @@ match, detected via `speech_utils.contains_trigger_word`):
 ## CLI
 
 ```
-asr-to-terminal [--server URL] [--submit-words WORD ...] [--display-server x11|wayland]
+asr-to-terminal [--server URL] [--display-server x11|wayland]
+                [--mode trigger_word|timeout] [--trigger-words WORD ...]
+                [--end-of-speech-timeout SECONDS] [--initial-silence-timeout SECONDS]
 ```
 
-| Flag               | Default                              |
-|--------------------|--------------------------------------|
-| `--server`         | `http://127.0.0.1:8080/mcp`          |
-| `--submit-words`   | (built-in defaults, see above)       |
-| `--display-server` | auto-detect via `$XDG_SESSION_TYPE`  |
+| Flag                        | Default                              |
+|-----------------------------|--------------------------------------|
+| `--server`                  | `http://127.0.0.1:8000/mcp`          |
+| `--display-server`          | auto-detect via `$XDG_SESSION_TYPE`  |
+| `--mode`                    | `trigger_word`                       |
+| `--trigger-words`           | (built-in defaults, see above)       |
+| `--end-of-speech-timeout`   | `5.0`                                |
+| `--initial-silence-timeout` | `10.0`                               |
 
-When `--submit-words` is provided it **replaces** the default list entirely.
+When `--trigger-words` is provided it **replaces** the default list entirely.
+`--trigger-words`, `--end-of-speech-timeout`, and `--initial-silence-timeout`
+are only active in `trigger_word` and `timeout` modes respectively.
 
 ---
 
@@ -129,14 +161,16 @@ session or interfere with injected keystrokes.
 
 ```
 src/asr_mcp/
-    speech_utils.py       # contains_trigger_word() — shared with listen tool
-    terminal_typer.py     # TerminalTyper
-    asr_to_terminal.py    # AsrToTerminal + main()
+    speech_utils.py                  # contains_trigger_word() — shared with listen tool
+    terminal_typer.py                # TerminalTyper
+    end_of_utterance_detector.py     # EndOfUtteranceDetector + UtteranceResult
+    asr_to_terminal.py               # AsrToTerminal + main()
 ```
 
-`AsrToTerminal` uses `speech_utils.contains_trigger_word` for submit word
-detection instead of a private method. The submit word list it passes remains
-independent from the `listen` tool's trigger word list.
+`AsrToTerminal` delegates end-of-utterance logic to `EndOfUtteranceDetector`
+(see [end-of-utterance-detector.md](end-of-utterance-detector.md)). The submit
+word list passed to `EndOfUtteranceDetector` remains independent from the
+`listen` tool's trigger word list.
 
 Entry point registered in `pyproject.toml`:
 

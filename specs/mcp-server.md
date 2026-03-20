@@ -202,29 +202,31 @@ async def on_progress(progress: float, total: float | None, message: str | None)
 result = await client.call_tool("listen", progress_callback=on_progress)
 ```
 
-#### Internal implementation: `ListenSession`
+#### Internal implementation: `EndOfUtteranceDetector`
 
-The session logic lives in a `ListenSession` class used by the `listen` tool
-handler in `server.py`:
+The session logic lives in `EndOfUtteranceDetector`, a shared class also used
+by `AsrToTerminal`. See [end-of-utterance-detector.md](end-of-utterance-detector.md)
+for the full specification.
 
 ```python
-class ListenSession:
+class EndOfUtteranceDetector:
     def __init__(
         self,
         mode: str,                         # "trigger_word" or "timeout"
         trigger_words: list[str],
         initial_silence_timeout_s: float,  # timeout mode only
         end_of_speech_timeout_s: float,    # timeout mode only
+        on_final_committed: ...,           # optional streaming callback
     ) -> None: ...
 
     async def on_result(self, result: ASRResult) -> None:
         """Feed an ASR result into the session."""
 
-    async def wait(self) -> ListenResult:
+    async def wait(self) -> UtteranceResult:
         """Block until the session ends and return the result."""
 ```
 
-`ListenResult` is a dataclass with fields `transcript: str` and `end_reason: str`.
+`UtteranceResult` is a dataclass with fields `transcript: str` and `end_reason: str`.
 
 #### Shared trigger word detection
 

@@ -16,5 +16,6 @@ Plans are meant to be executed in order. Each plan builds on the previous ones.
 | 10 | [ASR to Terminal](10-asr-to-terminal.md) | TerminalTyper, AsrToTerminal state machine, unit tests, e2e tests | done |
 | 11 | [Listen Tool](11-listen-tool.md) | `auto_start` config, `speech_utils`, `ListenSession`, `listen` tool, e2e tests | done |
 | 12 | [Listen Streaming](12-listen-streaming.md) | Progress notifications for `listen` tool: `on_final_committed` callback, `ctx: Context`, `progress_callback` in `McpToolClient` | done |
+| 13 | [EndOfUtteranceDetector](13-end-of-utterance-detector.md) | Rename `ListenSession` → `EndOfUtteranceDetector`, wire into `AsrToTerminal` with `trigger_word`/`timeout` mode support | not started |
 
 **Legend:** not started · in progress · done
