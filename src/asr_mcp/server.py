@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 import uvicorn
-from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp import Context, FastMCP
 from pydantic import AnyUrl
 
 from asr_mcp.config import AppConfig, ListenConfig
@@ -85,7 +85,7 @@ def create_mcp_server(engine: ASREngine, listen_config: ListenConfig | None = No
         return engine.status()
 
     @mcp.tool()
-    async def listen() -> dict:
+    async def listen(ctx: Context) -> dict:
         """Start ASR, accumulate speech until end-of-utterance, stop ASR, return transcript."""
         if _listen_lock.locked():
             raise ValueError("A listen session is already in progress.")
@@ -93,11 +93,19 @@ def create_mcp_server(engine: ASREngine, listen_config: ListenConfig | None = No
             raise ValueError("ASR is already running. Stop it before calling listen.")
 
         async with _listen_lock:
+            async def _on_final_committed(transcript: str) -> None:
+                await ctx.report_progress(
+                    progress=len(session._committed),
+                    total=None,
+                    message=transcript,
+                )
+
             session = ListenSession(
                 mode=listen_config.end_of_utterance_mode,
                 trigger_words=listen_config.trigger_words,
                 initial_silence_timeout_s=listen_config.initial_silence_timeout_s,
                 end_of_speech_timeout_s=listen_config.end_of_speech_timeout_s,
+                on_final_committed=_on_final_committed,
             )
             original_callback = engine._on_result
             engine._on_result = session.on_result

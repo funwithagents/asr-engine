@@ -394,6 +394,90 @@ async def test_listen_engine_stopped_on_exception():
 
 
 # ---------------------------------------------------------------------------
+# Tools — listen — progress notifications (ctx.report_progress)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_listen_progress_called_per_committed_final():
+    """ctx.report_progress is called once per committed final with the accumulated transcript."""
+    engine = make_engine()
+    listen_cfg = _listen_config(end_of_utterance_mode="trigger_word", trigger_words=["submit"])
+    mcp = create_mcp_server(engine, listen_cfg)
+
+    progress_calls: list[dict] = []
+
+    # We need a real ListenSession to drive committed accumulation.
+    # Patch ctx.report_progress via the Context injected by FastMCP.
+    # FastMCP calls tools directly; when called via mcp.call_tool the ctx is
+    # constructed internally — we patch Context.report_progress on the class.
+    from mcp.server.fastmcp import Context
+
+    original_report = Context.report_progress
+
+    async def _capture_progress(self, progress, total=None, message=None):
+        progress_calls.append({"progress": progress, "total": total, "message": message})
+
+    Context.report_progress = _capture_progress
+    try:
+        with patch("asr_mcp.engine.AudioCapture") as MockCapture:
+            MockCapture.return_value.start.return_value = asyncio.Queue()
+
+            # Feed results directly into the session while listen is waiting.
+            # We do this by running listen in the background and feeding results
+            # through the engine callback once the session is wired.
+            listen_task = asyncio.create_task(mcp.call_tool("listen", {}))
+            await asyncio.sleep(0)  # let listen wire engine._on_result to session
+
+            await engine._on_result(ASRResult(transcript="hello world", is_final=True, confidence=None))
+            await engine._on_result(ASRResult(transcript="how are you", is_final=True, confidence=None))
+            await engine._on_result(ASRResult(transcript="submit", is_final=True, confidence=None))
+
+            await asyncio.wait_for(listen_task, timeout=5.0)
+    finally:
+        Context.report_progress = original_report
+
+    assert len(progress_calls) == 2
+    assert progress_calls[0]["message"] == "hello world"
+    assert progress_calls[0]["progress"] == 1
+    assert progress_calls[1]["message"] == "hello world how are you"
+    assert progress_calls[1]["progress"] == 2
+
+
+@pytest.mark.asyncio
+async def test_listen_progress_not_called_for_trigger_word_final():
+    """ctx.report_progress is NOT called when the trigger word final ends the session."""
+    engine = make_engine()
+    listen_cfg = _listen_config(end_of_utterance_mode="trigger_word", trigger_words=["validate"])
+    mcp = create_mcp_server(engine, listen_cfg)
+
+    progress_calls: list[dict] = []
+
+    from mcp.server.fastmcp import Context
+
+    original_report = Context.report_progress
+
+    async def _capture_progress(self, progress, total=None, message=None):
+        progress_calls.append({"progress": progress, "message": message})
+
+    Context.report_progress = _capture_progress
+    try:
+        with patch("asr_mcp.engine.AudioCapture") as MockCapture:
+            MockCapture.return_value.start.return_value = asyncio.Queue()
+
+            listen_task = asyncio.create_task(mcp.call_tool("listen", {}))
+            await asyncio.sleep(0)
+
+            await engine._on_result(ASRResult(transcript="validate", is_final=True, confidence=None))
+
+            await asyncio.wait_for(listen_task, timeout=5.0)
+    finally:
+        Context.report_progress = original_report
+
+    assert progress_calls == []
+
+
+# ---------------------------------------------------------------------------
 # run_server — auto_start
 # ---------------------------------------------------------------------------
 

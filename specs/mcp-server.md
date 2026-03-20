@@ -177,6 +177,31 @@ Two independent timers govern the session:
 
 The returned `transcript` is `" ".join(committed_finals)`.
 
+#### Streaming
+
+The `listen` tool emits `notifications/progress` messages as each final ASR
+result is committed to the transcript. This allows callers to display
+incremental output without waiting for the full session to complete.
+
+- **One notification per committed final** — interim results and the
+  trigger-word utterance (which ends the session) do not produce notifications.
+- **`progress` field** — the count of committed finals so far (monotonically
+  increasing; useful for clients that display a progress bar).
+- **`total` field** — always `None` (utterance length is unknown in advance).
+- **`message` field** — the full accumulated transcript up to and including
+  the latest committed final (space-joined), not just the new fragment.
+- **Opt-in** — clients that omit `progressToken` receive no notifications;
+  the final return value of `listen` is unchanged.
+
+SDK callback signature for `McpToolClient.call_tool`:
+
+```python
+async def on_progress(progress: float, total: float | None, message: str | None) -> None:
+    ...
+
+result = await client.call_tool("listen", progress_callback=on_progress)
+```
+
 #### Internal implementation: `ListenSession`
 
 The session logic lives in a `ListenSession` class used by the `listen` tool

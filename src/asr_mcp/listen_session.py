@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
 from asr_mcp.modules.base import ASRResult
@@ -32,11 +33,13 @@ class ListenSession:
         trigger_words: list[str],
         initial_silence_timeout_s: float,
         end_of_speech_timeout_s: float,
+        on_final_committed: Callable[[str], Awaitable[None]] | None = None,
     ) -> None:
         self._mode = mode
         self._trigger_words = trigger_words
         self._initial_silence_timeout_s = initial_silence_timeout_s
         self._end_of_speech_timeout_s = end_of_speech_timeout_s
+        self._on_final_committed = on_final_committed
         self._committed: list[str] = []
         self._done: asyncio.Event = asyncio.Event()
         self._result: ListenResult | None = None
@@ -66,6 +69,8 @@ class ListenSession:
             self._done.set()
         else:
             self._committed.append(result.transcript)
+            if self._on_final_committed is not None:
+                await self._on_final_committed(" ".join(self._committed))
 
     async def wait(self) -> ListenResult:
         """Wait until the session ends and return the accumulated result."""

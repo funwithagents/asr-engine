@@ -104,6 +104,31 @@ async def test_mcp_tool_client_success():
 
 
 @pytest.mark.asyncio
+async def test_mcp_tool_client_progress_callback_forwarded():
+    """progress_callback kwarg is forwarded to the underlying session.call_tool."""
+    expected = {"transcript": "hello", "end_reason": "trigger_word"}
+    mock_session = AsyncMock()
+    mock_session.call_tool = AsyncMock(return_value=_make_tool_result(expected))
+
+    async def my_progress(_progress, _total, _message):
+        pass
+
+    with patch("asr_mcp.tool_client.streamable_http_client") as mock_http, \
+         patch("asr_mcp.tool_client.ClientSession") as mock_session_cls:
+        mock_http.return_value.__aenter__ = AsyncMock(return_value=(MagicMock(), MagicMock(), MagicMock()))
+        mock_http.return_value.__aexit__ = AsyncMock(return_value=False)
+        mock_session_cls.return_value.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_session_cls.return_value.__aexit__ = AsyncMock(return_value=False)
+
+        client = McpToolClient("http://127.0.0.1:8000/mcp")
+        await client.call_tool("listen", {}, progress_callback=my_progress)
+
+    mock_session.call_tool.assert_called_once_with(
+        "listen", {}, progress_callback=my_progress
+    )
+
+
+@pytest.mark.asyncio
 async def test_mcp_tool_client_error_raises():
     """Tool error response raises RuntimeError."""
     error_item = MagicMock()

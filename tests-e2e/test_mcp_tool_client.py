@@ -46,6 +46,36 @@ async def test_e2e_listen_trigger_word() -> None:
 
 
 @pytest.mark.asyncio
+async def test_e2e_listen_streaming() -> None:
+    """listen tool streams progress notifications for each committed final."""
+    api_key = load_api_key()
+    proc, config_path = await start_mcp_server(
+        _FIXTURE_WAV,
+        "deepgram_v1",
+        {"api_key": api_key, "model": "nova-3"},
+        port=18005,
+        engine_config={"auto_start": False},
+        listen_config={"end_of_utterance_mode": "timeout", "end_of_speech_timeout_s": 2.0},
+    )
+    try:
+        received_messages: list[str] = []
+
+        async def _on_progress(progress: float, total: float | None, message: str | None) -> None:
+            if message is not None:
+                received_messages.append(message)
+
+        client = McpToolClient(f"http://127.0.0.1:18005/mcp")
+        result = await asyncio.wait_for(
+            client.call_tool("listen", progress_callback=_on_progress), timeout=30.0
+        )
+    finally:
+        await stop_mcp_server(proc, config_path)
+
+    assert len(received_messages) >= 1, "Expected at least one progress notification"
+    assert _normalize(received_messages[-1]) == _normalize(result["transcript"])
+
+
+@pytest.mark.asyncio
 async def test_e2e_listen_timeout() -> None:
     """listen tool with timeout mode: ends after silence, returns full transcript."""
     api_key = load_api_key()

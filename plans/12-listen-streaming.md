@@ -32,12 +32,12 @@ notifications are the correct approach.
 
 ### 1. `ListenSession` — add `on_final_committed` callback (`listen_session.py`)
 
-- [ ] Add `on_final_committed: Callable[[str], Awaitable[None]] | None = None`
+- [x] Add `on_final_committed: Callable[[str], Awaitable[None]] | None = None`
   parameter to `ListenSession.__init__`; store as `self._on_final_committed`
-- [ ] In `on_result`, after `self._committed.append(result.transcript)`, if
+- [x] In `on_result`, after `self._committed.append(result.transcript)`, if
   `self._on_final_committed` is set, call
   `await self._on_final_committed(" ".join(self._committed))`
-- [ ] Unit tests (`tests/test_listen_session.py`):
+- [x] Unit tests (`tests/test_listen_session.py`):
   - `on_final_committed` is called once per committed final, with the
     correctly joined transcript so far
   - `on_final_committed` is **not** called for interim results
@@ -49,10 +49,10 @@ notifications are the correct approach.
 
 ### 2. `listen` tool — inject `Context` and wire callback (`server.py`)
 
-- [ ] Add `ctx: Context` parameter to the `listen` tool function
+- [x] Add `ctx: Context` parameter to the `listen` tool function
   (FastMCP injects it automatically; import `Context` from
   `mcp.server.fastmcp`)
-- [ ] Define an `async def _on_final_committed(transcript: str) -> None`
+- [x] Define an `async def _on_final_committed(transcript: str) -> None`
   callback inside the `listen` handler that calls
   `await ctx.report_progress(progress=len(session._committed), total=None, message=transcript)`
 
@@ -61,9 +61,9 @@ notifications are the correct approach.
   > same function body. If preferred, the committed count can be passed as
   > a parameter from `ListenSession` instead (see alternative below).
 
-- [ ] Pass `on_final_committed=_on_final_committed` when constructing
+- [x] Pass `on_final_committed=_on_final_committed` when constructing
   `ListenSession`
-- [ ] Unit tests (`tests/test_server.py`):
+- [x] Unit tests (`tests/test_server.py`):
   - `ctx.report_progress` is called once per committed final, with correct
     `message` (accumulated transcript so far)
   - `ctx.report_progress` is **not** called for the trigger word final
@@ -75,10 +75,10 @@ notifications are the correct approach.
 
 ### 3. `McpToolClient` — expose `progress_callback` (`tool_client.py`)
 
-- [ ] Add `progress_callback: ProgressFnT | None = None` parameter to
+- [x] Add `progress_callback: ProgressFnT | None = None` parameter to
   `call_tool` (import `ProgressFnT` from `mcp.shared.session`)
-- [ ] Forward it to `session.call_tool(..., progress_callback=progress_callback)`
-- [ ] Unit tests (`tests/test_client.py`):
+- [x] Forward it to `session.call_tool(..., progress_callback=progress_callback)`
+- [x] Unit tests (`tests/test_client.py`):
   - `progress_callback=None` (default): no regression, existing test passes
   - `progress_callback=fn`: verify the kwarg is forwarded to the underlying
     `ClientSession.call_tool`
@@ -87,7 +87,7 @@ notifications are the correct approach.
 
 ### 4. E2E test — verify streaming during `listen` (`tests-e2e/test_mcp_tool_client.py`)
 
-- [ ] Add `test_e2e_listen_streaming`:
+- [x] Add `test_e2e_listen_streaming`:
   - Server config: `auto_start=false`, `end_of_utterance_mode="timeout"`,
     `end_of_speech_timeout_s=2.0`
   - Audio fixture: `sample.wav` (*"the sky is blue"*) — no new fixture
@@ -105,7 +105,7 @@ notifications are the correct approach.
 
 ### 5. Update specs (`specs/mcp-server.md`)
 
-- [ ] Add a **Streaming** subsection under the `listen` tool:
+- [x] Add a **Streaming** subsection under the `listen` tool:
   - Describe the progress notification mechanism (one notification per
     committed final, message = accumulated transcript)
   - State the `progress` field convention (count of committed finals so far)
@@ -119,7 +119,7 @@ notifications are the correct approach.
 
 After all code changes are done and working:
 
-- [ ] Create `implementation-details/12-listen-streaming.md`:
+- [x] Create `implementation-details/12-listen-streaming.md`:
   - What was implemented: `on_final_committed` callback in `ListenSession`,
     `ctx: Context` in `listen` tool, `progress_callback` in `McpToolClient`
   - Deviations from spec (if any)
@@ -135,6 +135,6 @@ After all code changes are done and working:
 
 ### 7. Update plans and index files
 
-- [ ] Mark Plan 12 as done in `plans/plans.md`
-- [ ] Add Plan 12 row to `implementation-details/implem.md`
-- [ ] Update `AGENTS.md` if any notable new design decisions emerge
+- [x] Mark Plan 12 as done in `plans/plans.md`
+- [x] Add Plan 12 row to `implementation-details/implem.md`
+- [x] Update `AGENTS.md` if any notable new design decisions emerge

@@ -23,12 +23,14 @@ def _session(
     trigger_words: list[str] | None = None,
     initial_silence_timeout_s: float = 10.0,
     end_of_speech_timeout_s: float = 5.0,
+    on_final_committed=None,
 ) -> ListenSession:
     return ListenSession(
         mode=mode,
         trigger_words=trigger_words if trigger_words is not None else ["validate"],
         initial_silence_timeout_s=initial_silence_timeout_s,
         end_of_speech_timeout_s=end_of_speech_timeout_s,
+        on_final_committed=on_final_committed,
     )
 
 
@@ -111,6 +113,66 @@ async def test_timeout_interim_resets_eos_timer():
 
     result = await asyncio.wait_for(s.wait(), timeout=2.0)
     assert result.end_reason == "end_of_speech_timeout"
+    assert result.transcript == "first"
+
+
+# ---------------------------------------------------------------------------
+# on_final_committed callback
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_on_final_committed_called_with_accumulated_transcript():
+    """Callback is called once per committed final with the full accumulated transcript."""
+    calls: list[str] = []
+
+    async def cb(transcript: str) -> None:
+        calls.append(transcript)
+
+    s = _session(mode="trigger_word", trigger_words=["submit"], on_final_committed=cb)
+    await s.on_result(_final("hello world"))
+    await s.on_result(_final("how are you"))
+    await s.on_result(_final("submit"))
+
+    assert calls == ["hello world", "hello world how are you"]
+
+
+@pytest.mark.asyncio
+async def test_on_final_committed_not_called_for_interim():
+    """Callback is NOT called for interim results."""
+    calls: list[str] = []
+
+    async def cb(transcript: str) -> None:
+        calls.append(transcript)
+
+    s = _session(mode="trigger_word", trigger_words=["submit"], on_final_committed=cb)
+    await s.on_result(_interim("partial text"))
+    await s.on_result(_interim("more partial"))
+
+    assert calls == []
+
+
+@pytest.mark.asyncio
+async def test_on_final_committed_not_called_for_trigger_word_final():
+    """Callback is NOT called when the final result contains the trigger word."""
+    calls: list[str] = []
+
+    async def cb(transcript: str) -> None:
+        calls.append(transcript)
+
+    s = _session(mode="trigger_word", trigger_words=["validate"], on_final_committed=cb)
+    await s.on_result(_final("validate"))
+
+    assert calls == []
+
+
+@pytest.mark.asyncio
+async def test_on_final_committed_none_no_error():
+    """Default None callback works without error."""
+    s = _session(mode="trigger_word", trigger_words=["done"])
+    await s.on_result(_final("first"))
+    await s.on_result(_final("done"))
+    result = await asyncio.wait_for(s.wait(), timeout=1.0)
     assert result.transcript == "first"
 
 
