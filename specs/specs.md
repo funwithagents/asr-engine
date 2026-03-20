@@ -14,6 +14,6 @@
 | 8 | [Project Structure](project-structure.md) | Folder layout, entry points, dependencies | yes |
 | 9 | [E2E Testing](e2e-testing.md) | File-based e2e tests: audio source abstraction, fixture format, assertions | yes |
 | 10 | [ASR to Terminal](asr-to-terminal.md) | Progressive terminal injection via xdotool/ydotool, mode-based end-of-utterance detection | yes |
-| 11 | [End-of-Utterance Detector](end-of-utterance-detector.md) | Shared `EndOfUtteranceDetector`: trigger_word and timeout modes, used by `listen` tool and `AsrToTerminal` | no |
+| 11 | [End-of-Utterance Detector](end-of-utterance-detector.md) | Shared `EndOfUtteranceDetector`: trigger_word and timeout modes, used by `listen` tool and `AsrToTerminal` | yes |
 
 **Legend:** no = not implemented · yes = implemented

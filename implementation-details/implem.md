@@ -17,7 +17,7 @@ Each file explains non-obvious choices, gotchas, and deviations from the origina
 | 10 — ASR to Terminal | [10-asr-to-terminal.md](10-asr-to-terminal.md) | TerminalTyper, AsrToTerminal state machine, unit + e2e tests | yes |
 | 11 — Listen Tool | [11-listen-tool.md](11-listen-tool.md) | speech_utils, ListenSession, McpToolClient, auto_start, listen tool, asr_resource_client | yes |
 | 12 — Listen Streaming | [12-listen-streaming.md](12-listen-streaming.md) | Progress notifications for listen: on_final_committed, ctx: Context, progress_callback | yes |
-| 13 — EndOfUtteranceDetector | [13-end-of-utterance-detector.md](13-end-of-utterance-detector.md) | Rename ListenSession → EndOfUtteranceDetector, AsrToTerminal mode support | no |
+| 13 — EndOfUtteranceDetector | [13-end-of-utterance-detector.md](13-end-of-utterance-detector.md) | Rename ListenSession → EndOfUtteranceDetector, AsrToTerminal mode support | yes |
 
 **Legend:** no = not yet written · yes = written
 

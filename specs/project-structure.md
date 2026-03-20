@@ -28,7 +28,7 @@ asr-mcp/
         ├── tool_client.py           # McpToolClient: single-call MCP tool invocation
         ├── asr_resource_client.py   # Demo CLI: subscribe to asr://result, log results
         ├── speech_utils.py          # contains_trigger_word() — shared trigger word detection
-        ├── listen_session.py        # ListenSession + ListenResult — end-of-utterance state machine
+        ├── end_of_utterance_detector.py  # EndOfUtteranceDetector + UtteranceResult — end-of-utterance state machine
         ├── terminal_typer.py        # TerminalTyper — keystroke injection (xdotool/ydotool)
         ├── asr_to_terminal.py       # AsrToTerminal state machine + CLI entry point
         └── modules/
