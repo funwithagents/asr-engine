@@ -177,6 +177,25 @@ async def test_on_final_committed_none_no_error():
 
 
 @pytest.mark.asyncio
+async def test_trigger_word_mode_no_eos_timeout():
+    """In trigger_word mode the EOS timer must never fire; session waits indefinitely."""
+    # Use a very short end_of_speech_timeout_s to catch the bug quickly
+    s = _session(mode="trigger_word", trigger_words=["validate"], end_of_speech_timeout_s=0.05)
+    await s.on_result(_final("first sentence"))
+
+    # Wait longer than the timeout — if the timer incorrectly fires we get a result early
+    done = asyncio.create_task(s.wait())
+    await asyncio.sleep(0.15)
+
+    assert not done.done(), "Session ended early via EOS timer in trigger_word mode"
+
+    # Now send the trigger to end the session cleanly
+    await s.on_result(_final("validate"))
+    result = await asyncio.wait_for(done, timeout=1.0)
+    assert result.end_reason == "trigger_word"
+
+
+@pytest.mark.asyncio
 async def test_timer_tasks_cancelled_after_session_ends():
     """No dangling tasks remain after the session completes."""
     s = _session(mode="trigger_word", trigger_words=["go"])

@@ -51,12 +51,13 @@ class ListenSession:
         """Feed an ASR result into the session."""
         self._received_any = True
 
-        # Reset end-of-speech timer on every event (both modes)
-        if self._eos_timer_task is not None:
-            self._eos_timer_task.cancel()
-        self._eos_timer_task = asyncio.get_event_loop().create_task(
-            self._eos_timer()
-        )
+        # Reset end-of-speech timer on every event (timeout mode only)
+        if self._mode == "timeout":
+            if self._eos_timer_task is not None:
+                self._eos_timer_task.cancel()
+            self._eos_timer_task = asyncio.get_event_loop().create_task(
+                self._eos_timer()
+            )
 
         if not result.is_final:
             return  # Interim: reset timer only
