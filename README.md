@@ -186,6 +186,14 @@ The server uses a **pluggable module architecture**: one ASR backend is active a
 
 **`deepgram_v2`** targets Flux models and uses Deepgram's integrated **EndOfTurn** detection: the model itself decides when a conversational turn is complete, providing a confidence score and a configurable threshold. This produces more natural utterance boundaries for dialogue use cases.
 
+**Adding your own module** is straightforward — the interface is intentionally minimal:
+
+1. Create a class that extends `ASRModule` (in [src/asr_mcp/modules/base.py](src/asr_mcp/modules/base.py)) and implements two async methods: `start(audio_queue, on_result, on_connected)` and `stop()`. The engine feeds raw 16kHz PCM audio chunks via `audio_queue`; call `on_result(ASRResult(...))` whenever your backend produces a transcript.
+2. Register it by name in the `REGISTRY` dict in [src/asr_mcp/modules/\_\_init\_\_.py](src/asr_mcp/modules/__init__.py).
+3. Set `"asr": { "type": "<your-name>", ... }` in your config.
+
+The server, engine, and MCP tools need no changes. This makes it easy to plug in any ASR backend, such a local open-source model, a different cloud API, or anything that can consume a stream of PCM audio and emit transcripts.
+
 ### Interim and final results
 
 All ASR results carry an `is_final` flag:
