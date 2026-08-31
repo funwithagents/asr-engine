@@ -23,7 +23,7 @@ A standalone Python script that connects to the MCP server via StreamableHTTP, s
 uv run asr-mcp-client --server http://<host>:<port>/mcp
 ```
 
-Default server URL: `http://127.0.0.1:8080/mcp`
+Default server URL: `http://127.0.0.1:8000/mcp`
 
 ## Behavior
 
@@ -42,7 +42,7 @@ Default server URL: `http://127.0.0.1:8080/mcp`
 ## Output Format
 
 ```
-[INFO] Connected to MCP server at http://127.0.0.1:8080/mcp
+[INFO] Connected to MCP server at http://127.0.0.1:8000/mcp
 [INFO] Subscribed to asr://result
 [INTERIM] hello how
 [INTERIM] hello how are you

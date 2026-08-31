@@ -32,18 +32,29 @@ class ASRResult:
 
 # Callback type: called each time the module emits a result
 ResultCallback = Callable[[ASRResult], Awaitable[None]]
+# Callback type: called when backend connection state changes (True=connected)
+ConnectedCallback = Callable[[bool], None]
 
 
 class ASRModule(ABC):
+    def __init__(self, config: dict) -> None:
+        self.config = config
+
     @abstractmethod
     async def start(
-        self, audio_queue: asyncio.Queue[bytes], on_result: ResultCallback
+        self,
+        audio_queue: asyncio.Queue[bytes],
+        on_result: ResultCallback,
+        on_connected: ConnectedCallback | None = None,
     ) -> None:
         """
         Start the ASR module.
 
         - audio_queue: async queue of raw PCM audio chunks (16-bit, mono, 16kHz)
         - on_result: async callback invoked for each interim or final transcript
+        - on_connected: optional callback invoked with the backend connection
+          state (True on connect, False on disconnect). Drives the `connected`
+          field of the `is_running` tool.
 
         This method should run indefinitely until stop() is called.
         It is responsible for reconnecting to the backend on connection loss.
@@ -76,7 +87,8 @@ Modules are registered in a central registry mapping `type` string → module cl
 ```python
 # src/asr_mcp/modules/__init__.py
 REGISTRY: dict[str, type[ASRModule]] = {
-    "deepgram": DeepgramModule,
+    "deepgram_v1": DeepgramV1Module,
+    "deepgram_v2": DeepgramV2Module,
 }
 ```
 

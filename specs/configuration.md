@@ -23,7 +23,7 @@ uv run asr-mcp-server --config config.json
 {
   "server": {
     "host": "0.0.0.0",
-    "port": 8080
+    "port": 8000
   },
   "audio": {
     "device": null,
@@ -52,7 +52,7 @@ uv run asr-mcp-server --config config.json
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `host` | string | `"127.0.0.1"` | Host to bind the HTTP server to |
-| `port` | integer | `8080` | Port to bind the HTTP server to |
+| `port` | integer | `8000` | Port to bind the HTTP server to |
 
 ### `audio` block
 
@@ -60,6 +60,8 @@ uv run asr-mcp-server --config config.json
 |---|---|---|---|
 | `device` | string or null | `null` | Audio input device name or index. `null` = system default |
 | `output_device` | string or null | `null` | Audio output device name or index for sound feedback playback. `null` = system default |
+| `audio_file` | string or null | `null` | Path to a WAV file (16 kHz, mono, s16) to stream **instead of** the live input device. When set, the server feeds this file through a `FileAudioSource` at real-time pace. Primarily a testing hook — see [e2e-testing.md](e2e-testing.md). |
+| `trailing_silence_s` | float | `0.0` | (`audio_file` only) Seconds of silence appended after the file ends, so the ASR backend receives the tail-silence it needs to emit a final result. Ignored for live capture. |
 
 ### `asr` block
 
@@ -105,16 +107,16 @@ envoyer, valider, confirmer, soumettre, entree, entrée
 {
   "server": {
     "host": "0.0.0.0",
-    "port": 8080
+    "port": 8000
   },
   "audio": {
     "device": null
   },
   "asr": {
-    "type": "deepgram",
+    "type": "deepgram_v1",
     "api_key": "YOUR_DEEPGRAM_API_KEY",
     "language": "en-US",
-    "model": "nova-2"
+    "model": "nova-3"
   }
 }
 ```
@@ -126,4 +128,6 @@ envoyer, valider, confirmer, soumettre, entree, entrée
   - Required fields (`asr.type`) are absent
   - The specified `asr.type` is unknown
   - Module-specific required fields (e.g. `api_key`) are missing
-  - The specified audio device cannot be found
+- The specified audio device is verified when audio capture first starts, and an
+  unknown device raises a clear error there — at startup when `engine.auto_start`
+  is `true`, or on the first `start`/`listen` call when it is `false`.

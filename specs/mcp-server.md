@@ -266,7 +266,7 @@ def contains_trigger_word(transcript: str, words: list[str]) -> bool:
 ### With `engine.auto_start = false`
 
 1. Server starts and reads config
-2. ASR engine is **initialized** (config validated, audio device verified, ASR module instantiated) but **not started**
+2. ASR engine is **initialized** (config validated, ASR module instantiated) but **not started**. The audio device is **not** opened or verified at this point — that happens when capture first starts.
 3. MCP HTTP server starts accepting connections
-4. ASR starts only when a client calls `start` or `listen`
+4. ASR starts only when a client calls `start` or `listen` — this is when the audio device is opened and verified (an unknown device raises here, not at startup)
 5. On shutdown: if engine is running, it is stopped cleanly before the HTTP server shuts down

@@ -15,7 +15,7 @@ Build a real-time Automatic Speech Recognition (ASR) MCP server that:
 - Runs continuously, capturing audio and transcribing speech as long as the server is alive
 - Exposes transcription results as a live MCP resource that clients can subscribe to
 - Supports swappable ASR backend modules configured via a JSON config file
-- Exposes control tools (pause, resume, is_running) to MCP clients
+- Exposes control tools (`start`, `stop`, `is_running`, `listen`) to MCP clients
 - Is network-accessible via StreamableHTTP transport
 
 ## Components

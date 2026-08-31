@@ -44,11 +44,16 @@ Unit tests for individual components are out of scope here.
 |--------|-----------|
 | `start() -> asyncio.Queue[bytes]` | Open source, return queue |
 | `stop() -> None` | Close source |
-| `pause() -> None` | Stop feeding the queue |
-| `resume() -> None` | Resume feeding |
 
 `ASREngine` accepts an optional `audio_source` at construction time. When provided
 it is used instead of constructing an `AudioCapture` from config.
+
+`run_server` selects the source from config: when `audio.audio_file` is set it
+builds a `FileAudioSource(audio_file, trailing_silence_s=audio.trailing_silence_s)`
+instead of a live `AudioCapture` (see [configuration.md](configuration.md)). This
+is how the subprocess-based e2e tests drive the real `asr-mcp-server` binary from
+a WAV fixture without a microphone — `tests-e2e/helpers.start_mcp_server` writes a
+temp config with those two fields.
 
 ## Audio Fixture
 
