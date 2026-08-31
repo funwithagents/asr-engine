@@ -1,4 +1,14 @@
+---
+code:
+  - src/asr_mcp/asr_to_terminal.py
+  - src/asr_mcp/terminal_typer.py
+tests:
+  - tests/test_asr_to_terminal.py
+---
+
 # ASR to Terminal Specification
+
+**Status:** Implemented
 
 ## Purpose
 
@@ -58,8 +68,20 @@ that drives `EndOfUtteranceDetector` instances (one per utterance).
 **Default trigger words** (case-insensitive, only used in `trigger_word` mode):
 
 ```python
-["submit", "enter", "validate", "send", "confirm", "go",
- "envoyer", "valider", "confirmer", "soumettre", "entree", "entrée"]
+[
+    "submit",
+    "enter",
+    "validate",
+    "send",
+    "confirm",
+    "go",
+    "envoyer",
+    "valider",
+    "confirmer",
+    "soumettre",
+    "entree",
+    "entrée",
+]
 ```
 
 ---

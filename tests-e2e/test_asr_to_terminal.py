@@ -5,6 +5,7 @@ Requires:
 - A live X11 display (DISPLAY set)
 - config.json with valid Deepgram API key
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -13,10 +14,9 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from helpers import load_api_key, start_mcp_server, stop_mcp_server
 
 from asr_mcp.asr_to_terminal import AsrToTerminal
-
-from helpers import load_api_key, start_mcp_server, stop_mcp_server
 
 _FIXTURE_WAV = Path(__file__).parent / "fixtures" / "sample.wav"
 _FIXTURE_SUBMIT_WAV = Path(__file__).parent / "fixtures" / "sample_submit.wav"
@@ -34,10 +34,15 @@ async def test_e2e_terminal_typing() -> None:
     )
     try:
         # Wait for the window
-        window_id = subprocess.check_output(
-            ["xdotool", "search", "--sync", "--pid", str(xterm_proc.pid)],
-            timeout=10,
-        ).decode().strip().splitlines()[-1]
+        window_id = (
+            subprocess.check_output(
+                ["xdotool", "search", "--sync", "--pid", str(xterm_proc.pid)],
+                timeout=10,
+            )
+            .decode()
+            .strip()
+            .splitlines()[-1]
+        )
         subprocess.run(["xdotool", "windowfocus", window_id], check=True)
         await asyncio.sleep(0.3)  # let focus settle
 
@@ -99,15 +104,23 @@ async def test_e2e_terminal_submit() -> None:
     )
     try:
         # Wait for the window
-        window_id = subprocess.check_output(
-            ["xdotool", "search", "--sync", "--pid", str(xterm_proc.pid)],
-            timeout=10,
-        ).decode().strip().splitlines()[-1]
+        window_id = (
+            subprocess.check_output(
+                ["xdotool", "search", "--sync", "--pid", str(xterm_proc.pid)],
+                timeout=10,
+            )
+            .decode()
+            .strip()
+            .splitlines()[-1]
+        )
         subprocess.run(["xdotool", "windowfocus", window_id], check=True)
         await asyncio.sleep(0.3)  # let focus settle
 
         proc, config_path = await start_mcp_server(
-            _FIXTURE_SUBMIT_WAV, "deepgram_v1", {"api_key": api_key, "model": "nova-3"}, port,
+            _FIXTURE_SUBMIT_WAV,
+            "deepgram_v1",
+            {"api_key": api_key, "model": "nova-3"},
+            port,
             trailing_silence_s=2.0,
         )
 
@@ -157,15 +170,23 @@ async def test_e2e_asr_to_terminal_timeout() -> None:
     )
     try:
         # Wait for the window
-        window_id = subprocess.check_output(
-            ["xdotool", "search", "--sync", "--pid", str(xterm_proc.pid)],
-            timeout=10,
-        ).decode().strip().splitlines()[-1]
+        window_id = (
+            subprocess.check_output(
+                ["xdotool", "search", "--sync", "--pid", str(xterm_proc.pid)],
+                timeout=10,
+            )
+            .decode()
+            .strip()
+            .splitlines()[-1]
+        )
         subprocess.run(["xdotool", "windowfocus", window_id], check=True)
         await asyncio.sleep(0.3)  # let focus settle
 
         proc, config_path = await start_mcp_server(
-            _FIXTURE_WAV, "deepgram_v1", {"api_key": api_key, "model": "nova-3"}, port,
+            _FIXTURE_WAV,
+            "deepgram_v1",
+            {"api_key": api_key, "model": "nova-3"},
+            port,
             trailing_silence_s=3.0,
         )
 

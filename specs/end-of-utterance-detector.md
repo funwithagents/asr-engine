@@ -1,4 +1,15 @@
+---
+code:
+  - src/asr_mcp/end_of_utterance_detector.py
+  - src/asr_mcp/speech_utils.py
+tests:
+  - tests/test_end_of_utterance_detector.py
+  - tests/test_speech_utils.py
+---
+
 # End-of-Utterance Detector Specification
+
+**Status:** Implemented
 
 ## Purpose
 
@@ -19,8 +30,8 @@ and signals when the current utterance is complete. It is used by:
 ```python
 @dataclass
 class UtteranceResult:
-    transcript: str    # space-joined committed finals
-    end_reason: str    # see values below
+    transcript: str  # space-joined committed finals
+    end_reason: str  # see values below
 ```
 
 | `end_reason` value          | When it fires |
@@ -39,10 +50,10 @@ class UtteranceResult:
 class EndOfUtteranceDetector:
     def __init__(
         self,
-        mode: str,                          # "trigger_word" or "timeout"
+        mode: str,  # "trigger_word" or "timeout"
         trigger_words: list[str],
-        initial_silence_timeout_s: float,   # timeout mode only
-        end_of_speech_timeout_s: float,     # timeout mode only
+        initial_silence_timeout_s: float,  # timeout mode only
+        end_of_speech_timeout_s: float,  # timeout mode only
         on_final_committed: Callable[[str], Awaitable[None]] | None = None,
     ) -> None: ...
 ```
@@ -126,7 +137,7 @@ session = EndOfUtteranceDetector(
     trigger_words=listen_config.trigger_words,
     initial_silence_timeout_s=listen_config.initial_silence_timeout_s,
     end_of_speech_timeout_s=listen_config.end_of_speech_timeout_s,
-    on_final_committed=_on_final_committed,   # streams progress notifications
+    on_final_committed=_on_final_committed,  # streams progress notifications
 )
 engine._on_result = session.on_result
 await engine.start()

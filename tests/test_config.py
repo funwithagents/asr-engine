@@ -10,12 +10,9 @@ import pytest
 from asr_mcp.config import (
     AppConfig,
     ASRConfig,
-    AudioConfig,
-    ServerConfig,
     load_config,
     validate_asr_type,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -128,7 +125,9 @@ def test_load_config_engine_and_listen_defaults(tmp_path: Path) -> None:
 
 
 def test_load_config_auto_start_false(tmp_path: Path) -> None:
-    path = write_config(tmp_path, {"asr": {"type": "x"}, "engine": {"auto_start": False}})
+    path = write_config(
+        tmp_path, {"asr": {"type": "x"}, "engine": {"auto_start": False}}
+    )
     cfg = load_config(path)
     assert cfg.engine.auto_start is False
 
@@ -136,7 +135,13 @@ def test_load_config_auto_start_false(tmp_path: Path) -> None:
 def test_load_config_listen_timeout_mode(tmp_path: Path) -> None:
     path = write_config(
         tmp_path,
-        {"asr": {"type": "x"}, "listen": {"end_of_utterance_mode": "timeout", "end_of_speech_timeout_s": 3.0}},
+        {
+            "asr": {"type": "x"},
+            "listen": {
+                "end_of_utterance_mode": "timeout",
+                "end_of_speech_timeout_s": 3.0,
+            },
+        },
     )
     cfg = load_config(path)
     assert cfg.listen.end_of_utterance_mode == "timeout"
@@ -155,7 +160,11 @@ def test_load_config_custom_trigger_words(tmp_path: Path) -> None:
 def test_load_config_sound_feedback_and_output_device(tmp_path: Path) -> None:
     path = write_config(
         tmp_path,
-        {"asr": {"type": "x"}, "audio": {"output_device": "speakers"}, "listen": {"sound_feedback": False}},
+        {
+            "asr": {"type": "x"},
+            "audio": {"output_device": "speakers"},
+            "listen": {"sound_feedback": False},
+        },
     )
     cfg = load_config(path)
     assert cfg.audio.output_device == "speakers"
@@ -197,5 +206,3 @@ def test_validate_asr_type_unknown_lists_available() -> None:
 def test_validate_asr_type_empty_registry() -> None:
     with pytest.raises(ValueError, match="none"):
         validate_asr_type(_cfg("deepgram"), {})
-
-

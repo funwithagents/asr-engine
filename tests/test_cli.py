@@ -1,4 +1,5 @@
 """Unit tests for asr_mcp.cli."""
+
 from __future__ import annotations
 
 import json
@@ -18,6 +19,7 @@ def write_config(tmp_path: Path, data: dict) -> str:
 def test_cli_runs_server(tmp_path: Path) -> None:
     """cli.main() calls asyncio.run(run_server(config)) with the loaded config."""
     from unittest.mock import AsyncMock
+
     from asr_mcp import cli
 
     path = write_config(tmp_path, {"asr": {"type": "deepgram_v1", "api_key": "x"}})

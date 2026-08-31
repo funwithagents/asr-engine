@@ -1,18 +1,19 @@
 """Unit tests for AudioCapture."""
+
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
 
-from asr_mcp.audio import CHUNK_SAMPLES, DTYPE, CHANNELS, SAMPLE_RATE, AudioCapture
-
+from asr_mcp.audio import CHANNELS, CHUNK_SAMPLES, DTYPE, SAMPLE_RATE, AudioCapture
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_device_list(*names: str):
     """Build a fake sounddevice device-info list with all devices as input-capable."""
@@ -22,6 +23,7 @@ def _make_device_list(*names: str):
 # ---------------------------------------------------------------------------
 # list_devices
 # ---------------------------------------------------------------------------
+
 
 class TestListDevices:
     def test_returns_names_of_input_devices(self):
@@ -48,6 +50,7 @@ class TestListDevices:
 # start — stream creation parameters
 # ---------------------------------------------------------------------------
 
+
 class TestStart:
     def test_returns_queue(self):
         loop = asyncio.new_event_loop()
@@ -55,7 +58,9 @@ class TestStart:
             capture = AudioCapture(device=None, loop=loop)
             mock_stream = MagicMock()
             with patch("asr_mcp.audio.sd.InputStream", return_value=mock_stream):
-                with patch.object(AudioCapture, "list_devices", return_value=["Default"]):
+                with patch.object(
+                    AudioCapture, "list_devices", return_value=["Default"]
+                ):
                     q = capture.start()
             assert isinstance(q, asyncio.Queue)
         finally:
@@ -66,7 +71,9 @@ class TestStart:
         try:
             capture = AudioCapture(device=None, loop=loop)
             mock_stream = MagicMock()
-            with patch("asr_mcp.audio.sd.InputStream", return_value=mock_stream) as mock_cls:
+            with patch(
+                "asr_mcp.audio.sd.InputStream", return_value=mock_stream
+            ) as mock_cls:
                 capture.start()
             _, kwargs = mock_cls.call_args
             assert kwargs["samplerate"] == SAMPLE_RATE
@@ -93,8 +100,12 @@ class TestStart:
         try:
             capture = AudioCapture(device="Mic A", loop=loop)
             mock_stream = MagicMock()
-            with patch("asr_mcp.audio.sd.InputStream", return_value=mock_stream) as mock_cls:
-                with patch.object(AudioCapture, "list_devices", return_value=["Mic A", "Mic B"]):
+            with patch(
+                "asr_mcp.audio.sd.InputStream", return_value=mock_stream
+            ) as mock_cls:
+                with patch.object(
+                    AudioCapture, "list_devices", return_value=["Mic A", "Mic B"]
+                ):
                     capture.start()
             _, kwargs = mock_cls.call_args
             assert kwargs["device"] == "Mic A"
@@ -105,7 +116,9 @@ class TestStart:
         loop = asyncio.new_event_loop()
         try:
             capture = AudioCapture(device="Bad", loop=loop)
-            with patch.object(AudioCapture, "list_devices", return_value=["Mic A", "Mic B"]):
+            with patch.object(
+                AudioCapture, "list_devices", return_value=["Mic A", "Mic B"]
+            ):
                 with pytest.raises(ValueError, match="Bad") as exc_info:
                     capture.start()
             msg = str(exc_info.value)
@@ -128,6 +141,7 @@ class TestStart:
 # ---------------------------------------------------------------------------
 # stop
 # ---------------------------------------------------------------------------
+
 
 class TestStop:
     def test_stop_calls_stream_stop_and_close(self):
@@ -162,6 +176,7 @@ class TestStop:
 # audio callback
 # ---------------------------------------------------------------------------
 
+
 class TestAudioCallback:
     def test_callback_puts_bytes_on_queue_via_call_soon_threadsafe(self):
         loop = asyncio.new_event_loop()
@@ -183,7 +198,9 @@ class TestAudioCallback:
             fake_data = np.zeros((CHUNK_SAMPLES, 1), dtype=np.int16)
             expected_bytes = bytes(fake_data)
 
-            loop.run_until_complete(_invoke_callback_and_drain(captured_callback, fake_data, loop, q))
+            loop.run_until_complete(
+                _invoke_callback_and_drain(captured_callback, fake_data, loop, q)
+            )
             result = q.get_nowait()
             assert result == expected_bytes
         finally:
@@ -204,8 +221,12 @@ class TestAudioCallback:
             with patch("asr_mcp.audio.sd.InputStream", side_effect=fake_input_stream):
                 q = capture.start()
 
-            fake_data = np.random.randint(-32768, 32767, (CHUNK_SAMPLES, 1), dtype=np.int16)
-            loop.run_until_complete(_invoke_callback_and_drain(captured_callback, fake_data, loop, q))
+            fake_data = np.random.randint(
+                -32768, 32767, (CHUNK_SAMPLES, 1), dtype=np.int16
+            )
+            loop.run_until_complete(
+                _invoke_callback_and_drain(captured_callback, fake_data, loop, q)
+            )
             chunk = q.get_nowait()
             assert len(chunk) == CHUNK_SAMPLES * 2  # int16 = 2 bytes per sample
         finally:

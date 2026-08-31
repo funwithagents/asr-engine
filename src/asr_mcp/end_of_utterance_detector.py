@@ -1,4 +1,5 @@
 """EndOfUtteranceDetector: accumulates ASR results and signals end-of-utterance."""
+
 from __future__ import annotations
 
 import asyncio
@@ -15,7 +16,9 @@ log = logging.getLogger(__name__)
 @dataclass
 class UtteranceResult:
     transcript: str
-    end_reason: str  # "trigger_word" | "end_of_speech_timeout" | "initial_silence_timeout"
+    end_reason: (
+        str  # "trigger_word" | "end_of_speech_timeout" | "initial_silence_timeout"
+    )
 
 
 class EndOfUtteranceDetector:
@@ -62,7 +65,9 @@ class EndOfUtteranceDetector:
         if not result.is_final:
             return  # Interim: reset timer only
 
-        if self._mode == "trigger_word" and contains_trigger_word(result.transcript, self._trigger_words):
+        if self._mode == "trigger_word" and contains_trigger_word(
+            result.transcript, self._trigger_words
+        ):
             self._result = UtteranceResult(
                 transcript=" ".join(self._committed),
                 end_reason="trigger_word",
@@ -92,7 +97,11 @@ class EndOfUtteranceDetector:
 
         assert self._result is not None
         self._result.transcript = " ".join(self._committed)
-        log.info("Utterance ended: end_reason=%s transcript=%r", self._result.end_reason, self._result.transcript)
+        log.info(
+            "Utterance ended: end_reason=%s transcript=%r",
+            self._result.end_reason,
+            self._result.transcript,
+        )
         return self._result
 
     async def _initial_silence_timer(self) -> None:
@@ -100,7 +109,9 @@ class EndOfUtteranceDetector:
         try:
             await asyncio.sleep(self._initial_silence_timeout_s)
             if not self._received_any and not self._done.is_set():
-                self._result = UtteranceResult(transcript="", end_reason="initial_silence_timeout")
+                self._result = UtteranceResult(
+                    transcript="", end_reason="initial_silence_timeout"
+                )
                 self._done.set()
         except asyncio.CancelledError:
             pass

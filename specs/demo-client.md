@@ -1,4 +1,17 @@
+---
+code:
+  - src/asr_mcp/asr_resource_client.py
+  - src/asr_mcp/resource_client.py
+  - src/asr_mcp/resource_subscriber.py
+  - src/asr_mcp/tool_client.py
+tests:
+  - tests/test_client.py
+  - tests/test_subscriber.py
+---
+
 # Demo Client Specification
+
+**Status:** Implemented
 
 ## Purpose
 

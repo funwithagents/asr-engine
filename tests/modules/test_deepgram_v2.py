@@ -1,4 +1,5 @@
 """Unit tests for DeepgramV2Module — Plan 05."""
+
 from __future__ import annotations
 
 import asyncio
@@ -9,7 +10,6 @@ import pytest
 
 from asr_mcp.modules.base import ASRResult
 from asr_mcp.modules.deepgram_v2 import DeepgramV2Module
-
 
 # ---------------------------------------------------------------------------
 # Helpers

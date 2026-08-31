@@ -5,8 +5,18 @@ from dataclasses import dataclass, field
 from typing import Any
 
 _DEFAULT_TRIGGER_WORDS: list[str] = [
-    "submit", "enter", "validate", "send", "confirm", "go",
-    "envoyer", "valider", "confirmer", "soumettre", "entree", "entrée",
+    "submit",
+    "enter",
+    "validate",
+    "send",
+    "confirm",
+    "go",
+    "envoyer",
+    "valider",
+    "confirmer",
+    "soumettre",
+    "entree",
+    "entrée",
 ]
 
 
@@ -38,7 +48,9 @@ class EngineConfig:
 @dataclass
 class ListenConfig:
     end_of_utterance_mode: str = "trigger_word"
-    trigger_words: list[str] = field(default_factory=lambda: list(_DEFAULT_TRIGGER_WORDS))
+    trigger_words: list[str] = field(
+        default_factory=lambda: list(_DEFAULT_TRIGGER_WORDS)
+    )
     initial_silence_timeout_s: float = 10.0
     end_of_speech_timeout_s: float = 5.0
     sound_feedback: bool = True

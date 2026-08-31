@@ -1,4 +1,5 @@
 """Unit tests for ASREngine."""
+
 from __future__ import annotations
 
 import asyncio
@@ -10,10 +11,10 @@ from asr_mcp.config import ASRConfig, AudioConfig
 from asr_mcp.engine import ASREngine
 from asr_mcp.modules.base import ASRResult
 
-
 # ---------------------------------------------------------------------------
 # Helpers / fixtures
 # ---------------------------------------------------------------------------
+
 
 def make_engine(on_result=None):
     """Return an ASREngine backed by a mock ASRModule, patching REGISTRY."""
@@ -33,6 +34,7 @@ def make_engine(on_result=None):
 # ---------------------------------------------------------------------------
 # Constructor — validation
 # ---------------------------------------------------------------------------
+
 
 def test_unknown_asr_type_raises():
     audio_config = AudioConfig(device=None)
@@ -56,6 +58,7 @@ def test_known_asr_type_instantiates_module():
 # status() — before start
 # ---------------------------------------------------------------------------
 
+
 def test_initial_status():
     engine, _, _ = make_engine()
     assert engine.status() == {"running": False, "connected": False}
@@ -64,6 +67,7 @@ def test_initial_status():
 # ---------------------------------------------------------------------------
 # set_connected()
 # ---------------------------------------------------------------------------
+
 
 def test_set_connected():
     engine, _, _ = make_engine()
@@ -76,6 +80,7 @@ def test_set_connected():
 # ---------------------------------------------------------------------------
 # start() / stop()
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_start_sets_running():
@@ -90,7 +95,9 @@ async def test_start_sets_running():
 
         assert engine.status()["running"] is True
         instance.start.assert_called_once()
-        module.start.assert_called_once_with(fake_queue, engine._handle_result, engine.set_connected)
+        module.start.assert_called_once_with(
+            fake_queue, engine._handle_result, engine.set_connected
+        )
 
 
 @pytest.mark.asyncio
@@ -116,7 +123,7 @@ async def test_stop_cancels_task():
     engine, _, _ = make_engine()
     fake_queue: asyncio.Queue[bytes] = asyncio.Queue()
 
-    async def hang(_queue, _cb, _conn=None):
+    async def hang(audio_queue, on_result, on_connected=None):
         await asyncio.sleep(9999)
 
     engine._asr_module.start = hang
@@ -130,12 +137,14 @@ async def test_stop_cancels_task():
         await asyncio.sleep(0)
         await engine.stop()
 
+        assert engine._task is not None
         assert engine._task.cancelled() or engine._task.done()
 
 
 # ---------------------------------------------------------------------------
 # _handle_result()
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_handle_result_forwards():

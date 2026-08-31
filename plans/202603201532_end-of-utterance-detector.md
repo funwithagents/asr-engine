@@ -1,4 +1,6 @@
-# Plan 13 — EndOfUtteranceDetector & AsrToTerminal Mode Support
+# EndOfUtteranceDetector & AsrToTerminal Mode Support
+
+**Status:** Done
 
 Rename `ListenSession` → `EndOfUtteranceDetector` (and `ListenResult` →
 `UtteranceResult`), move it to a dedicated file, and wire it into `AsrToTerminal`

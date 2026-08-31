@@ -26,7 +26,6 @@ class AudioSource(Protocol):
         ...
 
 
-
 class FileAudioSource:
     """Reads a WAV file and feeds PCM chunks into an asyncio queue at real-time pace."""
 
@@ -48,6 +47,7 @@ class FileAudioSource:
         return self._queue
 
     async def _feed(self) -> None:
+        assert self._queue is not None  # set by start() before this task runs
         chunk_duration = self._chunk_samples / SAMPLE_RATE
         with wave.open(str(self._path), "rb") as wf:
             assert wf.getframerate() == SAMPLE_RATE, (
@@ -97,11 +97,12 @@ class AudioCapture:
                     f"Available devices: {', '.join(available) or '(none)'}"
                 )
 
-        self._queue: asyncio.Queue[bytes] = asyncio.Queue()
+        self._queue = asyncio.Queue()
+        queue = self._queue
 
         def _callback(indata: np.ndarray, frames: int, time, status) -> None:  # noqa: ARG001
             chunk = bytes(indata)
-            self._loop.call_soon_threadsafe(self._queue.put_nowait, chunk)
+            self._loop.call_soon_threadsafe(queue.put_nowait, chunk)
 
         self._stream = sd.InputStream(
             samplerate=SAMPLE_RATE,

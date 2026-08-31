@@ -1,4 +1,6 @@
-# Plan 10 — ASR to Terminal
+# ASR to Terminal
+
+**Status:** Done
 
 Implement `AsrToTerminal`: progressive speech-to-terminal injection with submit
 word detection, plus a real e2e test driven by audio fixtures.

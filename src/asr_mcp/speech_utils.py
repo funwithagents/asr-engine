@@ -1,4 +1,5 @@
 """Shared speech recognition utilities."""
+
 from __future__ import annotations
 
 

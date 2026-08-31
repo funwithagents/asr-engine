@@ -1,4 +1,13 @@
+---
+code:
+  - src/asr_mcp/cli.py
+  - src/asr_mcp/engine.py
+tests:
+---
+
 # Project Overview
+
+**Status:** Implemented
 
 ## Goal
 

@@ -30,9 +30,11 @@ async def run(version: str, config: dict, device: str | None) -> None:
 
     if version == "v1":
         from asr_mcp.modules.deepgram_v1 import DeepgramV1Module
+
         module = DeepgramV1Module(config=config)
     else:
         from asr_mcp.modules.deepgram_v2 import DeepgramV2Module
+
         module = DeepgramV2Module(config=config)
 
     loop = asyncio.get_running_loop()
@@ -40,7 +42,9 @@ async def run(version: str, config: dict, device: str | None) -> None:
 
     async def on_result(result: ASRResult) -> None:
         tag = "[FINAL]  " if result.is_final else "[interim]"
-        conf = f"  conf={result.confidence:.2f}" if result.confidence is not None else ""
+        conf = (
+            f"  conf={result.confidence:.2f}" if result.confidence is not None else ""
+        )
         print(f"{tag} {result.transcript}{conf}")
 
     audio_queue = capture.start()
@@ -81,6 +85,7 @@ def main() -> None:
 
     if args.list_devices:
         from asr_mcp.audio import AudioCapture
+
         devices = AudioCapture.list_devices()
         if devices:
             print("Available input devices:")

@@ -1,4 +1,5 @@
 """Unit tests for speech_utils.py."""
+
 from __future__ import annotations
 
 from asr_mcp.speech_utils import contains_trigger_word

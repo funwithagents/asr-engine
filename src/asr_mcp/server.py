@@ -11,8 +11,8 @@ from mcp.server.fastmcp import Context, FastMCP
 from pydantic import AnyUrl
 
 from asr_mcp.config import AppConfig, AudioConfig, ListenConfig
-from asr_mcp.engine import ASREngine
 from asr_mcp.end_of_utterance_detector import EndOfUtteranceDetector
+from asr_mcp.engine import ASREngine
 from asr_mcp.modules.base import ASRResult
 from asr_mcp.sound_feedback import NoOpSoundFeedback, SoundFeedback
 
@@ -31,9 +31,11 @@ def create_mcp_server(
     """
     if listen_config is None:
         from asr_mcp.config import ListenConfig as _LC  # noqa: PLC0415
+
         listen_config = _LC()
     if audio_config is None:
         from asr_mcp.config import AudioConfig as _AC  # noqa: PLC0415
+
         audio_config = _AC()
 
     if listen_config.sound_feedback:
@@ -106,6 +108,7 @@ def create_mcp_server(
             raise ValueError("ASR is already running. Stop it before calling listen.")
 
         async with _listen_lock:
+
             async def _on_final_committed(transcript: str) -> None:
                 await ctx.report_progress(
                     progress=len(session._committed),
@@ -160,11 +163,13 @@ def create_mcp_server(
 
 async def run_server(config: AppConfig) -> None:
     """Create the ASR engine, the MCP server, and run uvicorn."""
+
     async def _noop(result):
         pass
 
     if config.audio.audio_file:
         from asr_mcp.audio import FileAudioSource  # noqa: PLC0415
+
         audio_source = FileAudioSource(
             config.audio.audio_file,
             trailing_silence_s=config.audio.trailing_silence_s,
@@ -184,8 +189,19 @@ async def run_server(config: AppConfig) -> None:
     log_config = {
         "version": 1,
         "disable_existing_loggers": False,
-        "formatters": {"default": {"()": "uvicorn.logging.DefaultFormatter", "fmt": "%(levelprefix)s %(message)s"}},
-        "handlers": {"default": {"class": "logging.StreamHandler", "formatter": "default", "stream": "ext://sys.stderr"}},
+        "formatters": {
+            "default": {
+                "()": "uvicorn.logging.DefaultFormatter",
+                "fmt": "%(levelprefix)s %(message)s",
+            }
+        },
+        "handlers": {
+            "default": {
+                "class": "logging.StreamHandler",
+                "formatter": "default",
+                "stream": "ext://sys.stderr",
+            }
+        },
         "loggers": {
             "uvicorn": {"handlers": ["default"], "level": "INFO", "propagate": False},
             "uvicorn.error": {"level": "INFO"},

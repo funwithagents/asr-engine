@@ -21,7 +21,6 @@ import argparse
 import asyncio
 import json
 
-import mcp.types as types
 from mcp.client.session import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 from pydantic import AnyUrl
@@ -45,7 +44,9 @@ async def _run(server_url: str) -> None:
             print()
 
             if not status.get("running"):
-                print("[debug] Engine is NOT running — server may have crashed at startup.")
+                print(
+                    "[debug] Engine is NOT running — server may have crashed at startup."
+                )
                 return
             if not status.get("connected"):
                 print("[debug] Engine is running but NOT connected to Deepgram.")
@@ -58,10 +59,11 @@ async def _run(server_url: str) -> None:
             # 2. Poll asr://result directly (no subscription)
             print("=== Polling asr://result every second (speak now) ===")
             print("[debug] If transcripts appear here, ASR is working.")
-            print("[debug] If they don't appear in the client, the issue is in push notifications.")
+            print(
+                "[debug] If they don't appear in the client, the issue is in push notifications."
+            )
             print("[debug] Press Ctrl+C to stop.\n")
 
-            last_transcript = None
             last_timestamp = None
             while True:
                 try:
@@ -77,9 +79,12 @@ async def _run(server_url: str) -> None:
                             # Print only when the result changes
                             if ts != last_timestamp and transcript:
                                 tag = "[FINAL  ]" if is_final else "[INTERIM]"
-                                conf = f" (confidence: {confidence})" if is_final and confidence is not None else ""
+                                conf = (
+                                    f" (confidence: {confidence})"
+                                    if is_final and confidence is not None
+                                    else ""
+                                )
                                 print(f"  {tag} {transcript}{conf}")
-                                last_transcript = transcript
                                 last_timestamp = ts
                 except asyncio.CancelledError:
                     raise

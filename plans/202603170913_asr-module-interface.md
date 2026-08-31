@@ -1,4 +1,6 @@
-# Plan 04 — ASR Module Interface & Registry
+# ASR Module Interface & Registry
+
+**Status:** Done
 
 Implement the abstract base class, result dataclass, and module registry.
 

@@ -57,6 +57,7 @@ class DeepgramV2Module(ASRModule):
                     if on_connected:
                         on_connected(True)
                     try:
+
                         async def on_message(msg: object) -> None:
                             if not isinstance(msg, ListenV2TurnInfo):
                                 return
@@ -168,9 +169,7 @@ class DeepgramV2Module(ASRModule):
             if remaining <= 0:
                 break
             try:
-                await asyncio.wait_for(
-                    audio_queue.get(), timeout=min(remaining, 0.1)
-                )
+                await asyncio.wait_for(audio_queue.get(), timeout=min(remaining, 0.1))
             except asyncio.TimeoutError:
                 pass
 

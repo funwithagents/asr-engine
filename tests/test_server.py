@@ -1,4 +1,5 @@
 """Unit tests for server.py — create_mcp_server and the MCP tools/resource."""
+
 from __future__ import annotations
 
 import asyncio
@@ -8,15 +9,15 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from asr_mcp.config import AppConfig, ASRConfig, AudioConfig, EngineConfig, ListenConfig
-from asr_mcp.engine import ASREngine
 from asr_mcp.end_of_utterance_detector import UtteranceResult as ListenResult
+from asr_mcp.engine import ASREngine
 from asr_mcp.modules.base import ASRResult
 from asr_mcp.server import create_mcp_server, run_server
-
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def make_engine(on_result=None) -> ASREngine:
     audio_config = AudioConfig(device=None)
@@ -40,6 +41,7 @@ def tool_result_json(result) -> dict:
 # create_mcp_server — basic structure
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_asr_result_resource_registered():
     engine = make_engine()
@@ -62,6 +64,7 @@ async def test_tools_registered():
 # Resource — initial state
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_resource_initial_empty_transcript():
     engine = make_engine()
@@ -77,6 +80,7 @@ async def test_resource_initial_empty_transcript():
 # ---------------------------------------------------------------------------
 # _on_asr_result callback — updates resource state
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_on_asr_result_updates_resource():
@@ -113,7 +117,7 @@ async def test_on_asr_result_interim_result():
 
 @pytest.mark.asyncio
 async def test_on_asr_result_timestamp_is_iso8601():
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     engine = make_engine()
     mcp = create_mcp_server(engine)
@@ -133,8 +137,12 @@ async def test_on_asr_result_overwrites_previous():
     engine = make_engine()
     mcp = create_mcp_server(engine)
 
-    await engine._on_result(ASRResult(transcript="first", is_final=False, confidence=None))
-    await engine._on_result(ASRResult(transcript="second", is_final=True, confidence=0.8))
+    await engine._on_result(
+        ASRResult(transcript="first", is_final=False, confidence=None)
+    )
+    await engine._on_result(
+        ASRResult(transcript="second", is_final=True, confidence=0.8)
+    )
 
     items = await mcp.read_resource("asr://result")
     payload = json.loads(next(iter(items)).content)
@@ -145,10 +153,11 @@ async def test_on_asr_result_overwrites_previous():
 # create_mcp_server wires engine._on_result
 # ---------------------------------------------------------------------------
 
+
 def test_create_mcp_server_replaces_engine_on_result():
     original = AsyncMock()
     engine = make_engine(on_result=original)
-    mcp = create_mcp_server(engine)
+    create_mcp_server(engine)  # wiring side effect: rebinds engine._on_result
     # After wiring, engine._on_result is no longer the original noop
     assert engine._on_result is not original
 
@@ -156,6 +165,7 @@ def test_create_mcp_server_replaces_engine_on_result():
 # ---------------------------------------------------------------------------
 # Tools — start / stop
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_start_tool_starts_engine():
@@ -190,6 +200,7 @@ async def test_stop_tool_stops_engine():
 # Tools — is_running
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_is_running_tool_returns_engine_status():
     engine = make_engine()
@@ -204,6 +215,7 @@ async def test_is_running_tool_returns_engine_status():
 # ---------------------------------------------------------------------------
 # Push notifications — dead session cleanup
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_dead_session_removed_on_send_failure():
@@ -222,7 +234,7 @@ async def test_dead_session_removed_on_send_failure():
     # with a mock session injected.
     #
     # We reach the list by temporarily monkey-patching request_context.
-    from unittest.mock import patch, PropertyMock
+    from unittest.mock import PropertyMock, patch
 
     with patch.object(
         type(mcp._mcp_server),
@@ -231,8 +243,8 @@ async def test_dead_session_removed_on_send_failure():
         return_value=MagicMock(session=dead_session),
     ):
         # Trigger subscribe handler directly via the lowlevel handler
-        from pydantic import AnyUrl
         from mcp.types import SubscribeRequest, SubscribeRequestParams
+        from pydantic import AnyUrl
 
         req = SubscribeRequest(
             method="resources/subscribe",
@@ -253,9 +265,10 @@ async def test_dead_session_removed_on_send_failure():
 # run_server — validation and banner
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_run_server_raises_on_unknown_asr_type() -> None:
-    from asr_mcp.config import AppConfig, ASRConfig, ServerConfig, AudioConfig
+    from asr_mcp.config import AppConfig, ASRConfig, AudioConfig, ServerConfig
 
     config = AppConfig(
         server=ServerConfig(),
@@ -280,7 +293,7 @@ def _listen_config(**kwargs) -> ListenConfig:
         sound_feedback=False,
     )
     defaults.update(kwargs)
-    return ListenConfig(**defaults)
+    return ListenConfig(**defaults)  # type: ignore[arg-type]  # heterogeneous test kwargs
 
 
 @pytest.mark.asyncio
@@ -304,7 +317,6 @@ async def test_listen_concurrent_calls_blocked():
 
     # First listen: session.wait() blocks until we signal
     wait_event = asyncio.Event()
-    done_event = asyncio.Event()
 
     async def _blocking_wait():
         await wait_event.wait()
@@ -314,13 +326,16 @@ async def test_listen_concurrent_calls_blocked():
     fake_session.on_result = AsyncMock()
     fake_session.wait = _blocking_wait
 
-    with patch("asr_mcp.server.EndOfUtteranceDetector", return_value=fake_session), \
-         patch("asr_mcp.engine.AudioCapture") as MockCapture:
+    with (
+        patch("asr_mcp.server.EndOfUtteranceDetector", return_value=fake_session),
+        patch("asr_mcp.engine.AudioCapture") as MockCapture,
+    ):
         MockCapture.return_value.start.return_value = asyncio.Queue()
         first_task = asyncio.create_task(mcp.call_tool("listen", {}))
         await asyncio.sleep(0)  # let first_task reach the lock
 
         from mcp.server.fastmcp.exceptions import ToolError
+
         with pytest.raises(ToolError, match="already in progress"):
             await mcp.call_tool("listen", {})
 
@@ -341,8 +356,10 @@ async def test_listen_trigger_word_success():
     fake_session.on_result = AsyncMock()
     fake_session.wait = AsyncMock(return_value=fake_result)
 
-    with patch("asr_mcp.server.EndOfUtteranceDetector", return_value=fake_session), \
-         patch("asr_mcp.engine.AudioCapture") as MockCapture:
+    with (
+        patch("asr_mcp.server.EndOfUtteranceDetector", return_value=fake_session),
+        patch("asr_mcp.engine.AudioCapture") as MockCapture,
+    ):
         MockCapture.return_value.start.return_value = asyncio.Queue()
         result = await mcp.call_tool("listen", {})
 
@@ -355,7 +372,9 @@ async def test_listen_trigger_word_success():
 async def test_listen_timeout_mode_success():
     """Successful listen in timeout mode returns end_of_speech_timeout end_reason."""
     engine = make_engine()
-    listen_cfg = _listen_config(end_of_utterance_mode="timeout", end_of_speech_timeout_s=0.01)
+    listen_cfg = _listen_config(
+        end_of_utterance_mode="timeout", end_of_speech_timeout_s=0.01
+    )
     mcp = create_mcp_server(engine, listen_cfg)
 
     fake_result = ListenResult(transcript="hello", end_reason="end_of_speech_timeout")
@@ -363,8 +382,10 @@ async def test_listen_timeout_mode_success():
     fake_session.on_result = AsyncMock()
     fake_session.wait = AsyncMock(return_value=fake_result)
 
-    with patch("asr_mcp.server.EndOfUtteranceDetector", return_value=fake_session), \
-         patch("asr_mcp.engine.AudioCapture") as MockCapture:
+    with (
+        patch("asr_mcp.server.EndOfUtteranceDetector", return_value=fake_session),
+        patch("asr_mcp.engine.AudioCapture") as MockCapture,
+    ):
         MockCapture.return_value.start.return_value = asyncio.Queue()
         result = await mcp.call_tool("listen", {})
 
@@ -385,8 +406,10 @@ async def test_listen_engine_stopped_on_exception():
 
     from mcp.server.fastmcp.exceptions import ToolError
 
-    with patch("asr_mcp.server.EndOfUtteranceDetector", return_value=fake_session), \
-         patch("asr_mcp.engine.AudioCapture") as MockCapture:
+    with (
+        patch("asr_mcp.server.EndOfUtteranceDetector", return_value=fake_session),
+        patch("asr_mcp.engine.AudioCapture") as MockCapture,
+    ):
         MockCapture.return_value.start.return_value = asyncio.Queue()
         with pytest.raises(ToolError, match="boom"):
             await mcp.call_tool("listen", {})
@@ -403,7 +426,9 @@ async def test_listen_engine_stopped_on_exception():
 async def test_listen_progress_called_per_committed_final():
     """ctx.report_progress is called once per committed final with the accumulated transcript."""
     engine = make_engine()
-    listen_cfg = _listen_config(end_of_utterance_mode="trigger_word", trigger_words=["submit"])
+    listen_cfg = _listen_config(
+        end_of_utterance_mode="trigger_word", trigger_words=["submit"]
+    )
     mcp = create_mcp_server(engine, listen_cfg)
 
     progress_calls: list[dict] = []
@@ -417,7 +442,9 @@ async def test_listen_progress_called_per_committed_final():
     original_report = Context.report_progress
 
     async def _capture_progress(self, progress, total=None, message=None):
-        progress_calls.append({"progress": progress, "total": total, "message": message})
+        progress_calls.append(
+            {"progress": progress, "total": total, "message": message}
+        )
 
     Context.report_progress = _capture_progress
     try:
@@ -430,9 +457,15 @@ async def test_listen_progress_called_per_committed_final():
             listen_task = asyncio.create_task(mcp.call_tool("listen", {}))
             await asyncio.sleep(0)  # let listen wire engine._on_result to session
 
-            await engine._on_result(ASRResult(transcript="hello world", is_final=True, confidence=None))
-            await engine._on_result(ASRResult(transcript="how are you", is_final=True, confidence=None))
-            await engine._on_result(ASRResult(transcript="submit", is_final=True, confidence=None))
+            await engine._on_result(
+                ASRResult(transcript="hello world", is_final=True, confidence=None)
+            )
+            await engine._on_result(
+                ASRResult(transcript="how are you", is_final=True, confidence=None)
+            )
+            await engine._on_result(
+                ASRResult(transcript="submit", is_final=True, confidence=None)
+            )
 
             await asyncio.wait_for(listen_task, timeout=5.0)
     finally:
@@ -449,7 +482,9 @@ async def test_listen_progress_called_per_committed_final():
 async def test_listen_progress_not_called_for_trigger_word_final():
     """ctx.report_progress is NOT called when the trigger word final ends the session."""
     engine = make_engine()
-    listen_cfg = _listen_config(end_of_utterance_mode="trigger_word", trigger_words=["validate"])
+    listen_cfg = _listen_config(
+        end_of_utterance_mode="trigger_word", trigger_words=["validate"]
+    )
     mcp = create_mcp_server(engine, listen_cfg)
 
     progress_calls: list[dict] = []
@@ -469,7 +504,9 @@ async def test_listen_progress_not_called_for_trigger_word_final():
             listen_task = asyncio.create_task(mcp.call_tool("listen", {}))
             await asyncio.sleep(0)
 
-            await engine._on_result(ASRResult(transcript="validate", is_final=True, confidence=None))
+            await engine._on_result(
+                ASRResult(transcript="validate", is_final=True, confidence=None)
+            )
 
             await asyncio.wait_for(listen_task, timeout=5.0)
     finally:
@@ -500,7 +537,7 @@ async def test_run_server_auto_start_false_does_not_start_engine(capsys) -> None
         engine=EngineConfig(auto_start=False),
     )
     original = dict(mod.REGISTRY)
-    mod.REGISTRY["fake_auto"] = fake_class
+    mod.REGISTRY["fake_auto"] = fake_class  # type: ignore[assignment]  # MagicMock test double
     try:
         with patch("asr_mcp.server.uvicorn.Server.serve", new_callable=AsyncMock):
             await run_server(config)
@@ -520,7 +557,7 @@ async def test_run_server_auto_start_false_does_not_start_engine(capsys) -> None
 @pytest.mark.asyncio
 async def test_run_server_prints_banner(capsys) -> None:
     import asr_mcp.modules as mod
-    from asr_mcp.config import AppConfig, ASRConfig, ServerConfig, AudioConfig
+    from asr_mcp.config import AppConfig, ASRConfig, AudioConfig, ServerConfig
 
     fake_module = MagicMock()
     fake_module.start = AsyncMock(return_value=None)
@@ -533,7 +570,7 @@ async def test_run_server_prints_banner(capsys) -> None:
         asr=ASRConfig(type="fake_banner"),
     )
     original = dict(mod.REGISTRY)
-    mod.REGISTRY["fake_banner"] = fake_class
+    mod.REGISTRY["fake_banner"] = fake_class  # type: ignore[assignment]  # MagicMock test double
     try:
         with patch("asr_mcp.server.uvicorn.Server.serve", new_callable=AsyncMock):
             await run_server(config)

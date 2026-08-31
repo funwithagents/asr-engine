@@ -1,4 +1,15 @@
+---
+code:
+  - src/asr_mcp/modules/base.py
+  - src/asr_mcp/engine.py
+tests:
+  - tests/modules/test_base.py
+  - tests/test_engine.py
+---
+
 # ASR Module Interface
+
+**Status:** Implemented
 
 ## Purpose
 
@@ -11,19 +22,23 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Callable, Awaitable
 
+
 @dataclass
 class ASRResult:
     transcript: str
     is_final: bool
     confidence: float | None  # None if not provided by backend
 
+
 # Callback type: called each time the module emits a result
 ResultCallback = Callable[[ASRResult], Awaitable[None]]
 
-class ASRModule(ABC):
 
+class ASRModule(ABC):
     @abstractmethod
-    async def start(self, audio_queue: asyncio.Queue[bytes], on_result: ResultCallback) -> None:
+    async def start(
+        self, audio_queue: asyncio.Queue[bytes], on_result: ResultCallback
+    ) -> None:
         """
         Start the ASR module.
 

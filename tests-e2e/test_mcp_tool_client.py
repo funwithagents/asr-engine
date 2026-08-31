@@ -1,4 +1,5 @@
 """End-to-end tests: McpToolClient — listen tool (trigger_word and timeout modes)."""
+
 from __future__ import annotations
 
 import asyncio
@@ -6,10 +7,9 @@ import re
 from pathlib import Path
 
 import pytest
+from helpers import load_api_key, start_mcp_server, stop_mcp_server
 
 from asr_mcp.tool_client import McpToolClient
-
-from helpers import load_api_key, start_mcp_server, stop_mcp_server
 
 _FIXTURE_WAV = Path(__file__).parent / "fixtures" / "sample.wav"
 _FIXTURE_SUBMIT_WAV = Path(__file__).parent / "fixtures" / "sample_submit.wav"
@@ -29,10 +29,14 @@ async def test_e2e_listen_trigger_word() -> None:
         {"api_key": api_key, "model": "nova-3"},
         port=18003,
         engine_config={"auto_start": False},
-        listen_config={"end_of_utterance_mode": "trigger_word", "trigger_words": ["validate"], "sound_feedback": True},
+        listen_config={
+            "end_of_utterance_mode": "trigger_word",
+            "trigger_words": ["validate"],
+            "sound_feedback": True,
+        },
     )
     try:
-        client = McpToolClient(f"http://127.0.0.1:18003/mcp")
+        client = McpToolClient("http://127.0.0.1:18003/mcp")
         result = await asyncio.wait_for(client.call_tool("listen"), timeout=30.0)
     finally:
         await stop_mcp_server(proc, config_path)
@@ -55,16 +59,22 @@ async def test_e2e_listen_streaming() -> None:
         {"api_key": api_key, "model": "nova-3"},
         port=18005,
         engine_config={"auto_start": False},
-        listen_config={"end_of_utterance_mode": "timeout", "end_of_speech_timeout_s": 2.0, "sound_feedback": True},
+        listen_config={
+            "end_of_utterance_mode": "timeout",
+            "end_of_speech_timeout_s": 2.0,
+            "sound_feedback": True,
+        },
     )
     try:
         received_messages: list[str] = []
 
-        async def _on_progress(progress: float, total: float | None, message: str | None) -> None:
+        async def _on_progress(
+            progress: float, total: float | None, message: str | None
+        ) -> None:
             if message is not None:
                 received_messages.append(message)
 
-        client = McpToolClient(f"http://127.0.0.1:18005/mcp")
+        client = McpToolClient("http://127.0.0.1:18005/mcp")
         result = await asyncio.wait_for(
             client.call_tool("listen", progress_callback=_on_progress), timeout=30.0
         )
@@ -85,10 +95,14 @@ async def test_e2e_listen_timeout() -> None:
         {"api_key": api_key, "model": "nova-3"},
         port=18004,
         engine_config={"auto_start": False},
-        listen_config={"end_of_utterance_mode": "timeout", "end_of_speech_timeout_s": 2.0, "sound_feedback": True},
+        listen_config={
+            "end_of_utterance_mode": "timeout",
+            "end_of_speech_timeout_s": 2.0,
+            "sound_feedback": True,
+        },
     )
     try:
-        client = McpToolClient(f"http://127.0.0.1:18004/mcp")
+        client = McpToolClient("http://127.0.0.1:18004/mcp")
         result = await asyncio.wait_for(client.call_tool("listen"), timeout=30.0)
     finally:
         await stop_mcp_server(proc, config_path)

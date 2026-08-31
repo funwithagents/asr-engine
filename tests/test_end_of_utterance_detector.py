@@ -1,12 +1,12 @@
 """Unit tests for end_of_utterance_detector.py — all timers are patched to avoid real sleeps."""
+
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from asr_mcp.end_of_utterance_detector import EndOfUtteranceDetector, UtteranceResult
+from asr_mcp.end_of_utterance_detector import EndOfUtteranceDetector
 from asr_mcp.modules.base import ASRResult
 
 
@@ -85,7 +85,9 @@ async def test_trigger_word_interim_not_accumulated():
 @pytest.mark.asyncio
 async def test_timeout_initial_silence_fires_when_no_events():
     """No events → initial-silence timeout fires with empty transcript."""
-    d = _detector(mode="timeout", initial_silence_timeout_s=0.01, end_of_speech_timeout_s=10.0)
+    d = _detector(
+        mode="timeout", initial_silence_timeout_s=0.01, end_of_speech_timeout_s=10.0
+    )
     result = await asyncio.wait_for(d.wait(), timeout=1.0)
     assert result.end_reason == "initial_silence_timeout"
     assert result.transcript == ""
@@ -94,7 +96,9 @@ async def test_timeout_initial_silence_fires_when_no_events():
 @pytest.mark.asyncio
 async def test_timeout_eos_fires_after_events():
     """Events then silence → end-of-speech timeout fires with accumulated finals."""
-    d = _detector(mode="timeout", initial_silence_timeout_s=10.0, end_of_speech_timeout_s=0.01)
+    d = _detector(
+        mode="timeout", initial_silence_timeout_s=10.0, end_of_speech_timeout_s=0.01
+    )
     await d.on_result(_final("the sky is blue"))
     result = await asyncio.wait_for(d.wait(), timeout=1.0)
     assert result.end_reason == "end_of_speech_timeout"
@@ -104,7 +108,9 @@ async def test_timeout_eos_fires_after_events():
 @pytest.mark.asyncio
 async def test_timeout_interim_resets_eos_timer():
     """Interim event resets the end-of-speech timer (session keeps alive longer)."""
-    d = _detector(mode="timeout", initial_silence_timeout_s=10.0, end_of_speech_timeout_s=0.05)
+    d = _detector(
+        mode="timeout", initial_silence_timeout_s=10.0, end_of_speech_timeout_s=0.05
+    )
     await d.on_result(_final("first"))
     # Send interims to reset the timer each time
     for _ in range(3):
@@ -160,7 +166,9 @@ async def test_on_final_committed_not_called_for_trigger_word_final():
     async def cb(transcript: str) -> None:
         calls.append(transcript)
 
-    d = _detector(mode="trigger_word", trigger_words=["validate"], on_final_committed=cb)
+    d = _detector(
+        mode="trigger_word", trigger_words=["validate"], on_final_committed=cb
+    )
     await d.on_result(_final("validate"))
 
     assert calls == []
@@ -180,7 +188,9 @@ async def test_on_final_committed_none_no_error():
 async def test_trigger_word_mode_no_eos_timeout():
     """In trigger_word mode the EOS timer must never fire; session waits indefinitely."""
     # Use a very short end_of_speech_timeout_s to catch the bug quickly
-    d = _detector(mode="trigger_word", trigger_words=["validate"], end_of_speech_timeout_s=0.05)
+    d = _detector(
+        mode="trigger_word", trigger_words=["validate"], end_of_speech_timeout_s=0.05
+    )
     await d.on_result(_final("first sentence"))
 
     # Wait longer than the timeout — if the timer incorrectly fires we get a result early

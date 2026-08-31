@@ -1,4 +1,15 @@
+---
+code:
+  - src/asr_mcp/audio.py
+tests:
+  - tests-e2e/test_asr_resource_client.py
+  - tests-e2e/test_mcp_tool_client.py
+  - tests-e2e/test_asr_to_terminal.py
+---
+
 # E2E File-Based Testing
+
+**Status:** Implemented
 
 ## Goal
 

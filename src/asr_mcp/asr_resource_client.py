@@ -1,4 +1,5 @@
 """Demo CLI: subscribe to asr://result and log each update."""
+
 from __future__ import annotations
 
 import argparse
@@ -24,6 +25,7 @@ def _format_result(payload: dict) -> str:
 
 async def _run_client(server_url: str) -> None:
     """Start an AsrResourceClient and run until cancelled."""
+
     async def _on_event(payload: dict) -> None:
         print(_format_result(payload), flush=True)
 

@@ -1,4 +1,13 @@
+---
+code:
+  - src/asr_mcp/config.py
+tests:
+  - tests/test_config.py
+---
+
 # Configuration
+
+**Status:** Implemented
 
 ## Config File
 

@@ -1,15 +1,14 @@
 """Unit tests for asr_mcp.modules.base and load_module — Plan 04."""
+
 from __future__ import annotations
 
 import asyncio
-from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
 
 from asr_mcp.modules import REGISTRY, load_module
 from asr_mcp.modules.base import ASRModule, ASRResult
-
 
 # ---------------------------------------------------------------------------
 # ASRResult dataclass
@@ -52,7 +51,7 @@ def test_asr_module_cannot_be_instantiated() -> None:
 
 def test_asr_module_concrete_subclass_stores_config() -> None:
     class FakeModule(ASRModule):
-        async def start(self, audio_queue, on_result):
+        async def start(self, audio_queue, on_result, on_connected=None):
             pass
 
         async def stop(self):
@@ -71,7 +70,7 @@ async def test_asr_module_start_stop_called() -> None:
             self.started = False
             self.stopped = False
 
-        async def start(self, audio_queue, on_result):
+        async def start(self, audio_queue, on_result, on_connected=None):
             self.started = True
 
         async def stop(self):
@@ -93,7 +92,7 @@ async def test_asr_module_start_stop_called() -> None:
 
 def _make_fake_class() -> type[ASRModule]:
     class FakeModule(ASRModule):
-        async def start(self, audio_queue, on_result):
+        async def start(self, audio_queue, on_result, on_connected=None):
             pass
 
         async def stop(self):

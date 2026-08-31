@@ -8,6 +8,7 @@ from typing import Awaitable, Callable
 import mcp.types as types
 from mcp.client.session import ClientSession
 from mcp.client.streamable_http import streamable_http_client
+from mcp.shared.session import RequestResponder
 from pydantic import AnyUrl
 
 log = logging.getLogger(__name__)
@@ -73,13 +74,15 @@ class ResourceSubscriber:
         session_holder: list[ClientSession | None] = [None]
 
         async def _on_message(
-            msg: types.RequestResponder | types.ServerNotification | Exception,
+            message: RequestResponder[types.ServerRequest, types.ClientResult]
+            | types.ServerNotification
+            | Exception,
         ) -> None:
             # Must return immediately — awaiting session methods here deadlocks
             # _receive_loop (the response would never be processed).
-            if not isinstance(msg, types.ServerNotification):
+            if not isinstance(message, types.ServerNotification):
                 return
-            if not isinstance(msg.root, types.ResourceUpdatedNotification):
+            if not isinstance(message.root, types.ResourceUpdatedNotification):
                 return
             session = session_holder[0]
             if session is None:
@@ -90,7 +93,7 @@ class ResourceSubscriber:
             try:
                 result = await session.read_resource(AnyUrl(self._resource_uri))
                 for content in result.contents:
-                    if hasattr(content, "text"):
+                    if isinstance(content, types.TextResourceContents):
                         payload = json.loads(content.text)
                         await self._on_event(payload)
             except Exception:

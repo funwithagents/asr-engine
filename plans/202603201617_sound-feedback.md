@@ -1,4 +1,6 @@
-# Plan 14 — Sound Feedback for `listen` Tool
+# Sound Feedback for `listen` Tool
+
+**Status:** Done
 
 ## Goal
 

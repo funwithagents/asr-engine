@@ -1,4 +1,17 @@
+---
+code:
+  - src/asr_mcp/audio.py
+  - src/asr_mcp/engine.py
+  - src/asr_mcp/server.py
+tests:
+  - tests/test_audio.py
+  - tests/test_engine.py
+  - tests/test_server.py
+---
+
 # Architecture
+
+**Status:** Implemented
 
 ## System Diagram
 

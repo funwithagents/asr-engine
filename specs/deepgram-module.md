@@ -1,4 +1,15 @@
+---
+code:
+  - src/asr_mcp/modules/deepgram_v1.py
+  - src/asr_mcp/modules/deepgram_v2.py
+tests:
+  - tests/modules/test_deepgram_v1.py
+  - tests/modules/test_deepgram_v2.py
+---
+
 # Deepgram ASR Modules
+
+**Status:** Implemented
 
 Two Deepgram modules are provided, targeting different API versions and use cases:
 

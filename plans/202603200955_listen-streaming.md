@@ -1,4 +1,6 @@
-# Plan 12 — Listen Tool Streaming via Progress Notifications
+# Listen Tool Streaming via Progress Notifications
+
+**Status:** Done
 
 Stream committed final results to the caller during a `listen` session, using MCP
 progress notifications. Each time a final ASR result is committed to the transcript,

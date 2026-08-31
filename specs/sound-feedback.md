@@ -1,4 +1,13 @@
+---
+code:
+  - src/asr_mcp/sound_feedback.py
+tests:
+  - tests/test_sound_feedback.py
+---
+
 # Sound Feedback Specification
+
+**Status:** Implemented
 
 ## Purpose
 

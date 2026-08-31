@@ -1,207 +1,153 @@
-# AGENTS.md — ASR MCP Project
+# Agent instructions
+
+Start at [specs/_index.md](specs/_index.md) for an overview of the specs and their status before making design decisions or writing code — it lists each spec and whether it's still open ("Draft"/"Not started"), design-validated ("Stable"), or built ("Implemented"). For what's been (or is being) built, see [plans/_index.md](plans/_index.md), which lists each implementation plan and its status ("Todo"/"In progress"/"Done").
 
 ## What this project is
 
 A real-time Automatic Speech Recognition (ASR) MCP server written in Python.
-- Captures audio continuously from a system input device
-- Streams audio to a pluggable ASR backend (first: Deepgram)
-- Exposes transcription results as a live MCP resource (`asr://result`) over StreamableHTTP
-- Exposes tools to start, stop, and query ASR state
-- Includes a demo client that subscribes to the resource and logs results
 
-## Key design decisions
+- Captures audio continuously from a system input device.
+- Streams audio to a pluggable ASR backend (first: Deepgram).
+- Exposes transcription results as a live MCP resource (`asr://result`) over StreamableHTTP.
+- Exposes tools to start, stop, query ASR state, and `listen` for a single utterance.
+- Includes a demo client that subscribes to the resource and logs results, and an `asr-to-terminal` bridge that types transcripts into the focused window.
 
-- **Always-on by default**: `engine.auto_start=true` (default) starts ASR at server startup. Set `auto_start=false` for on-demand use via the `start` or `listen` tool.
-- **Single rolling resource**: `asr://result` holds only the latest utterance (interim or final), not a full transcript history
-- **Pluggable modules**: one ASR module active at a time, selected via `asr.type` in config
-- **StreamableHTTP transport**: enables remote access on a local network
-- **asyncio throughout**: audio capture runs in a thread, everything else is async on one event loop
+### Key design decisions
 
-## Repository layout
+- **Always-on by default:** `engine.auto_start=true` (default) starts ASR at server startup. Set `auto_start=false` for on-demand use via the `start` or `listen` tool.
+- **Single rolling resource:** `asr://result` holds only the latest utterance (interim or final), not a full transcript history.
+- **Pluggable modules:** one ASR module active at a time, selected via `asr.type` in config.
+- **StreamableHTTP transport:** enables remote access on a local network.
+- **asyncio throughout:** audio capture runs in a thread, everything else is async on one event loop.
+
+## Project map
+
+Where things live. This is a coarse, module-level map — for the full file inventory use `git ls-files`; for design detail follow the spec links.
+
+### Top-level layout
+
+| Path | What's there |
+|---|---|
+| `src/asr_mcp/` | The library itself — one module per core concept (see below); pluggable backends in `modules/`, bundled cues in `sounds/` |
+| `specs/` | Pre-implementation design docs, one per concept, each with a `**Status:**` — indexed by [specs/_index.md](specs/_index.md) |
+| `plans/` | Implementation plans turning settled specs into buildable steps — indexed by [plans/_index.md](plans/_index.md) |
+| `tests/` | Fast, deterministic, no-network tests; mirrors the `src/asr_mcp/` module structure |
+| `tests-e2e/` | Opt-in live tests that call the real Deepgram API (not collected by the fast dev loop) |
+| `scripts/` | Standalone debug/utility scripts (not part of the package) |
+
+### `src/asr_mcp/` modules
+
+<!-- One row per concept module. Keep this in sync with the code (a test enforces it). The modules/ subpackage (base.py, deepgram_v1.py, deepgram_v2.py) and sounds/ assets are not top-level modules. -->
+
+| Module | Role | Spec |
+|---|---|---|
+| [cli.py](src/asr_mcp/cli.py) | Server entry point (argparse → wires everything) | [mcp-server.md](specs/mcp-server.md) |
+| [config.py](src/asr_mcp/config.py) | Config dataclasses + load/validate | [configuration.md](specs/configuration.md) |
+| [audio.py](src/asr_mcp/audio.py) | `AudioCapture`, `AudioSource` protocol, `FileAudioSource` | [architecture.md](specs/architecture.md) |
+| [engine.py](src/asr_mcp/engine.py) | `ASREngine`: wires audio + module, start/stop | [architecture.md](specs/architecture.md) |
+| [server.py](src/asr_mcp/server.py) | MCP server: resource, tools, StreamableHTTP, `listen` tool | [mcp-server.md](specs/mcp-server.md) |
+| [resource_subscriber.py](src/asr_mcp/resource_subscriber.py) | `ResourceSubscriber`: generic MCP resource watcher | [demo-client.md](specs/demo-client.md) |
+| [resource_client.py](src/asr_mcp/resource_client.py) | `AsrResourceClient`: subscribe to `asr://result` | [demo-client.md](specs/demo-client.md) |
+| [tool_client.py](src/asr_mcp/tool_client.py) | `McpToolClient`: single-call MCP tool invocation | [demo-client.md](specs/demo-client.md) |
+| [asr_resource_client.py](src/asr_mcp/asr_resource_client.py) | Demo CLI: subscribe to `asr://result`, log results | [demo-client.md](specs/demo-client.md) |
+| [speech_utils.py](src/asr_mcp/speech_utils.py) | `contains_trigger_word()` — shared trigger-word detection | [end-of-utterance-detector.md](specs/end-of-utterance-detector.md) |
+| [end_of_utterance_detector.py](src/asr_mcp/end_of_utterance_detector.py) | `EndOfUtteranceDetector` + `UtteranceResult`: end-of-utterance logic | [end-of-utterance-detector.md](specs/end-of-utterance-detector.md) |
+| [sound_feedback.py](src/asr_mcp/sound_feedback.py) | `SoundFeedback` + `NoOpSoundFeedback`: WAV cue playback | [sound-feedback.md](specs/sound-feedback.md) |
+| [terminal_typer.py](src/asr_mcp/terminal_typer.py) | `TerminalTyper`: xdotool/ydotool keystroke injection | [asr-to-terminal.md](specs/asr-to-terminal.md) |
+| [asr_to_terminal.py](src/asr_mcp/asr_to_terminal.py) | `AsrToTerminal` state machine + `asr-to-terminal` CLI | [asr-to-terminal.md](specs/asr-to-terminal.md) |
+| [_logging.py](src/asr_mcp/_logging.py) | `setup_logging()` for entry points and scripts | [project.md](specs/project.md) |
+| [__init__.py](src/asr_mcp/__init__.py) | Package glue (no owning spec) | — |
+
+**Keep this map current:** when you add, rename, or remove a top-level `src/asr_mcp/` module or a root directory, update the map in the same change — same discipline as keeping spec/plan statuses honest (below). A test (`tests/test_project_map.py`) enforces that every `src/asr_mcp/*.py` module appears here and vice-versa — and that the spec frontmatter (see below) stays honest too.
+
+## Keeping statuses current
+
+Specs and plans both carry a status, and you are responsible for keeping it honest as work progresses — update it in the same change that does the work, not as an afterthought:
+
+- **Spec status** (`**Status:**` line near the top of each spec, and the Status column in [specs/_index.md](specs/_index.md)) tracks *design maturity* and *whether the code reflects the spec*, as a lifecycle: `Not started` → `Draft` (open questions remain) → `Stable` (design settled, reviewed and validated — open questions are deferrals only — but **not necessarily implemented yet**) → `Implemented` (a `Done` plan has built it and the code matches the spec).
+  - **`Stable` is the design-review gate, not an implementation claim.** Promote `Draft` → `Stable` once the core design is settled and its remaining open questions are genuine deferrals — this is where the design is validated *before* code is written.
+  - **`Implemented` means code matches.** Promote `Stable` → `Implemented` only once a plan implementing it is `Done` (lint, type check, tests all pass — see Verification).
+  - **When you edit an `Implemented` spec in a way that requires new code, set its status to `Updated` in the same change**, write a new plan for the gap, and flip it back to `Implemented` once that plan is `Done` — the `Implemented → Updated → Implemented` loop. A purely editorial edit keeps the status.
+- **Plan status** (`**Status:**` line near the top of each plan, and the Status column in [plans/_index.md](plans/_index.md)) tracks *implementation progress*: `Todo` → `In progress` → `Done`. Mark a plan `Done` only once it's implemented and verified (lint, type check, tests all pass — see Verification).
+- Whenever you add a spec or plan, add its row to the relevant `_index.md`; whenever you change a status, change it in both the file and the index.
+
+## Spec frontmatter
+
+Every spec opens with a YAML frontmatter block naming the code and tests it governs:
 
 ```
-asr-mcp/
-├── AGENTS.md                    # This file
-├── pyproject.toml               # uv project: deps, entry points, pytest config
-├── config.example.json          # Config template (no secrets)
-├── specs/                       # Full project specifications
-│   ├── specs.md                 # Index — start here
-│   ├── overview.md
-│   ├── architecture.md
-│   ├── configuration.md
-│   ├── mcp-server.md
-│   ├── asr-module-interface.md
-│   ├── deepgram-module.md
-│   ├── demo-client.md
-│   ├── project-structure.md
-│   ├── e2e-testing.md
-│   └── asr-to-terminal.md
-├── plans/                       # Phased implementation plans with checkboxes
-│   ├── plans.md                 # Index
-│   ├── 01-project-setup.md
-│   ├── 02-config.md
-│   ├── 03-audio-capture.md
-│   ├── 04-asr-module-interface.md
-│   ├── 05-deepgram-module.md
-│   ├── 06-asr-engine.md
-│   ├── 07-mcp-server.md
-│   ├── 08-demo-client.md
-│   ├── 09-e2e-testing.md
-│   └── 10-asr-to-terminal.md
-├── implementation-details/      # Post-implementation notes (written after each plan is done)
-│   ├── implem.md                # Index
-│   ├── 01-project-setup.md
-│   ├── 02-config.md
-│   └── ...                      # One file per plan, added as implementation progresses
-├── src/
-│   └── asr_mcp/
-│       ├── cli.py                    # Server entry point (argparse → wires everything)
-│       ├── config.py                 # Config dataclasses + load/validate
-│       ├── audio.py                  # AudioCapture, AudioSource protocol, FileAudioSource
-│       ├── engine.py                 # ASREngine: wires audio + module, start/stop
-│       ├── server.py                 # MCP server: resource, tools, StreamableHTTP, listen tool
-│       ├── resource_subscriber.py    # ResourceSubscriber: generic MCP resource watcher
-│       ├── resource_client.py        # AsrResourceClient: subscribe to asr://result
-│       ├── tool_client.py            # McpToolClient: single-call MCP tool invocation
-│       ├── asr_resource_client.py    # Demo CLI: subscribe to asr://result, log results
-│       ├── speech_utils.py           # contains_trigger_word() — shared trigger word detection
-│       ├── end_of_utterance_detector.py  # EndOfUtteranceDetector + UtteranceResult: end-of-utterance logic
-│       ├── sound_feedback.py         # SoundFeedback + NoOpSoundFeedback: WAV cue playback for listen tool
-│       ├── terminal_typer.py         # TerminalTyper: xdotool/ydotool keystroke injection
-│       ├── asr_to_terminal.py        # AsrToTerminal state machine + asr-to-terminal CLI
-│       ├── sounds/
-│       │   ├── feedback_asr_start.wav  # played when listen begins
-│       │   └── feedback_asr_stop.wav   # played when listen ends
-│       └── modules/
-│           ├── __init__.py      # REGISTRY + load_module()
-│           ├── base.py          # ASRModule ABC, ASRResult dataclass
-│           ├── deepgram_v1.py   # Deepgram Listen v1 (Nova models, is_final-based)
-│           └── deepgram_v2.py   # Deepgram Listen v2 (Flux models, EndOfTurn-based)
-├── tests/                       # Unit tests (fast, no external services)
-│   ├── conftest.py              # Shared fixtures
-│   ├── test_config.py
-│   ├── test_audio.py
-│   ├── test_engine.py
-│   ├── test_server.py
-│   ├── test_subscriber.py
-│   ├── test_client.py
-│   ├── test_cli.py
-│   ├── test_asr_to_terminal.py
-│   ├── test_sound_feedback.py
-│   └── modules/
-│       ├── test_deepgram_v1.py
-│       └── test_deepgram_v2.py
-└── tests-e2e/                   # End-to-end tests (hit real Deepgram API, require config.json)
-    ├── fixtures/
-    │   ├── sample.wav                # WAV fixture: 16kHz mono s16 PCM, content = "the sky is blue"
-    │   ├── sample_submit.wav         # WAV fixture: same format, content = "the sky is blue validate"
-    │   └── README.md                 # Fixture format documentation
-    ├── test_asr_resource_client.py   # FileAudioSource → ASREngine → MCP server → AsrResourceClient
-    ├── test_mcp_tool_client.py       # FileAudioSource → ASREngine → MCP server → McpToolClient (listen tool)
-    └── test_asr_to_terminal.py       # ASREngine → MCP server → AsrToTerminal → xterm (requires xdotool + X11)
+---
+code:
+  - src/asr_mcp/<module>.py
+tests:
+  - tests/test_<module>.py
+---
 ```
 
-## Entry points
+This is the **spec → code/tests** mapping — the inverse of the module → spec column in the Project map above. Its job is to give the **spec-drift checks** an explicit, version-controlled scope: the exact files to diff a spec against. `code:` names the implementation the spec specifies; `tests:` names the tests that pin its behavior (may be empty).
+
+The mapping is **many-to-many**: a file can be governed by several specs, so the same path legitimately appears in more than one spec's frontmatter.
+
+**Keep it current** (same discipline as statuses): when you move, rename, or delete a file a spec governs — or add a new `src/asr_mcp/` module — update the affected spec's `code:`/`tests:` in the same change. `tests/test_project_map.py` enforces three invariants: every listed path exists, every spec declares a non-empty `code:` list, and every concept module in `src/asr_mcp/` is named by at least one spec (`__init__.py` is exempt as package glue).
+
+## Testing
+
+- Write functional tests: exercise what a feature/function actually does (inputs → outputs, state changes, side effects), not just that it runs or matches its signature.
+- Avoid trivial/tautological tests — e.g. asserting a constant, asserting an object is not `None`, asserting a mock was called. If a test would pass for a broken implementation, it's not worth writing.
+- Prefer driving the public API the way a real caller would over asserting on internals. The full strategy (two-tier split, scenario-not-field rules, speed rule) is specced in [specs/testing.md](specs/testing.md).
+
+### Live/e2e tests
+
+Some tests call the real Deepgram API over the network. They live in `tests-e2e/`, a directory separate from `tests/`, so the fast dev loop (`uv run pytest tests/`) never needs network access or credentials. Run them explicitly (`uv run pytest tests-e2e`), and only when you actually want to verify against the live service. Credentials come from `config.json` (never committed) via `tests-e2e/helpers.load_api_key()`. The file-based e2e pipeline design is specced in [specs/e2e-testing.md](specs/e2e-testing.md).
+
+**System dependencies for e2e terminal tests:** `tests-e2e/test_asr_to_terminal.py` needs two system packages **not** installed by `uv` — `xdotool` (keystroke injection on X11) and `xterm` (the injection target) — plus a live X11 display (`$DISPLAY`). On Debian/Ubuntu: `sudo apt-get install xdotool xterm`. On a headless server, use Xvfb (`Xvfb :99 -screen 0 1024x768x24 &` then `export DISPLAY=:99`).
+
+## Implementation plans
+
+- Write implementation plans as files in the [plans](plans/) folder.
+- Name each file `YYYYMMDDHHmm_plan-title.md`: a compact date-time prefix, then an underscore, then a kebab-case title. Example: `202603201617_sound-feedback.md`. Plans sort chronologically by this prefix.
+- Give each plan a `**Status:**` line just under its title (`Todo`/`In progress`/`Done`) and add a row for it to [plans/_index.md](plans/_index.md). Keep both current as work progresses (see "Keeping statuses current" above).
+- Start from [plans/_plan-template.md](plans/_plan-template.md).
+
+## Verification
+
+After any code change, run linting, type checking, and tests, and fix any failures before considering the work done. The fast tier plus lint + type-check is the gate; `tests-e2e/` is opt-in and only when verifying against the live service.
+
+## Commands
 
 ```bash
-uv run asr-mcp-server --config config.json            # Start the MCP server
-uv run asr-mcp-client                                 # Run the demo resource client (default: http://127.0.0.1:8000/mcp)
+uv sync --dev
+uv run ruff check .          # lint
+uv run ruff format .         # format
+uv run pyright               # type-check (src, tests, tests-e2e)
+uv run pytest tests/         # fast, deterministic tier (no credentials)
+uv run pytest tests-e2e/     # opt-in live tier (needs config.json + API key)
+```
+
+### Entry points
+
+```bash
+uv run asr-mcp-server --config config.json   # Start the MCP server
+uv run asr-mcp-client                        # Demo resource client (default: http://127.0.0.1:8000/mcp)
 uv run asr-to-terminal [--server URL] [--submit-words WORD ...] [--display-server x11|wayland]
-uv run pytest                                         # Run all tests (unit + e2e)
-uv run pytest tests/                                  # Unit tests only (no API key needed)
-uv run pytest tests-e2e/                              # E2E tests only (requires config.json with valid API key)
 ```
 
-## Tests
+## Conventions
 
-| Suite | Location | What it covers | External deps |
-|-------|----------|----------------|---------------|
-| Unit tests | `tests/` | Config, audio capture, engine, MCP server, client, ASR modules, AsrToTerminal — all in-process, no network | None |
-| E2E ASR tests | `tests-e2e/test_asr_resource_client.py` | Full pipeline: `FileAudioSource` → `ASREngine` → in-process uvicorn MCP server → `AsrResourceClient` → transcript assertion | Real Deepgram API (API key in `config.json`) |
-| E2E listen tool tests | `tests-e2e/test_mcp_tool_client.py` | Same pipeline → `McpToolClient` `listen` tool (trigger_word and timeout modes) | Real Deepgram API (API key in `config.json`) |
-| E2E terminal tests | `tests-e2e/test_asr_to_terminal.py` | Same pipeline → `AsrToTerminal` → `xdotool` → `xterm` → file assertion | Real Deepgram API + `xdotool` + `xterm` + live X11 display |
+### Audio format contract
 
-E2E ASR tests feed `tests-e2e/fixtures/sample.wav` (*"the sky is blue"*) through the pipeline. E2E listen tool tests cover trigger_word and timeout end-of-utterance modes. E2E terminal tests additionally drive keystroke injection into an xterm window and verify the typed output.
+All ASR modules receive audio as **16 kHz, 16-bit signed PCM, mono, ~100 ms chunks (3200 bytes)**. The audio capture layer owns resampling; modules must not worry about format conversion.
 
-## System dependencies for e2e terminal tests
+### Logging
 
-The `tests-e2e/test_asr_to_terminal.py` tests require two system packages that are **not** installed by `uv`:
-
-```bash
-# Debian / Ubuntu
-sudo apt-get install xdotool xterm
-```
-
-| Package  | Purpose |
-|----------|---------|
-| `xdotool` | Keystroke injection on X11 (used by `TerminalTyper`) |
-| `xterm`   | Minimal terminal emulator used as the injection target in e2e tests |
-
-A live X11 display (`$DISPLAY`) is also required. On a headless server, use Xvfb:
-
-```bash
-Xvfb :99 -screen 0 1024x768x24 &
-export DISPLAY=:99
-```
-
-## Unit testing strategy
-
-Write tests that verify **observable behavior**, not implementation details.
-
-**Rules:**
-
-1. **Test scenarios, not fields.** When verifying a constructed/parsed object, one test asserts all relevant fields together. Don't write one test per field.
-
-2. **Test observable behavior only.** Assert return values, raised exceptions, calls to collaborators, and changes to public state. Never assert on private attributes (`_foo`).
-
-3. **One test per distinct code path.** Two tests that exercise the same branch with slightly different data should be one test. Keep variants only when they trigger genuinely different logic (e.g. `is_final=True` vs `is_final=False`).
-
-4. **Delete trivial structural tests.** `isinstance(x, SomeClass)` or `x.name == "literal"` are not worth a dedicated test — they only break if you intentionally change the type or name.
-
-5. **Error paths deserve individual tests.** `missing_key`, `empty_key`, `unknown_type` are distinct scenarios because they exercise different validation branches and may produce different error messages.
-
-6. **Merge lifecycle tests.** start/stop, connect/disconnect sequences belong in one test that exercises the full cycle, not split across two.
-
-**Speed rule** — the full unit test suite (`pytest tests/`) must complete in under 5 seconds. If it doesn't, treat it as a bug: find the slow tests with `pytest --durations=10` and fix the root cause (usually a real timer firing in production code that needs to be made patchable, or a missing stop signal).
-
-**Smell checklist** — delete or merge a test if it:
-- Asserts a private attribute (e.g. `assert obj._foo == ...`)
-- Is fully subsumed by another test in the same file
-- Checks something that cannot break independently (structural/isinstance)
-- Is one of N identical tests differing only in which field they check
-
-## Logging conventions
-
-- Every module that logs uses `log = logging.getLogger(__name__)` (variable name: `log`, not `logger`).
+- Every module that logs uses `log = logging.getLogger(__name__)` (variable name `log`, not `logger`).
 - **Library modules** (`src/asr_mcp/`) never call `basicConfig` or configure handlers — they only get a logger and use it.
-- **Entry points and scripts** (`scripts/`) call `setup_logging()` from `asr_mcp._logging` at startup to configure the root logger with common format.
-- The MCP server (`server.py`) additionally passes a uvicorn-specific `log_config` dict to `uvicorn.Config` to control uvicorn's own loggers — this is separate from `setup_logging()` and should not be changed without good reason.
+- **Entry points and scripts** call `setup_logging()` from `asr_mcp._logging` at startup to configure the root logger.
+- The MCP server (`server.py`) additionally passes a uvicorn-specific `log_config` dict to `uvicorn.Config` to control uvicorn's own loggers — separate from `setup_logging()`, don't change without good reason.
 
-## Audio format contract
+### Adding a new ASR module
 
-All ASR modules receive audio as: **16kHz, 16-bit signed PCM, mono, ~100ms chunks (3200 bytes)**.
-The audio capture layer owns resampling; modules must not worry about format conversion.
-
-## Adding a new ASR module
-
-1. Create `src/asr_mcp/modules/<name>.py` implementing `ASRModule` from `modules/base.py`
-2. Register it in `modules/__init__.py`: `REGISTRY["<name>"] = <ClassName>`
-3. Document its config fields (the `asr` block accepts any fields beyond `type`)
-
-## Documentation workflow
-
-This project follows a three-layer documentation convention:
-
-1. **`specs/`** — Written before implementation. Describes *what* to build and *why*.
-2. **`plans/`** — Written before implementation. Describes *how* to build it, step by step with checkboxes.
-3. **`implementation-details/`** — Written *after* each plan is completed. One file per plan, covering deviations from spec, non-obvious decisions, SDK quirks, and known limitations. Index at [`implementation-details/implem.md`](implementation-details/implem.md).
-
-When implementing a plan: tick off tasks in `plans/`, then write the corresponding file in `implementation-details/` and mark it as written in `implem.md`.
-
-## Where to look first
-
-- Understand the system: [`specs/specs.md`](specs/specs.md)
-- Check implementation status: [`plans/plans.md`](plans/plans.md)
-- Understand what was actually built: [`implementation-details/implem.md`](implementation-details/implem.md)
-- Understand data flow: [`specs/architecture.md`](specs/architecture.md)
-- Understand the module contract: [`specs/asr-module-interface.md`](specs/asr-module-interface.md)
+1. Create `src/asr_mcp/modules/<name>.py` implementing `ASRModule` from `modules/base.py`.
+2. Register it in `modules/__init__.py`: `REGISTRY["<name>"] = <ClassName>`.
+3. Document its config fields (the `asr` block accepts any fields beyond `type`).
+4. Update [specs/deepgram-module.md](specs/deepgram-module.md) or add a new spec, and its frontmatter `code:` list.

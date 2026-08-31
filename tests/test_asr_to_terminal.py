@@ -1,4 +1,5 @@
 """Unit tests for terminal_typer.py and asr_to_terminal.py."""
+
 from __future__ import annotations
 
 import asyncio
@@ -9,7 +10,6 @@ import pytest
 from asr_mcp.asr_to_terminal import AsrToTerminal
 from asr_mcp.end_of_utterance_detector import UtteranceResult
 from asr_mcp.terminal_typer import TerminalTyper
-
 
 # ---------------------------------------------------------------------------
 # TerminalTyper — display server resolution
@@ -50,8 +50,10 @@ class TestTerminalTyperResolution:
 
 def _make_atr(typer_mock):
     """Build AsrToTerminal with a mocked TerminalTyper and AsrResourceClient."""
-    with patch("asr_mcp.asr_to_terminal.TerminalTyper", return_value=typer_mock), \
-         patch("asr_mcp.asr_to_terminal.AsrResourceClient"):
+    with (
+        patch("asr_mcp.asr_to_terminal.TerminalTyper", return_value=typer_mock),
+        patch("asr_mcp.asr_to_terminal.AsrResourceClient"),
+    ):
         atr = AsrToTerminal(trigger_words=["validate"])
     return atr
 
@@ -162,9 +164,13 @@ async def test_session_loop_trigger_word_sends_enter():
         c.stop = AsyncMock()
         return c
 
-    with patch("asr_mcp.asr_to_terminal.TerminalTyper", return_value=typer), \
-         patch("asr_mcp.asr_to_terminal.AsrResourceClient", return_value=_mock_client()), \
-         patch("asr_mcp.asr_to_terminal.EndOfUtteranceDetector", return_value=mock_detector):
+    with (
+        patch("asr_mcp.asr_to_terminal.TerminalTyper", return_value=typer),
+        patch("asr_mcp.asr_to_terminal.AsrResourceClient", return_value=_mock_client()),
+        patch(
+            "asr_mcp.asr_to_terminal.EndOfUtteranceDetector", return_value=mock_detector
+        ),
+    ):
         atr = AsrToTerminal(mode="trigger_word", trigger_words=["validate"])
         await atr.start()
         try:
@@ -188,7 +194,9 @@ async def test_session_loop_timeout_sends_enter():
         nonlocal call_count
         call_count += 1
         if call_count == 1:
-            return UtteranceResult(transcript="the sky is blue", end_reason="end_of_speech_timeout")
+            return UtteranceResult(
+                transcript="the sky is blue", end_reason="end_of_speech_timeout"
+            )
         await blocked.wait()
 
     mock_detector = AsyncMock()
@@ -210,9 +218,13 @@ async def test_session_loop_timeout_sends_enter():
         c.stop = AsyncMock()
         return c
 
-    with patch("asr_mcp.asr_to_terminal.TerminalTyper", return_value=typer), \
-         patch("asr_mcp.asr_to_terminal.AsrResourceClient", return_value=_mock_client()), \
-         patch("asr_mcp.asr_to_terminal.EndOfUtteranceDetector", return_value=mock_detector):
+    with (
+        patch("asr_mcp.asr_to_terminal.TerminalTyper", return_value=typer),
+        patch("asr_mcp.asr_to_terminal.AsrResourceClient", return_value=_mock_client()),
+        patch(
+            "asr_mcp.asr_to_terminal.EndOfUtteranceDetector", return_value=mock_detector
+        ),
+    ):
         atr = AsrToTerminal(mode="timeout", end_of_speech_timeout_s=2.0)
         await atr.start()
         try:
@@ -244,9 +256,13 @@ async def test_start_stop_manages_session_loop_task():
         c.stop = AsyncMock()
         return c
 
-    with patch("asr_mcp.asr_to_terminal.TerminalTyper", return_value=typer), \
-         patch("asr_mcp.asr_to_terminal.AsrResourceClient", return_value=_mock_client()), \
-         patch("asr_mcp.asr_to_terminal.EndOfUtteranceDetector", return_value=mock_detector):
+    with (
+        patch("asr_mcp.asr_to_terminal.TerminalTyper", return_value=typer),
+        patch("asr_mcp.asr_to_terminal.AsrResourceClient", return_value=_mock_client()),
+        patch(
+            "asr_mcp.asr_to_terminal.EndOfUtteranceDetector", return_value=mock_detector
+        ),
+    ):
         atr = AsrToTerminal()
         assert atr._session_loop_task is None
         await atr.start()

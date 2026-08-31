@@ -1,4 +1,15 @@
+---
+code:
+  - src/asr_mcp/server.py
+  - src/asr_mcp/cli.py
+tests:
+  - tests/test_server.py
+  - tests/test_cli.py
+---
+
 # MCP Server Specification
+
+**Status:** Implemented
 
 ## Transport
 
@@ -196,8 +207,10 @@ incremental output without waiting for the full session to complete.
 SDK callback signature for `McpToolClient.call_tool`:
 
 ```python
-async def on_progress(progress: float, total: float | None, message: str | None) -> None:
-    ...
+async def on_progress(
+    progress: float, total: float | None, message: str | None
+) -> None: ...
+
 
 result = await client.call_tool("listen", progress_callback=on_progress)
 ```
@@ -212,11 +225,11 @@ for the full specification.
 class EndOfUtteranceDetector:
     def __init__(
         self,
-        mode: str,                         # "trigger_word" or "timeout"
+        mode: str,  # "trigger_word" or "timeout"
         trigger_words: list[str],
         initial_silence_timeout_s: float,  # timeout mode only
-        end_of_speech_timeout_s: float,    # timeout mode only
-        on_final_committed: ...,           # optional streaming callback
+        end_of_speech_timeout_s: float,  # timeout mode only
+        on_final_committed: ...,  # optional streaming callback
     ) -> None: ...
 
     async def on_result(self, result: ASRResult) -> None:

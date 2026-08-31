@@ -1,4 +1,5 @@
 """End-to-end tests: FileAudioSource → ASREngine → MCP server → AsrResourceClient."""
+
 from __future__ import annotations
 
 import asyncio
@@ -6,10 +7,9 @@ import re
 from pathlib import Path
 
 import pytest
+from helpers import load_api_key, start_mcp_server, stop_mcp_server
 
 from asr_mcp.resource_client import AsrResourceClient
-
-from helpers import load_api_key, start_mcp_server, stop_mcp_server
 
 _FIXTURE_WAV = Path(__file__).parent / "fixtures" / "sample.wav"
 _EXPECTED = "the sky is blue"

@@ -1,4 +1,6 @@
-# Plan 05 — Deepgram Modules
+# Deepgram Modules
+
+**Status:** Done
 
 Implement two ASR modules using the Deepgram Python SDK:
 - `deepgram_v1` — Listen v1 (Nova-3, multi-language, `speech_final` utterance detection)

@@ -1,4 +1,5 @@
 """TerminalTyper: inject keystrokes into the active terminal window."""
+
 from __future__ import annotations
 
 import asyncio

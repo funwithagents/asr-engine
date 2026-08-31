@@ -1,9 +1,9 @@
 """Unit tests for asr_mcp.sound_feedback — Plan 14."""
+
 from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-import numpy as np
 import pytest
 
 from asr_mcp.sound_feedback import NoOpSoundFeedback, SoundFeedback
@@ -26,9 +26,11 @@ def _make_wave_mock(sampwidth: int = 2, n_frames: int = 4, framerate: int = 1600
 @pytest.mark.asyncio
 async def test_play_start_calls_sounddevice() -> None:
     wave_cm = _make_wave_mock()
-    with patch("asr_mcp.sound_feedback.wave.open", return_value=wave_cm) as mock_open, \
-         patch("asr_mcp.sound_feedback.sd.play") as mock_play, \
-         patch("asr_mcp.sound_feedback.sd.wait") as mock_wait:
+    with (
+        patch("asr_mcp.sound_feedback.wave.open", return_value=wave_cm) as mock_open,
+        patch("asr_mcp.sound_feedback.sd.play") as mock_play,
+        patch("asr_mcp.sound_feedback.sd.wait") as mock_wait,
+    ):
         sf = SoundFeedback()
         await sf.play_start()
 
@@ -40,9 +42,11 @@ async def test_play_start_calls_sounddevice() -> None:
 @pytest.mark.asyncio
 async def test_play_stop_calls_sounddevice() -> None:
     wave_cm = _make_wave_mock()
-    with patch("asr_mcp.sound_feedback.wave.open", return_value=wave_cm) as mock_open, \
-         patch("asr_mcp.sound_feedback.sd.play") as mock_play, \
-         patch("asr_mcp.sound_feedback.sd.wait") as mock_wait:
+    with (
+        patch("asr_mcp.sound_feedback.wave.open", return_value=wave_cm) as mock_open,
+        patch("asr_mcp.sound_feedback.sd.play") as mock_play,
+        patch("asr_mcp.sound_feedback.sd.wait") as mock_wait,
+    ):
         sf = SoundFeedback()
         await sf.play_stop()
 
@@ -54,9 +58,11 @@ async def test_play_stop_calls_sounddevice() -> None:
 @pytest.mark.asyncio
 async def test_output_device_passed_to_sd_play() -> None:
     wave_cm = _make_wave_mock()
-    with patch("asr_mcp.sound_feedback.wave.open", return_value=wave_cm), \
-         patch("asr_mcp.sound_feedback.sd.play") as mock_play, \
-         patch("asr_mcp.sound_feedback.sd.wait"):
+    with (
+        patch("asr_mcp.sound_feedback.wave.open", return_value=wave_cm),
+        patch("asr_mcp.sound_feedback.sd.play") as mock_play,
+        patch("asr_mcp.sound_feedback.sd.wait"),
+    ):
         sf = SoundFeedback(output_device="speakers")
         await sf.play_start()
 
@@ -67,11 +73,14 @@ async def test_output_device_passed_to_sd_play() -> None:
 @pytest.mark.asyncio
 async def test_error_is_logged_not_raised(caplog) -> None:
     wave_cm = _make_wave_mock()
-    with patch("asr_mcp.sound_feedback.wave.open", return_value=wave_cm), \
-         patch("asr_mcp.sound_feedback.sd.play", side_effect=OSError("no device")), \
-         patch("asr_mcp.sound_feedback.sd.wait"):
+    with (
+        patch("asr_mcp.sound_feedback.wave.open", return_value=wave_cm),
+        patch("asr_mcp.sound_feedback.sd.play", side_effect=OSError("no device")),
+        patch("asr_mcp.sound_feedback.sd.wait"),
+    ):
         sf = SoundFeedback()
         import logging
+
         with caplog.at_level(logging.ERROR, logger="asr_mcp.sound_feedback"):
             await sf.play_start()  # must not raise
 

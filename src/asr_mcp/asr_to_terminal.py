@@ -1,4 +1,5 @@
 """AsrToTerminal: progressive speech-to-terminal injection with end-of-utterance detection."""
+
 from __future__ import annotations
 
 import argparse
@@ -13,8 +14,18 @@ from asr_mcp.terminal_typer import TerminalTyper
 _DEFAULT_SERVER = "http://127.0.0.1:8000/mcp"
 
 _DEFAULT_TRIGGER_WORDS: list[str] = [
-    "submit", "enter", "validate", "send", "confirm", "go",
-    "envoyer", "valider", "confirmer", "soumettre", "entree", "entrée",
+    "submit",
+    "enter",
+    "validate",
+    "send",
+    "confirm",
+    "go",
+    "envoyer",
+    "valider",
+    "confirmer",
+    "soumettre",
+    "entree",
+    "entrée",
 ]
 
 
@@ -37,7 +48,9 @@ class AsrToTerminal:
         initial_silence_timeout_s: float = 10.0,
     ) -> None:
         self._mode = mode
-        self._trigger_words = trigger_words if trigger_words is not None else _DEFAULT_TRIGGER_WORDS
+        self._trigger_words = (
+            trigger_words if trigger_words is not None else _DEFAULT_TRIGGER_WORDS
+        )
         self._end_of_speech_timeout_s = end_of_speech_timeout_s
         self._initial_silence_timeout_s = initial_silence_timeout_s
         self._typer = TerminalTyper(display_server)
@@ -64,7 +77,9 @@ class AsrToTerminal:
             await self._handle_event(transcript, is_final)
 
         if self._current_session is not None:
-            result = ASRResult(transcript=transcript, is_final=is_final, confidence=None)
+            result = ASRResult(
+                transcript=transcript, is_final=is_final, confidence=None
+            )
             await self._current_session.on_result(result)
 
     async def _handle_event(self, transcript: str, is_final: bool) -> None:
@@ -101,7 +116,9 @@ class AsrToTerminal:
             self._current_session = None
 
     async def start(self) -> None:
-        self._session_loop_task = asyncio.get_event_loop().create_task(self._session_loop())
+        self._session_loop_task = asyncio.get_event_loop().create_task(
+            self._session_loop()
+        )
         await self._client.start()
 
     async def stop(self) -> None:
@@ -140,7 +157,9 @@ async def _run(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="ASR to Terminal: type speech into the active terminal")
+    parser = argparse.ArgumentParser(
+        description="ASR to Terminal: type speech into the active terminal"
+    )
     parser.add_argument(
         "--server",
         default=_DEFAULT_SERVER,
@@ -182,13 +201,15 @@ def main() -> None:
     args = parser.parse_args()
 
     try:
-        asyncio.run(_run(
-            server_url=args.server,
-            display_server=args.display_server,
-            mode=args.mode,
-            trigger_words=args.trigger_words,
-            end_of_speech_timeout_s=args.end_of_speech_timeout,
-            initial_silence_timeout_s=args.initial_silence_timeout,
-        ))
+        asyncio.run(
+            _run(
+                server_url=args.server,
+                display_server=args.display_server,
+                mode=args.mode,
+                trigger_words=args.trigger_words,
+                end_of_speech_timeout_s=args.end_of_speech_timeout,
+                initial_silence_timeout_s=args.initial_silence_timeout,
+            )
+        )
     except KeyboardInterrupt:
         print("[INFO] Disconnected", file=sys.stderr)

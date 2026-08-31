@@ -5,6 +5,7 @@ import json
 from mcp.client.session import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 from mcp.shared.session import ProgressFnT
+from mcp.types import TextContent
 
 
 class McpToolClient:
@@ -30,6 +31,11 @@ class McpToolClient:
                     name, arguments or {}, progress_callback=progress_callback
                 )
                 if result.isError:
-                    texts = [c.text for c in result.content if hasattr(c, "text")]
+                    texts = [
+                        c.text for c in result.content if isinstance(c, TextContent)
+                    ]
                     raise RuntimeError(texts[0] if texts else "Tool returned an error")
-                return json.loads(result.content[0].text)
+                first = result.content[0]
+                if not isinstance(first, TextContent):
+                    raise RuntimeError("Tool returned non-text content")
+                return json.loads(first.text)

@@ -1,4 +1,5 @@
 """Shared helpers for e2e tests."""
+
 from __future__ import annotations
 
 import asyncio
@@ -60,10 +61,15 @@ async def start_mcp_server(
     with os.fdopen(fd, "w") as f:
         json.dump(config, f)
 
-    log.info("Starting MCP server subprocess on port %d (config: %s)", port, config_path)
+    log.info(
+        "Starting MCP server subprocess on port %d (config: %s)", port, config_path
+    )
     proc = await asyncio.create_subprocess_exec(
-        "uv", "run", "asr-mcp-server",
-        "--config", config_path,
+        "uv",
+        "run",
+        "asr-mcp-server",
+        "--config",
+        config_path,
         stdout=asyncio.subprocess.DEVNULL,
         stderr=asyncio.subprocess.DEVNULL,
     )
