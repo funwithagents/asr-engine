@@ -1,7 +1,7 @@
 ---
 code:
-  - src/asr_mcp/cli.py
-  - src/asr_mcp/engine.py
+  - src/asr_engine/mcp_server_cli.py
+  - src/asr_engine/engine.py
 tests:
 ---
 
@@ -9,21 +9,33 @@ tests:
 
 **Status:** Implemented
 
+> **Refactor note (2026-08-31):** the project is reframed from "an ASR MCP
+> server" to "a reusable ASR **engine** with an MCP server on top". The
+> `ASREngine` (constructed from a single `ASREngineConfig`) is the primary
+> product and is usable by direct import; a transport-agnostic tools layer and
+> the MCP server are built on it. The package is renamed `asr_mcp` →
+> `asr_engine`. Implemented by
+> [plans/202608311612_asr-engine-refactor.md](../plans/202608311612_asr-engine-refactor.md).
+
 ## Goal
 
-Build a real-time Automatic Speech Recognition (ASR) MCP server that:
-- Runs continuously, capturing audio and transcribing speech as long as the server is alive
-- Exposes transcription results as a live MCP resource that clients can subscribe to
+Provide a real-time Automatic Speech Recognition (ASR) **engine** that:
+- Runs continuously, capturing audio and transcribing speech
+- Can be used two ways: **directly** (`import asr_engine`, construct an
+  `ASREngine`, consume utterances/segments) or **over MCP** (the bundled server)
+- Owns segmentation and sound feedback internally, so consumers don't re-implement
+  end-of-utterance logic
 - Supports swappable ASR backend modules configured via a JSON config file
-- Exposes control tools (`start`, `stop`, `is_running`, `listen`) to MCP clients
-- Is network-accessible via StreamableHTTP transport
+- Exposes control tools (`start`, `stop`, `is_running`, `listen`) as a
+  transport-agnostic layer, surfaced over StreamableHTTP by the MCP server
 
 ## Components
 
 | Component | Description |
 |---|---|
-| **MCP Server** | StreamableHTTP server exposing resources and tools |
-| **ASR Engine** | Background service running continuously, feeding results to the server |
+| **ASR Engine** | The core: wires audio + module, owns segmentation, sound feedback, and logging level; constructed from `ASREngineConfig`. Usable standalone. |
+| **Tools layer** | Transport-agnostic `AsrTools` (`start`/`stop`/`is_running`/`listen`) over an `ASREngine`; called directly or wrapped by the MCP server |
+| **MCP Server** | StreamableHTTP server exposing the resources and the tools layer |
 | **ASR Module** | Pluggable backend implementing the ASR interface (first: Deepgram) |
 | **Audio Capture** | Reads from system audio input (configurable) |
 | **Demo Client** | Standalone Python script that subscribes and logs ASR results |

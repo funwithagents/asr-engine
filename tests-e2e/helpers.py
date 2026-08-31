@@ -19,20 +19,20 @@ _E2E_CONFIG = Path(__file__).parent / "e2e.config.json"
 def load_api_key() -> str:
     """Resolve the Deepgram API key for e2e tests from the committed e2e.config.json.
 
-    The config names an environment variable via ``asr.api_key_env`` (see the
-    ``resolve_api_key`` helper). When that variable is unset the test is skipped
-    rather than failed — e2e is opt-in and needs credentials the shell may not
-    have (the keys live in ``~/.zshrc``; a non-interactive shell doesn't source
-    it — run under an interactive zsh: ``zsh -ic 'uv run pytest tests-e2e'``).
+    The config names an environment variable via ``engine.module.api_key_env``
+    (see the ``resolve_api_key`` helper). When that variable is unset the test is
+    skipped rather than failed — e2e is opt-in and needs credentials the shell may
+    not have (the keys live in ``~/.zshrc``; a non-interactive shell doesn't
+    source it — run under an interactive zsh: ``zsh -ic 'uv run pytest tests-e2e'``).
     """
     with open(_E2E_CONFIG) as f:
-        asr = json.load(f)["asr"]
+        module = json.load(f)["engine"]["module"]
 
-    api_key = asr.get("api_key")
+    api_key = module.get("api_key")
     if api_key:
         return api_key
 
-    env_name = asr.get("api_key_env")
+    env_name = module.get("api_key_env")
     if env_name:
         value = os.environ.get(env_name)
         if not value:
@@ -43,6 +43,56 @@ def load_api_key() -> str:
         return value
 
     pytest.skip("e2e: e2e.config.json defines neither api_key nor api_key_env")
+
+
+def build_file_engine(
+    audio_file: Path | str,
+    module_type: str,
+    module_config: dict,
+    *,
+    segmentation_mode: str = "utterance",
+    listen_default_segmentation_mode: str = "trigger_word",
+    trigger_words: list[str] | None = None,
+    initial_silence_timeout_s: float = 10.0,
+    end_of_speech_timeout_s: float = 5.0,
+    trailing_silence_s: float = 0.0,
+    on_speech_utterance=None,
+    on_speech_segment=None,
+):
+    """Build an ASREngine that reads *audio_file* through a FileAudioSource.
+
+    Drives the engine directly (no MCP server). Sound feedback is disabled.
+    """
+    from asr_engine.audio import FileAudioSource
+    from asr_engine.config import (
+        ASREngineConfig,
+        ModuleConfig,
+        SegmentationConfig,
+        SoundFeedbackConfig,
+    )
+    from asr_engine.engine import ASREngine
+
+    seg = SegmentationConfig(
+        initial_silence_timeout_s=initial_silence_timeout_s,
+        end_of_speech_timeout_s=end_of_speech_timeout_s,
+    )
+    if trigger_words is not None:
+        seg.trigger_words = trigger_words
+
+    config = ASREngineConfig(
+        segmentation_mode=segmentation_mode,
+        listen_default_segmentation_mode=listen_default_segmentation_mode,
+        segmentation=seg,
+        sound_feedback=SoundFeedbackConfig(enabled=False),
+        module=ModuleConfig(type=module_type, extra=module_config),
+    )
+    source = FileAudioSource(str(audio_file), trailing_silence_s=trailing_silence_s)
+    return ASREngine(
+        config,
+        on_speech_utterance=on_speech_utterance,
+        on_speech_segment=on_speech_segment,
+        audio_source=source,
+    )
 
 
 async def _wait_for_port(host: str, port: int, timeout: float = 10.0) -> None:
@@ -65,25 +115,30 @@ async def start_mcp_server(
     module_config: dict,
     port: int,
     trailing_silence_s: float = 0.0,
-    engine_config: dict | None = None,
-    listen_config: dict | None = None,
+    engine_overrides: dict | None = None,
 ) -> tuple[asyncio.subprocess.Process, str]:
-    """Start an asr-mcp-server subprocess.  Returns (process, tmp_config_path)."""
-    config = {
-        "server": {"host": "127.0.0.1", "port": port},
+    """Start an asr-engine-mcp subprocess.  Returns (process, tmp_config_path).
+
+    ``engine_overrides`` is merged into the ``engine`` config block (e.g.
+    ``auto_start``, ``segmentation_mode``, ``segmentation``,
+    ``listen_default_segmentation_mode``, ``sound_feedback``).
+    """
+    engine: dict = {
         "audio": {
             "audio_file": str(audio_file),
             "trailing_silence_s": trailing_silence_s,
         },
-        "asr": {"type": module_type, **module_config},
+        "module": {"type": module_type, **module_config},
     }
-    if engine_config is not None:
-        config["engine"] = engine_config
-    if listen_config is not None:
-        config["listen"] = listen_config
+    if engine_overrides:
+        engine.update(engine_overrides)
+    config = {
+        "server": {"host": "127.0.0.1", "port": port},
+        "engine": engine,
+    }
 
     # Write a temp config file — the subprocess reads it on startup.
-    fd, config_path = tempfile.mkstemp(suffix=".json", prefix="asr_mcp_e2e_")
+    fd, config_path = tempfile.mkstemp(suffix=".json", prefix="asr_engine_e2e_")
     with os.fdopen(fd, "w") as f:
         json.dump(config, f)
 
@@ -93,7 +148,7 @@ async def start_mcp_server(
     proc = await asyncio.create_subprocess_exec(
         "uv",
         "run",
-        "asr-mcp-server",
+        "asr-engine-mcp",
         "--config",
         config_path,
         stdout=asyncio.subprocess.DEVNULL,

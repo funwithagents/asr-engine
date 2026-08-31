@@ -1,6 +1,27 @@
-# asr-mcp
+# asr-engine
 
-A real-time Automatic Speech Recognition (ASR) **MCP server** written in Python. It captures audio from any system audio input device (microphone, loopback, virtual device, …), streams it to a speech recognition backend, and exposes live transcription results to any MCP-compatible AI agent or client.
+A real-time Automatic Speech Recognition (ASR) **engine** written in Python, with an **MCP server** on top. It captures audio from any system audio input device (microphone, loopback, virtual device, …), streams it to a speech recognition backend, and exposes live transcription as utterances and aggregated segments.
+
+Use it two ways:
+
+- **Directly** — `import asr_engine`, construct an `ASREngine` from an `ASREngineConfig`, set `on_speech_utterance` / `on_speech_segment` callbacks (or call `listen()`), and consume results in your own Python program.
+- **Over MCP** — run the bundled StreamableHTTP server (`asr-engine-mcp`) and connect any MCP-compatible AI agent or client.
+
+```python
+from asr_engine.config import ASREngineConfig, ModuleConfig
+from asr_engine.engine import ASREngine
+
+
+async def on_segment(seg):
+    print(seg.transcript, seg.is_final, seg.end_reason)
+
+
+engine = ASREngine(
+    ASREngineConfig(module=ModuleConfig(type="deepgram_v1", extra={"api_key": "…"})),
+    on_speech_segment=on_segment,
+)
+await engine.start()
+```
 
 ---
 
@@ -30,7 +51,7 @@ Two rolling resources, both `application/json` and both subscribable:
 }
 ```
 
-**`asr://segment`** — the latest *segment*, an aggregation of utterances per the engine's `segment_mode`. `is_final` is `false` while the segment grows and `true` (with an `end_reason`) when it closes:
+**`asr://segment`** — the latest *segment*, an aggregation of utterances per the engine's `segmentation_mode`. `is_final` is `false` while the segment grows and `true` (with an `end_reason`) when it closes:
 
 ```json
 {
@@ -76,49 +97,77 @@ cp config.example.json config.json
     "host": "127.0.0.1",
     "port": 8000
   },
-  "audio": {
-    "device": null,
-    "output_device": null
-  },
-  "asr": {
-    "type": "deepgram_v2",
-    "api_key": "YOUR_DEEPGRAM_API_KEY",
-    "model": "flux-general-en"
-  },
   "engine": {
     "auto_start": true,
-    "segment_mode": "utterance",
-    "trigger_words": ["submit", "validate", "send"],
-    "initial_silence_timeout_s": 10.0,
-    "end_of_speech_timeout_s": 5.0
-  },
-  "listen": {
-    "segment_mode": "trigger_word",
-    "trigger_words": ["submit", "validate", "send"],
-    "initial_silence_timeout_s": 10.0,
-    "end_of_speech_timeout_s": 5.0,
-    "sound_feedback": true
+    "segmentation_mode": "utterance",
+    "listen_default_segmentation_mode": "trigger_word",
+    "segmentation": {
+      "trigger_words": ["submit", "validate", "send"],
+      "initial_silence_timeout_s": 10.0,
+      "end_of_speech_timeout_s": 5.0
+    },
+    "sound_feedback": { "enabled": true, "output_device": null },
+    "logging": { "level": "INFO" },
+    "audio": { "device": null },
+    "module": {
+      "type": "deepgram_v2",
+      "api_key": "YOUR_DEEPGRAM_API_KEY",
+      "model": "flux-general-en"
+    }
   }
 }
 ```
 
+The top level has just two blocks: `server` (an MCP-only concern) and `engine` — the whole `engine` block maps to one `ASREngineConfig`, the single argument to `ASREngine(config=…)`. A direct importer builds `ASREngineConfig` from the `engine` block alone and never needs `server`.
+
 ### Configuration reference
 
-#### `server`
+#### `server` (MCP only)
 
 | Field | Default | Description |
 |---|---|---|
 | `host` | `"127.0.0.1"` | Bind address. Use `"0.0.0.0"` for LAN access. |
 | `port` | `8000` | HTTP port |
 
-#### `audio`
+#### `engine`
+
+| Field | Default | Description |
+|---|---|---|
+| `auto_start` | `true` | Start ASR at server launch. Set to `false` to use the `listen` tool instead. |
+| `segmentation_mode` | `"utterance"` | Always-on stream mode: `"utterance"`, `"trigger_word"`, or `"timeout"` |
+| `listen_default_segmentation_mode` | `"trigger_word"` | Mode `listen()` uses when its caller passes none: `"trigger_word"` or `"timeout"` |
+| `segmentation` | see below | Trigger words + timeouts, shared by the always-on stream and `listen` |
+| `sound_feedback` | see below | Start/stop audio cues, played by the engine during `listen` |
+| `logging` | `{ "level": "INFO" }` | Level applied to the `asr_engine` package logger at construction |
+| `audio` | see below | Audio input / file-source settings |
+| `module` | — | ASR backend selection (required) |
+
+#### `engine.segmentation`
+
+| Field | Default | Description |
+|---|---|---|
+| `trigger_words` | see below | Words that close a segment in `trigger_word` mode |
+| `initial_silence_timeout_s` | `10.0` | (`timeout` mode) Seconds with no speech before closing |
+| `end_of_speech_timeout_s` | `5.0` | (`timeout` mode) Seconds of silence after last event before closing |
+
+Default trigger words: `submit`, `enter`, `validate`, `send`, `confirm`, `go`, `envoyer`, `valider`, `confirmer`, `soumettre`, `entree`, `entrée`
+
+#### `engine.sound_feedback`
+
+| Field | Default | Description |
+|---|---|---|
+| `enabled` | `true` | Play audio cues at `listen` start and stop. `false` installs a no-op. |
+| `output_device` | `null` | Output device name or index for cue playback. `null` = system default |
+
+#### `engine.audio`
 
 | Field | Default | Description |
 |---|---|---|
 | `device` | `null` | Audio input device name or index. `null` = system default |
-| `output_device` | `null` | Audio output device for sound feedback playback. `null` = system default |
+| `audio_file` | `null` | Stream a WAV file instead of the live device (testing hook) |
+| `trailing_silence_s` | `0.0` | (`audio_file` only) Silence appended after the file ends |
 
-#### `asr`
+#### `engine.module`
 
 | Field | Required | Description |
 |---|---|---|
@@ -130,35 +179,13 @@ cp config.example.json config.json
 | `eot_threshold` | no | (v2 only) End-of-turn confidence threshold, default `0.7` |
 | `eot_timeout_ms` | no | (v2 only) Silence timeout before forced turn-end, default `5000` |
 
-#### `engine`
-
-Controls the always-on engine, including how it segments the live stream into the `asr://segment` resource (what `asr-to-terminal` consumes).
-
-| Field | Default | Description |
-|---|---|---|
-| `auto_start` | `true` | Start ASR at server launch. Set to `false` to use `listen` tool instead. |
-| `segment_mode` | `"utterance"` | `"utterance"` (one segment per final), `"trigger_word"`, or `"timeout"` |
-| `trigger_words` | see above | Words that close a segment in `trigger_word` mode |
-| `initial_silence_timeout_s` | `10.0` | (`timeout` mode) Seconds with no speech before closing |
-| `end_of_speech_timeout_s` | `5.0` | (`timeout` mode) Seconds of silence after last event before closing |
-
-#### `listen`
-
-| Field | Default | Description |
-|---|---|---|
-| `segment_mode` | `"trigger_word"` | `"trigger_word"` or `"timeout"` |
-| `trigger_words` | see above | Words that close the segment in `trigger_word` mode |
-| `initial_silence_timeout_s` | `10.0` | (`timeout` mode) Seconds with no speech before giving up |
-| `end_of_speech_timeout_s` | `5.0` | (`timeout` mode) Seconds of silence after last event before ending |
-| `sound_feedback` | `true` | Play audio cues at `listen` start and stop. Set to `false` to disable. |
-
 ---
 
 ## Running
 
 ```bash
 # Start the MCP server
-uv run asr-mcp-server --config config.json
+uv run asr-engine-mcp --config config.json
 
 # Monitor live transcription (push client)
 uv run asr-mcp-client --server http://127.0.0.1:8000/mcp
@@ -178,7 +205,7 @@ Point your MCP client at `http://<host>:<port>/mcp`. For Claude Code or other ag
 ```json
 {
   "mcpServers": {
-    "asr-mcp": {
+    "asr-engine": {
       "type": "http",
       "url": "http://127.0.0.1:8000/mcp"
     }
@@ -197,7 +224,7 @@ The agent can then:
 
 ### Modular ASR backend
 
-The server uses a **pluggable module architecture**: one ASR backend is active at a time, selected via the `asr.type` config field. Currently two Deepgram modules are provided:
+The server uses a **pluggable module architecture**: one ASR backend is active at a time, selected via the `engine.module.type` config field. Currently two Deepgram modules are provided:
 
 | Module key | API | Models | Best for |
 |---|---|---|---|
@@ -210,9 +237,9 @@ The server uses a **pluggable module architecture**: one ASR backend is active a
 
 **Adding your own module** is straightforward — the interface is intentionally minimal:
 
-1. Create a class that extends `ASRModule` (in [src/asr_mcp/modules/base.py](src/asr_mcp/modules/base.py)) and implements two async methods: `start(audio_queue, on_utterance, on_connected)` and `stop()`. The engine feeds raw 16kHz PCM audio chunks via `audio_queue`; call `on_utterance(SpeechUtterance(...))` whenever your backend produces a transcript.
-2. Register it by name in the `REGISTRY` dict in [src/asr_mcp/modules/\_\_init\_\_.py](src/asr_mcp/modules/__init__.py).
-3. Set `"asr": { "type": "<your-name>", ... }` in your config.
+1. Create a class that extends `ASRModule` (in [src/asr_engine/modules/base.py](src/asr_engine/modules/base.py)) and implements two async methods: `start(audio_queue, on_utterance, on_connected)` and `stop()`. The engine feeds raw 16kHz PCM audio chunks via `audio_queue`; call `on_utterance(SpeechUtterance(...))` whenever your backend produces a transcript.
+2. Register it by name in the `REGISTRY` dict in [src/asr_engine/modules/\_\_init\_\_.py](src/asr_engine/modules/__init__.py).
+3. Set `"module": { "type": "<your-name>", ... }` in your config's `engine` block.
 
 The server, engine, and MCP tools need no changes. This makes it easy to plug in any ASR backend, such a local open-source model, a different cloud API, or anything that can consume a stream of PCM audio and emit transcripts.
 
@@ -232,7 +259,7 @@ The live MCP resource `asr://utterance` is updated on **every** result (interim 
 
 ### Utterances and segments
 
-The engine emits two streams. An **utterance** is a single ASR result (interim or final); a **segment** is an aggregation of utterances closed by a condition. The engine's `Segmenter` owns all segmentation — the `listen` tool and `asr-to-terminal` consume segments rather than re-implementing the logic. Three segment modes are available (set via `engine.segment_mode`, or `listen.segment_mode` for the `listen` tool):
+The engine emits two streams. An **utterance** is a single ASR result (interim or final); a **segment** is an aggregation of utterances closed by a condition. The engine's `Segmenter` owns all segmentation — the `listen` tool and `asr-to-terminal` consume segments rather than re-implementing the logic. Three segment modes are available (set via `engine.segmentation_mode`, or `engine.listen_default_segmentation_mode` for the `listen` tool):
 
 **`utterance` mode**
 
@@ -310,7 +337,7 @@ Standard HTTP is request/response. To receive live data from a running server wi
 
 This means an AI agent or any MCP client gets a genuine event-driven feed of transcription results — no polling, no missed updates — over a plain HTTP connection that works across a local network.
 
-The `AsrResourceClient` class ([src/asr_mcp/resource_client.py](src/asr_mcp/resource_client.py)) implements this subscription pattern and can be reused as a building block for any client that needs to consume a live MCP resource.
+The `AsrResourceClient` class ([src/asr_engine/resource_client.py](src/asr_engine/resource_client.py)) implements this subscription pattern and can be reused as a building block for any client that needs to consume a live MCP resource.
 
 ---
 

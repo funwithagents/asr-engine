@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 from datetime import datetime, timezone
@@ -10,45 +9,25 @@ import uvicorn
 from mcp.server.fastmcp import Context, FastMCP
 from pydantic import AnyUrl
 
-from asr_mcp.config import AppConfig, AudioConfig, EngineConfig, ListenConfig
-from asr_mcp.engine import ASREngine
-from asr_mcp.modules.base import SpeechUtterance
-from asr_mcp.segmenter import SpeechSegment
-from asr_mcp.sound_feedback import NoOpSoundFeedback, SoundFeedback
+from asr_engine.config import AppConfig
+from asr_engine.engine import ASREngine
+from asr_engine.modules.base import SpeechUtterance
+from asr_engine.segmenter import SpeechSegment
+from asr_engine.tools import AsrTools
 
 _UTTERANCE_URI = "asr://utterance"
 _SEGMENT_URI = "asr://segment"
 
 
-def create_mcp_server(
-    engine: ASREngine,
-    listen_config: ListenConfig | None = None,
-    audio_config: AudioConfig | None = None,
-    engine_config: EngineConfig | None = None,
-) -> FastMCP:
+def create_mcp_server(engine: ASREngine) -> FastMCP:
     """Create the FastMCP server wired to *engine*.
 
     Side-effect: sets ``engine.on_speech_utterance`` / ``engine.on_speech_segment``
-    to publish the ``asr://utterance`` / ``asr://segment`` resources, and applies
-    the engine config's segment mode.
+    to publish the ``asr://utterance`` / ``asr://segment`` resources. The engine
+    already applied its segmentation mode and sound feedback from its config, so
+    the server is a thin MCP adapter over the transport-agnostic ``AsrTools``.
     """
-    if listen_config is None:
-        from asr_mcp.config import ListenConfig as _LC  # noqa: PLC0415
-
-        listen_config = _LC()
-    if audio_config is None:
-        from asr_mcp.config import AudioConfig as _AC  # noqa: PLC0415
-
-        audio_config = _AC()
-    if engine_config is None:
-        from asr_mcp.config import EngineConfig as _EC  # noqa: PLC0415
-
-        engine_config = _EC()
-
-    if listen_config.sound_feedback:
-        sound_feedback = SoundFeedback(output_device=audio_config.output_device)
-    else:
-        sound_feedback = NoOpSoundFeedback()
+    tools = AsrTools(engine)
 
     _current_utterance: dict[str, Any] = {
         "transcript": "",
@@ -65,8 +44,7 @@ def create_mcp_server(
     # Subscriber sessions, keyed by resource URI string.
     _subscribers: dict[str, list[Any]] = {_UTTERANCE_URI: [], _SEGMENT_URI: []}
 
-    mcp = FastMCP("asr-mcp")
-    _listen_lock = asyncio.Lock()
+    mcp = FastMCP("asr-engine")
 
     # --- Subscribe / unsubscribe (lowlevel handlers) ---
 
@@ -116,61 +94,33 @@ def create_mcp_server(
         for s in dead:
             sessions.remove(s)
 
-    # --- Tools ---
+    # --- Tools (thin MCP adapters over AsrTools) ---
 
     @mcp.tool()
     async def start() -> dict:
         """Start audio capture and ASR streaming."""
-        await engine.start()
-        return {"status": "running"}
+        return await tools.start()
 
     @mcp.tool()
     async def stop() -> dict:
         """Stop audio capture and ASR streaming."""
-        await engine.stop()
-        return {"status": "stopped"}
+        return await tools.stop()
 
     @mcp.tool()
     def is_running() -> dict:
         """Return the current ASR engine status."""
-        return engine.status()
+        return tools.is_running()
 
     @mcp.tool()
     async def listen(ctx: Context) -> dict:
         """Start ASR, accumulate speech until the segment closes, stop ASR, return it."""
-        if _listen_lock.locked():
-            raise ValueError("A listen session is already in progress.")
-        if engine.status()["running"]:
-            raise ValueError("ASR is already running. Stop it before calling listen.")
 
-        async with _listen_lock:
-            reported = 0
+        async def _on_progress(
+            progress: float, total: float | None, message: str | None
+        ) -> None:
+            await ctx.report_progress(progress=progress, total=total, message=message)
 
-            async def _on_update(segment: SpeechSegment) -> None:
-                # Report progress only when a new final is committed.
-                nonlocal reported
-                committed = len(segment.utterances)
-                if committed > reported:
-                    reported = committed
-                    await ctx.report_progress(
-                        progress=committed,
-                        total=None,
-                        message=segment.transcript,
-                    )
-
-            await sound_feedback.play_start()
-            try:
-                segment = await engine.listen(
-                    mode=listen_config.segment_mode,
-                    trigger_words=listen_config.trigger_words,
-                    initial_silence_timeout_s=listen_config.initial_silence_timeout_s,
-                    end_of_speech_timeout_s=listen_config.end_of_speech_timeout_s,
-                    on_update=_on_update,
-                )
-            finally:
-                await sound_feedback.play_stop()
-
-            return {"transcript": segment.transcript, "end_reason": segment.end_reason}
+        return await tools.listen(on_progress=_on_progress)
 
     # --- Engine callbacks → resources ---
 
@@ -194,32 +144,27 @@ def create_mcp_server(
 
     engine.on_speech_utterance = _on_speech_utterance
     engine.on_speech_segment = _on_speech_segment
-    engine.set_segment_mode(
-        engine_config.segment_mode,
-        trigger_words=engine_config.trigger_words,
-        initial_silence_timeout_s=engine_config.initial_silence_timeout_s,
-        end_of_speech_timeout_s=engine_config.end_of_speech_timeout_s,
-    )
 
     return mcp
 
 
 async def run_server(config: AppConfig) -> None:
     """Create the ASR engine, the MCP server, and run uvicorn."""
-    if config.audio.audio_file:
-        from asr_mcp.audio import FileAudioSource  # noqa: PLC0415
+    engine_config = config.engine
+    if engine_config.audio.audio_file:
+        from asr_engine.audio import FileAudioSource  # noqa: PLC0415
 
         audio_source = FileAudioSource(
-            config.audio.audio_file,
-            trailing_silence_s=config.audio.trailing_silence_s,
+            engine_config.audio.audio_file,
+            trailing_silence_s=engine_config.audio.trailing_silence_s,
         )
-        engine = ASREngine(config.audio, config.asr, audio_source=audio_source)
+        engine = ASREngine(engine_config, audio_source=audio_source)
     else:
-        engine = ASREngine(config.audio, config.asr)
+        engine = ASREngine(engine_config)
 
-    mcp = create_mcp_server(engine, config.listen, config.audio, config.engine)
+    mcp = create_mcp_server(engine)
 
-    if config.engine.auto_start:
+    if engine_config.auto_start:
         await engine.start()
 
     # Suppress chatty low-level logs that belong at DEBUG, not INFO.
@@ -257,9 +202,9 @@ async def run_server(config: AppConfig) -> None:
     )
     server = uvicorn.Server(uv_config)
     print(
-        f"ASR MCP Server starting — "
+        f"ASR Engine MCP Server starting — "
         f"host={config.server.host} port={config.server.port} "
-        f"asr={config.asr.type}"
+        f"module={engine_config.module.type}"
     )
     try:
         await server.serve()

@@ -10,7 +10,7 @@ import sounddevice as sd
 
 log = logging.getLogger(__name__)
 
-_SOUNDS_DIR = files("asr_mcp") / "sounds"
+_SOUNDS_DIR = files("asr_engine") / "sounds"
 
 
 def _play_wav(path, device) -> None:

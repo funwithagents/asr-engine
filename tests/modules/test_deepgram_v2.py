@@ -8,8 +8,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from asr_mcp.modules.base import SpeechUtterance
-from asr_mcp.modules.deepgram_v2 import DeepgramV2Module
+from asr_engine.modules.base import SpeechUtterance
+from asr_engine.modules.deepgram_v2 import DeepgramV2Module
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -208,7 +208,7 @@ async def _run_with_messages(messages, module_config=None):
     conn = _make_mock_conn(messages)
     m = DeepgramV2Module(config=module_config or {"api_key": "sk-test"})
 
-    with patch("asr_mcp.modules.deepgram_v2.AsyncDeepgramClient") as MockClient:
+    with patch("asr_engine.modules.deepgram_v2.AsyncDeepgramClient") as MockClient:
         mc = MockClient.return_value
         mc.listen.v2.connect.return_value.__aenter__ = AsyncMock(return_value=conn)
         mc.listen.v2.connect.return_value.__aexit__ = AsyncMock(return_value=False)
@@ -275,7 +275,7 @@ async def test_on_message_non_turn_info_is_ignored() -> None:
 
 
 def test_deepgram_v2_registered_in_registry() -> None:
-    from asr_mcp.modules import REGISTRY
+    from asr_engine.modules import REGISTRY
 
     assert "deepgram_v2" in REGISTRY
     assert REGISTRY["deepgram_v2"] is DeepgramV2Module

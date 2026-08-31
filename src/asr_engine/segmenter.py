@@ -13,8 +13,8 @@ import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 
-from asr_mcp.modules.base import SpeechUtterance
-from asr_mcp.speech_utils import contains_trigger_word
+from asr_engine.modules.base import SpeechUtterance
+from asr_engine.speech_utils import contains_trigger_word
 
 log = logging.getLogger(__name__)
 

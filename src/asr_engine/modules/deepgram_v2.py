@@ -5,9 +5,9 @@ import logging
 
 from deepgram import AsyncDeepgramClient
 from deepgram.core.events import EventType
-from deepgram.listen.v1.types.listen_v1results import ListenV1Results
+from deepgram.listen.v2.types.listen_v2turn_info import ListenV2TurnInfo
 
-from asr_mcp.modules.base import (
+from asr_engine.modules.base import (
     ASRModule,
     ConnectedCallback,
     SpeechUtterance,
@@ -18,27 +18,22 @@ from asr_mcp.modules.base import (
 log = logging.getLogger(__name__)
 
 
-class DeepgramV1Module(ASRModule):
-    """ASR module backed by the Deepgram Listen v1 WebSocket API.
+class DeepgramV2Module(ASRModule):
+    """ASR module backed by the Deepgram Listen v2 (Flux) WebSocket API.
 
-    Uses Nova-3 (or any v1-compatible model) with is_final-based segment
-    detection. Supports language selection, punctuation, and interim results.
+    Uses the Flux model with built-in contextual turn detection.
+    EndOfTurn events signal is_final=True; all other TurnInfo events are interim.
 
-    is_final=True (Deepgram segment finality) maps to SpeechUtterance.is_final=True.
-    This fires whenever Deepgram commits a transcript chunk — more reliable than
-    speech_final, which depends on endpointing configuration and model support.
-
-    Recommended models: nova-3, nova-2, enhanced, base.
-    Use deepgram_v2 for Flux / built-in turn detection.
+    Supported models: flux-general-en (and other flux-* variants).
+    Not suitable for non-English or for models outside the Flux family.
     """
 
     def __init__(self, config: dict) -> None:
         super().__init__(config)
-        self._api_key: str = resolve_api_key(config, "deepgram_v1")
-        self._model: str = config.get("model", "nova-3")
-        self._language: str = config.get("language", "multi")
-        self._punctuate: bool = config.get("punctuate", True)
-        self._interim_results: bool = config.get("interim_results", True)
+        self._api_key: str = resolve_api_key(config, "deepgram_v2")
+        self._model: str = config.get("model", "flux-general-en")
+        self._eot_threshold: float = config.get("eot_threshold", 0.7)
+        self._eot_timeout_ms: int = config.get("eot_timeout_ms", 5000)
 
         self._stop_event = asyncio.Event()
 
@@ -54,14 +49,12 @@ class DeepgramV1Module(ASRModule):
 
         while not self._stop_event.is_set():
             try:
-                async with client.listen.v1.connect(
+                async with client.listen.v2.connect(
                     model=self._model,
                     encoding="linear16",
                     sample_rate="16000",
-                    channels="1",
-                    language=self._language,
-                    punctuate=str(self._punctuate).lower(),
-                    interim_results=str(self._interim_results).lower(),
+                    eot_threshold=str(self._eot_threshold),
+                    eot_timeout_ms=str(self._eot_timeout_ms),
                 ) as conn:
                     attempt = 0
                     if on_connected:
@@ -69,30 +62,22 @@ class DeepgramV1Module(ASRModule):
                     try:
 
                         async def on_message(msg: object) -> None:
-                            if not isinstance(msg, ListenV1Results):
+                            if not isinstance(msg, ListenV2TurnInfo):
                                 return
-                            alternatives = msg.channel.alternatives
-                            if not alternatives:
-                                return
-                            transcript = alternatives[0].transcript
+                            transcript = msg.transcript
                             if not transcript:
                                 return
-                            confidence = alternatives[0].confidence
-                            # is_final=True means Deepgram has committed this segment
-                            # and its transcript won't change. speech_final is not used
-                            # because it depends on endpointing configuration and is not
-                            # reliably set by all models (notably nova-3).
-                            is_final = bool(msg.is_final)
+                            is_final = msg.event == "EndOfTurn"
                             await on_utterance(
                                 SpeechUtterance(
                                     transcript=transcript,
                                     is_final=is_final,
-                                    confidence=confidence,
+                                    confidence=msg.end_of_turn_confidence,
                                 )
                             )
 
                         async def on_error(error: object) -> None:
-                            log.error("Deepgram v1 error: %s", error)
+                            log.error("Deepgram v2 error: %s", error)
 
                         conn.on(EventType.MESSAGE, on_message)
                         conn.on(EventType.ERROR, on_error)
@@ -125,7 +110,7 @@ class DeepgramV1Module(ASRModule):
                 if self._stop_event.is_set():
                     break
                 log.error(
-                    "Deepgram v1 connection error (attempt %d): %s", attempt + 1, e
+                    "Deepgram v2 connection error (attempt %d): %s", attempt + 1, e
                 )
                 delay = min(2**attempt, 8)
                 attempt += 1
@@ -138,7 +123,7 @@ class DeepgramV1Module(ASRModule):
         conn: object,
         audio_queue: asyncio.Queue[bytes],
     ) -> None:
-        """Send audio chunks; send KeepAlive on silence. Exits immediately on stop()."""
+        """Send audio chunks; send KeepAlive JSON on silence. Exits immediately on stop()."""
         stop_task = asyncio.create_task(self._stop_event.wait())
         try:
             while True:
@@ -159,13 +144,14 @@ class DeepgramV1Module(ASRModule):
                     await conn.send_media(get_task.result())  # type: ignore[union-attr]
                 else:
                     # No audio for _KEEPALIVE_TIMEOUT seconds — keep the connection alive.
+                    # The v2 SDK has no public send_keep_alive(); use the internal
+                    # _send() which accepts a dict and serialises it to JSON.
                     get_task.cancel()
                     try:
                         await get_task
                     except (asyncio.CancelledError, Exception):
                         pass
-                    # v1 has a public send_keep_alive() method.
-                    await conn.send_keep_alive()  # type: ignore[union-attr]
+                    await conn._send({"type": "KeepAlive"})  # type: ignore[union-attr]
         finally:
             stop_task.cancel()
             try:

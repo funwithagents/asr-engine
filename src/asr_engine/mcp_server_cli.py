@@ -2,12 +2,12 @@ import argparse
 import asyncio
 import sys
 
-from asr_mcp.config import load_config
-from asr_mcp.server import run_server
+from asr_engine.config import load_config
+from asr_engine.server import run_server
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="ASR MCP Server")
+    parser = argparse.ArgumentParser(description="ASR Engine MCP Server")
     parser.add_argument(
         "--config",
         default="config.json",

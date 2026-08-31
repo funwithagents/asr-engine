@@ -1,7 +1,7 @@
 ---
 code:
-  - src/asr_mcp/asr_to_terminal.py
-  - src/asr_mcp/terminal_typer.py
+  - src/asr_engine/asr_to_terminal.py
+  - src/asr_engine/terminal_typer.py
 tests:
   - tests/test_asr_to_terminal.py
 ---
@@ -131,7 +131,7 @@ session or interfere with injected keystrokes.
 ## File layout
 
 ```
-src/asr_mcp/
+src/asr_engine/
     terminal_typer.py    # TerminalTyper
     asr_to_terminal.py   # AsrToTerminal + main()
 ```
@@ -143,21 +143,33 @@ src/asr_mcp/
 Entry point registered in `pyproject.toml`:
 
 ```toml
-asr-to-terminal = "asr_mcp.asr_to_terminal:main"
+asr-to-terminal = "asr_engine.asr_to_terminal:main"
 ```
 
 ---
 
+## Injectable keystroke sink
+
+`AsrToTerminal(__init__)` accepts an optional `typer: KeystrokeSink` (a Protocol
+in `terminal_typer.py` with `type_text` / `backspace` / `send_enter`). When
+omitted it builds the real `TerminalTyper`; when supplied it uses that sink
+instead. This is how the e2e tests drive the full pipeline without real OS
+keystroke injection.
+
 ## E2E tests
 
-Two real end-to-end tests in `tests-e2e/test_asr_to_terminal.py`, following the
+Three real end-to-end tests in `tests-e2e/test_asr_to_terminal.py`, following the
 same `FileAudioSource → ASREngine → MCP server → AsrToTerminal` chain as the
-existing ASR e2e tests. Require `xdotool` and a live X11 display.
+other ASR e2e tests. They inject an in-memory `RecordingTyper` (a `KeystrokeSink`
+that models a terminal input line: `type_text` appends, `backspace` trims,
+`send_enter` commits the line), so they run on any OS — **no `xterm`, `xdotool`,
+or X11 display required**. They still need a live Deepgram API key.
 
-| Test | Fixture | Capture method | Assertion |
+| Test | Fixture | `segmentation_mode` | Assertion |
 |---|---|---|---|
-| Text injection | `sample.wav` | `xterm -e 'cat > /tmp/...'` + Ctrl-D | file content == `"the sky is blue"` |
-| Submit word | `sample_submit.wav` | `xterm -e 'bash -c "read line; echo GOT:$line > /tmp/..."'` | file content == `"GOT:"` (Enter fired, no text) |
+| Text injection | `sample.wav` | `trigger_word` (impossible word) | `typer.line` contains `"the sky is blue"`; `typer.committed == []` (Enter never fired) |
+| Submit word | `sample_submit.wav` | `trigger_word` (`validate`) | `typer.committed` non-empty (Enter fired); trigger word not in the committed text |
+| Timeout | `sample.wav` | `timeout` | `typer.committed[-1]` contains `"the sky is blue"` (Enter fired on EOS) |
 
 `sample_submit.wav` is a second audio fixture (same format as `sample.wav`)
 containing a submit word, e.g. `"the sky is blue validate"`.
@@ -166,8 +178,9 @@ containing a submit word, e.g. `"the sky is blue validate"`.
 
 ## External dependencies
 
-`xdotool` (X11) and `ydotool` (Wayland) are system packages, not Python
-dependencies. The CLI should print a clear error if the required tool is
-missing.
+`xdotool` (X11) and `ydotool` (Wayland) are system packages the **runtime CLI**
+needs, not Python dependencies. The CLI should print a clear error if the
+required tool is missing. The e2e tests no longer depend on them (they inject a
+`RecordingTyper`).
 
 No new Python packages are required.

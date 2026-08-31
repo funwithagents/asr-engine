@@ -1,4 +1,4 @@
-"""Unit tests for asr_mcp.modules.base and load_module — Plan 04."""
+"""Unit tests for asr_engine.modules.base and load_module — Plan 04."""
 
 from __future__ import annotations
 
@@ -7,8 +7,8 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from asr_mcp.modules import REGISTRY, load_module
-from asr_mcp.modules.base import ASRModule, SpeechUtterance, resolve_api_key
+from asr_engine.modules import REGISTRY, load_module
+from asr_engine.modules.base import ASRModule, SpeechUtterance, resolve_api_key
 
 # ---------------------------------------------------------------------------
 # SpeechUtterance dataclass

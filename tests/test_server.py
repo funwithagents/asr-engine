@@ -8,26 +8,38 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from asr_mcp.config import AppConfig, ASRConfig, AudioConfig, EngineConfig, ListenConfig
-from asr_mcp.engine import ASREngine
-from asr_mcp.modules.base import SpeechUtterance
-from asr_mcp.segmenter import SpeechSegment
-from asr_mcp.server import create_mcp_server, run_server
+from asr_engine.config import (
+    AppConfig,
+    ASREngineConfig,
+    ModuleConfig,
+    ServerConfig,
+    SoundFeedbackConfig,
+)
+from asr_engine.engine import ASREngine
+from asr_engine.modules.base import SpeechUtterance
+from asr_engine.segmenter import SpeechSegment
+from asr_engine.server import create_mcp_server, run_server
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
 
-def make_engine() -> ASREngine:
-    audio_config = AudioConfig(device=None)
+def _engine_config(module_type: str = "mock", **kwargs) -> ASREngineConfig:
+    return ASREngineConfig(
+        sound_feedback=SoundFeedbackConfig(enabled=False),
+        module=ModuleConfig(type=module_type),
+        **kwargs,
+    )
+
+
+def make_engine(**cfg_kwargs) -> ASREngine:
     module = MagicMock()
     module.start = AsyncMock(return_value=None)
     module.stop = AsyncMock(return_value=None)
     mock_class = MagicMock(return_value=module)
-    asr_config = ASRConfig(type="mock")
-    with patch.dict("asr_mcp.engine.REGISTRY", {"mock": mock_class}):
-        return ASREngine(audio_config, asr_config)
+    with patch.dict("asr_engine.engine.REGISTRY", {"mock": mock_class}):
+        return ASREngine(_engine_config(**cfg_kwargs))
 
 
 def tool_result_json(result) -> dict:
@@ -160,14 +172,12 @@ def test_create_mcp_server_wires_engine_callbacks():
     assert engine.on_speech_segment is not before_s
 
 
-def test_create_mcp_server_applies_engine_segment_mode():
-    engine = make_engine()
-    create_mcp_server(
-        engine,
-        engine_config=EngineConfig(segment_mode="trigger_word", trigger_words=["stop"]),
-    )
+def test_create_mcp_server_leaves_engine_segment_mode():
+    """The engine owns its segment mode (from config); the server must not touch it."""
+    engine = make_engine(segmentation_mode="trigger_word")
     assert engine._segment_mode == "trigger_word"
-    assert engine._trigger_words == ["stop"]
+    create_mcp_server(engine)
+    assert engine._segment_mode == "trigger_word"
 
 
 # ---------------------------------------------------------------------------
@@ -181,7 +191,7 @@ async def test_start_tool_starts_engine():
     mcp = create_mcp_server(engine)
 
     fake_queue: asyncio.Queue[bytes] = asyncio.Queue()
-    with patch("asr_mcp.engine.AudioCapture") as MockCapture:
+    with patch("asr_engine.engine.AudioCapture") as MockCapture:
         MockCapture.return_value.start.return_value = fake_queue
         result = await mcp.call_tool("start", {})
 
@@ -196,7 +206,7 @@ async def test_stop_tool_stops_engine():
     mcp = create_mcp_server(engine)
 
     fake_queue: asyncio.Queue[bytes] = asyncio.Queue()
-    with patch("asr_mcp.engine.AudioCapture") as MockCapture:
+    with patch("asr_engine.engine.AudioCapture") as MockCapture:
         MockCapture.return_value.start.return_value = fake_queue
         await mcp.call_tool("start", {})
         result = await mcp.call_tool("stop", {})
@@ -261,13 +271,7 @@ async def test_dead_session_removed_on_send_failure():
 
 @pytest.mark.asyncio
 async def test_run_server_raises_on_unknown_asr_type() -> None:
-    from asr_mcp.config import ServerConfig
-
-    config = AppConfig(
-        server=ServerConfig(),
-        audio=AudioConfig(),
-        asr=ASRConfig(type="no_such_module"),
-    )
+    config = AppConfig(engine=_engine_config(module_type="no_such_module"))
     with pytest.raises(ValueError, match="no_such_module"):
         await run_server(config)
 
@@ -277,18 +281,6 @@ async def test_run_server_raises_on_unknown_asr_type() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _listen_config(**kwargs) -> ListenConfig:
-    defaults = dict(
-        segment_mode="trigger_word",
-        trigger_words=["validate"],
-        initial_silence_timeout_s=10.0,
-        end_of_speech_timeout_s=5.0,
-        sound_feedback=False,
-    )
-    defaults.update(kwargs)
-    return ListenConfig(**defaults)  # type: ignore[arg-type]  # heterogeneous test kwargs
-
-
 @pytest.mark.asyncio
 async def test_listen_engine_already_running():
     """listen raises when engine is already running."""
@@ -296,7 +288,7 @@ async def test_listen_engine_already_running():
 
     engine = make_engine()
     engine._running = True
-    mcp = create_mcp_server(engine, _listen_config())
+    mcp = create_mcp_server(engine)
     with pytest.raises(ToolError, match="already running"):
         await mcp.call_tool("listen", {})
 
@@ -305,11 +297,11 @@ async def test_listen_engine_already_running():
 async def test_listen_concurrent_calls_blocked():
     """Second listen call while first is in progress raises."""
     engine = make_engine()
-    mcp = create_mcp_server(engine, _listen_config())
+    mcp = create_mcp_server(engine)
 
     release = asyncio.Event()
 
-    async def _blocking_listen(**kwargs):
+    async def _blocking_listen(mode=None, *, on_update=None):
         await release.wait()
         return _segment("", True, end_reason="trigger_word")
 
@@ -327,13 +319,14 @@ async def test_listen_concurrent_calls_blocked():
 
 
 @pytest.mark.asyncio
-async def test_listen_trigger_word_success():
+async def test_listen_success_returns_transcript_and_reason():
     """listen returns the closed segment's transcript and end_reason."""
     engine = make_engine()
-    mcp = create_mcp_server(engine, _listen_config(segment_mode="trigger_word"))
+    mcp = create_mcp_server(engine)
 
-    async def _fake_listen(**kwargs):
-        assert kwargs["mode"] == "trigger_word"
+    async def _fake_listen(mode=None, *, on_update=None):
+        # The MCP tool passes no explicit mode; engine uses its config default.
+        assert mode is None
         return _segment("the sky is blue", True, end_reason="trigger_word")
 
     with patch.object(engine, "listen", new=_fake_listen):
@@ -344,39 +337,21 @@ async def test_listen_trigger_word_success():
 
 
 @pytest.mark.asyncio
-async def test_listen_timeout_mode_success():
-    """listen in timeout mode returns the end_of_speech_timeout end_reason."""
-    engine = make_engine()
-    mcp = create_mcp_server(
-        engine, _listen_config(segment_mode="timeout", end_of_speech_timeout_s=0.01)
-    )
-
-    async def _fake_listen(**kwargs):
-        assert kwargs["mode"] == "timeout"
-        return _segment("hello", True, end_reason="end_of_speech_timeout")
-
-    with patch.object(engine, "listen", new=_fake_listen):
-        result = await mcp.call_tool("listen", {})
-
-    assert tool_result_json(result)["end_reason"] == "end_of_speech_timeout"
-
-
-@pytest.mark.asyncio
 async def test_listen_releases_lock_on_exception():
     """A failed listen still releases the lock so a later call can proceed."""
     from mcp.server.fastmcp.exceptions import ToolError
 
     engine = make_engine()
-    mcp = create_mcp_server(engine, _listen_config())
+    mcp = create_mcp_server(engine)
 
-    async def _boom(**kwargs):
+    async def _boom(mode=None, *, on_update=None):
         raise RuntimeError("boom")
 
     with patch.object(engine, "listen", new=_boom):
         with pytest.raises(ToolError, match="boom"):
             await mcp.call_tool("listen", {})
 
-    async def _ok(**kwargs):
+    async def _ok(mode=None, *, on_update=None):
         return _segment("ok", True, end_reason="trigger_word")
 
     with patch.object(engine, "listen", new=_ok):
@@ -393,14 +368,12 @@ async def test_listen_releases_lock_on_exception():
 async def test_listen_progress_reported_per_committed_final():
     """report_progress fires once per committed final, with the accumulated transcript."""
     engine = make_engine()
-    mcp = create_mcp_server(
-        engine, _listen_config(segment_mode="trigger_word", trigger_words=["submit"])
-    )
+    mcp = create_mcp_server(engine)
 
     u1 = _utterance("hello world", True)
     u2 = _utterance("how are you", True)
 
-    async def _fake_listen(*, on_update, **kwargs):
+    async def _fake_listen(mode=None, *, on_update):
         # open segments as finals commit, then the trigger-word close (no growth).
         await on_update(_segment("hello world", False, utterances=[u1]))
         await on_update(_segment("hello world how are you", False, utterances=[u1, u2]))
@@ -437,9 +410,9 @@ async def test_listen_progress_reported_per_committed_final():
 async def test_listen_progress_not_reported_when_no_finals_committed():
     """No committed finals (immediate trigger word) → no progress notifications."""
     engine = make_engine()
-    mcp = create_mcp_server(engine, _listen_config(trigger_words=["validate"]))
+    mcp = create_mcp_server(engine)
 
-    async def _fake_listen(*, on_update, **kwargs):
+    async def _fake_listen(mode=None, *, on_update):
         await on_update(_segment("", True, "trigger_word", utterances=[]))
         return _segment("", True, "trigger_word", utterances=[])
 
@@ -468,7 +441,7 @@ async def test_listen_progress_not_reported_when_no_finals_committed():
 
 @pytest.mark.asyncio
 async def test_run_server_auto_start_false_does_not_start_engine() -> None:
-    import asr_mcp.modules as mod
+    import asr_engine.modules as mod
 
     fake_module = MagicMock()
     fake_module.start = AsyncMock(return_value=None)
@@ -476,14 +449,12 @@ async def test_run_server_auto_start_false_does_not_start_engine() -> None:
     fake_class = MagicMock(return_value=fake_module)
 
     config = AppConfig(
-        audio=AudioConfig(),
-        asr=ASRConfig(type="fake_auto"),
-        engine=EngineConfig(auto_start=False),
+        engine=_engine_config(module_type="fake_auto", auto_start=False),
     )
     original = dict(mod.REGISTRY)
     mod.REGISTRY["fake_auto"] = fake_class  # type: ignore[assignment]  # MagicMock test double
     try:
-        with patch("asr_mcp.server.uvicorn.Server.serve", new_callable=AsyncMock):
+        with patch("asr_engine.server.uvicorn.Server.serve", new_callable=AsyncMock):
             await run_server(config)
     finally:
         mod.REGISTRY.clear()
@@ -494,8 +465,7 @@ async def test_run_server_auto_start_false_does_not_start_engine() -> None:
 
 @pytest.mark.asyncio
 async def test_run_server_prints_banner(capsys) -> None:
-    import asr_mcp.modules as mod
-    from asr_mcp.config import ServerConfig
+    import asr_engine.modules as mod
 
     fake_module = MagicMock()
     fake_module.start = AsyncMock(return_value=None)
@@ -504,13 +474,12 @@ async def test_run_server_prints_banner(capsys) -> None:
 
     config = AppConfig(
         server=ServerConfig(host="0.0.0.0", port=9090),
-        audio=AudioConfig(),
-        asr=ASRConfig(type="fake_banner"),
+        engine=_engine_config(module_type="fake_banner"),
     )
     original = dict(mod.REGISTRY)
     mod.REGISTRY["fake_banner"] = fake_class  # type: ignore[assignment]  # MagicMock test double
     try:
-        with patch("asr_mcp.server.uvicorn.Server.serve", new_callable=AsyncMock):
+        with patch("asr_engine.server.uvicorn.Server.serve", new_callable=AsyncMock):
             await run_server(config)
     finally:
         mod.REGISTRY.clear()

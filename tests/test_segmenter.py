@@ -6,8 +6,8 @@ import asyncio
 
 import pytest
 
-from asr_mcp.modules.base import SpeechUtterance
-from asr_mcp.segmenter import Segmenter, SpeechSegment
+from asr_engine.modules.base import SpeechUtterance
+from asr_engine.segmenter import Segmenter, SpeechSegment
 
 
 def _collector():

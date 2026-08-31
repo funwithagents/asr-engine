@@ -11,8 +11,8 @@ import argparse
 import asyncio
 import sys
 
-from asr_mcp.resource_client import AsrResourceClient
-from asr_mcp.terminal_typer import TerminalTyper
+from asr_engine.resource_client import AsrResourceClient
+from asr_engine.terminal_typer import KeystrokeSink, TerminalTyper
 
 _DEFAULT_SERVER = "http://127.0.0.1:8000/mcp"
 _SEGMENT_URI = "asr://segment"
@@ -31,8 +31,13 @@ class AsrToTerminal:
         self,
         server_url: str = _DEFAULT_SERVER,
         display_server: str | None = None,
+        typer: KeystrokeSink | None = None,
     ) -> None:
-        self._typer = TerminalTyper(display_server)
+        # A caller may inject a KeystrokeSink (e.g. a recording sink in tests);
+        # otherwise build the real OS-injection TerminalTyper.
+        self._typer: KeystrokeSink = (
+            typer if typer is not None else TerminalTyper(display_server)
+        )
         self._client = AsrResourceClient(
             server_url, self._on_segment, resource_uri=_SEGMENT_URI
         )

@@ -1,9 +1,8 @@
 ---
 code:
-  - src/asr_mcp/asr_resource_client.py
-  - src/asr_mcp/resource_client.py
-  - src/asr_mcp/resource_subscriber.py
-  - src/asr_mcp/tool_client.py
+  - src/asr_engine/asr_resource_client.py
+  - src/asr_engine/resource_client.py
+  - src/asr_engine/resource_subscriber.py
 tests:
   - tests/test_client.py
   - tests/test_subscriber.py
@@ -53,9 +52,9 @@ Default server URL: `http://127.0.0.1:8000/mcp`
 
 ## Implementation Notes
 
-- Implemented in `src/asr_mcp/asr_resource_client.py` (CLI entry point)
-- `src/asr_mcp/resource_client.py` — `AsrResourceClient`: resource subscription library class. Takes a `resource_uri` argument (default `asr://utterance`) so the same class can subscribe to `asr://segment` — `AsrToTerminal` uses it that way.
-- `src/asr_mcp/tool_client.py` — `McpToolClient`: single-call tool invocation library class
+- Implemented in `src/asr_engine/asr_resource_client.py` (CLI entry point)
+- `src/asr_engine/resource_client.py` — `AsrResourceClient`: resource subscription library class. Takes a `resource_uri` argument (default `asr://utterance`) so the same class can subscribe to `asr://segment` — `AsrToTerminal` uses it that way.
+- A single-call MCP **tool** client (`McpToolClient`) is **not** part of the package — it has no product consumer, so it lives as a test-only helper at `tests-e2e/mcp_tool_client.py` (used by `tests-e2e/test_mcp_tool_client.py`).
 - Uses the official MCP Python SDK client
 - No config file needed — server URL passed as CLI argument (with a sensible default)
 - Minimal dependencies: only `mcp` SDK + standard library

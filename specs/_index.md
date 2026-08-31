@@ -1,6 +1,8 @@
-# ASR MCP
+# ASR Engine
 
-ASR MCP is a real-time Automatic Speech Recognition server exposed over the Model Context Protocol. It captures audio continuously from a system input device, streams it to a pluggable ASR backend (Deepgram first), and publishes the latest utterance and the latest aggregated segment as two rolling MCP resources (`asr://utterance`, `asr://segment`) over StreamableHTTP, alongside tools to start, stop, query, and `listen` for speech. The design revolves around one always-on asyncio pipeline — audio capture in a thread, everything else async on one event loop — with the engine aggregating utterances into segments that clients subscribe to rather than a full transcript history.
+ASR Engine is a real-time Automatic Speech Recognition engine, usable directly by import (`import asr_engine`) or over the Model Context Protocol. The `ASREngine` (constructed from a single `ASREngineConfig`) captures audio continuously, streams it to a pluggable ASR backend (Deepgram first), owns segmentation and sound feedback, and emits the latest utterance and the latest aggregated segment. A transport-agnostic tools layer (`start`/`stop`/`is_running`/`listen`) sits on top, and the bundled MCP server publishes the two rolling resources (`asr://utterance`, `asr://segment`) and the tools over StreamableHTTP. The design revolves around one always-on asyncio pipeline — audio capture in a thread, everything else async on one event loop — with the engine aggregating utterances into segments that consumers subscribe to rather than a full transcript history.
+
+> **2026-08-31 refactor (done):** the package was renamed `asr_mcp` → `asr_engine` and restructured around a self-configured `ASREngine` + transport-agnostic tools layer — see [plans/202608311612_asr-engine-refactor.md](../plans/202608311612_asr-engine-refactor.md).
 
 ## Specs
 
@@ -12,15 +14,16 @@ ASR MCP is a real-time Automatic Speech Recognition server exposed over the Mode
 | [testing.md](testing.md) | Testing strategy: two-tier `tests/`/`tests-e2e/` split, functional-test philosophy | Implemented |
 | [overview.md](overview.md) | Goals, components, constraints, non-goals | Implemented |
 | [architecture.md](architecture.md) | System diagram, concurrency model, data flow | Implemented |
-| [engine.md](engine.md) | `ASREngine` + `Segmenter`: `SpeechUtterance`/`SpeechSegment`, `on_speech_utterance`/`on_speech_segment` callbacks, `set_segment_mode`, `listen` | Implemented |
-| [configuration.md](configuration.md) | Config file schema, fields, validation rules | Implemented |
-| [mcp-server.md](mcp-server.md) | Resources `asr://utterance` + `asr://segment`, tools (`start`, `stop`, `is_running`, `listen`), `auto_start` config, server lifecycle | Implemented |
+| [engine.md](engine.md) | `ASREngine` (from `ASREngineConfig`) + `Segmenter`: callbacks, `set_segmentation_mode`/`set_segmentation_params`, `listen` | Implemented |
+| [configuration.md](configuration.md) | Config file schema (`server` + nested `engine`/`ASREngineConfig`), fields, validation rules | Implemented |
+| [tools.md](tools.md) | Transport-agnostic `AsrTools` (`start`/`stop`/`is_running`/`listen`) over an `ASREngine` | Implemented |
+| [mcp-server.md](mcp-server.md) | Resources `asr://utterance` + `asr://segment`, MCP adapter over the tools layer, server lifecycle | Implemented |
 | [asr-module-interface.md](asr-module-interface.md) | ABC, audio format contract, registry, reconnection | Implemented |
 | [deepgram-module.md](deepgram-module.md) | WebSocket details, config fields, message mapping | Implemented |
 | [demo-client.md](demo-client.md) | CLI, log format, behavior | Implemented |
 | [e2e-testing.md](e2e-testing.md) | File-based e2e pipeline: audio source abstraction, fixture format, assertions | Implemented |
 | [asr-to-terminal.md](asr-to-terminal.md) | Progressive terminal injection via xdotool/ydotool, consuming the server's `asr://segment` resource | Implemented |
-| [sound-feedback.md](sound-feedback.md) | Bundled WAV cues at `listen` start/stop; `SoundFeedback` module; `audio.output_device` and `listen.sound_feedback` config | Implemented |
+| [sound-feedback.md](sound-feedback.md) | Bundled WAV cues at `listen` start/stop, owned by the engine; `engine.sound_feedback` config | Implemented |
 
 Each spec also opens with a YAML **frontmatter** block declaring the `code:` and `tests:` files it governs — the spec → code/tests mapping the spec-drift checks use to scope what they compare. Keep it current when files move, and see [AGENTS.md](../AGENTS.md) ("Spec frontmatter") for the full convention.
 

@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 
-from asr_mcp.audio import CHANNELS, CHUNK_SAMPLES, DTYPE, SAMPLE_RATE, AudioCapture
+from asr_engine.audio import CHANNELS, CHUNK_SAMPLES, DTYPE, SAMPLE_RATE, AudioCapture
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -32,17 +32,17 @@ class TestListDevices:
             {"name": "Speaker", "max_input_channels": 0},
             {"name": "Mic B", "max_input_channels": 1},
         ]
-        with patch("asr_mcp.audio.sd.query_devices", return_value=fake_devices):
+        with patch("asr_engine.audio.sd.query_devices", return_value=fake_devices):
             result = AudioCapture.list_devices()
         assert result == ["Mic A", "Mic B"]
 
     def test_empty_when_no_input_devices(self):
         fake_devices = [{"name": "Speaker", "max_input_channels": 0}]
-        with patch("asr_mcp.audio.sd.query_devices", return_value=fake_devices):
+        with patch("asr_engine.audio.sd.query_devices", return_value=fake_devices):
             assert AudioCapture.list_devices() == []
 
     def test_empty_when_no_devices_at_all(self):
-        with patch("asr_mcp.audio.sd.query_devices", return_value=[]):
+        with patch("asr_engine.audio.sd.query_devices", return_value=[]):
             assert AudioCapture.list_devices() == []
 
 
@@ -57,7 +57,7 @@ class TestStart:
         try:
             capture = AudioCapture(device=None, loop=loop)
             mock_stream = MagicMock()
-            with patch("asr_mcp.audio.sd.InputStream", return_value=mock_stream):
+            with patch("asr_engine.audio.sd.InputStream", return_value=mock_stream):
                 with patch.object(
                     AudioCapture, "list_devices", return_value=["Default"]
                 ):
@@ -72,7 +72,7 @@ class TestStart:
             capture = AudioCapture(device=None, loop=loop)
             mock_stream = MagicMock()
             with patch(
-                "asr_mcp.audio.sd.InputStream", return_value=mock_stream
+                "asr_engine.audio.sd.InputStream", return_value=mock_stream
             ) as mock_cls:
                 capture.start()
             _, kwargs = mock_cls.call_args
@@ -89,7 +89,7 @@ class TestStart:
         try:
             capture = AudioCapture(device=None, loop=loop)
             mock_stream = MagicMock()
-            with patch("asr_mcp.audio.sd.InputStream", return_value=mock_stream):
+            with patch("asr_engine.audio.sd.InputStream", return_value=mock_stream):
                 capture.start()
             mock_stream.start.assert_called_once()
         finally:
@@ -101,7 +101,7 @@ class TestStart:
             capture = AudioCapture(device="Mic A", loop=loop)
             mock_stream = MagicMock()
             with patch(
-                "asr_mcp.audio.sd.InputStream", return_value=mock_stream
+                "asr_engine.audio.sd.InputStream", return_value=mock_stream
             ) as mock_cls:
                 with patch.object(
                     AudioCapture, "list_devices", return_value=["Mic A", "Mic B"]
@@ -149,7 +149,7 @@ class TestStop:
         try:
             capture = AudioCapture(device=None, loop=loop)
             mock_stream = MagicMock()
-            with patch("asr_mcp.audio.sd.InputStream", return_value=mock_stream):
+            with patch("asr_engine.audio.sd.InputStream", return_value=mock_stream):
                 capture.start()
             capture.stop()
             mock_stream.stop.assert_called_once()
@@ -162,7 +162,7 @@ class TestStop:
         try:
             capture = AudioCapture(device=None, loop=loop)
             mock_stream = MagicMock()
-            with patch("asr_mcp.audio.sd.InputStream", return_value=mock_stream):
+            with patch("asr_engine.audio.sd.InputStream", return_value=mock_stream):
                 capture.start()
             capture.stop()
             # second stop should not raise
@@ -189,7 +189,9 @@ class TestAudioCallback:
                 captured_callback = kwargs["callback"]
                 return MagicMock()
 
-            with patch("asr_mcp.audio.sd.InputStream", side_effect=fake_input_stream):
+            with patch(
+                "asr_engine.audio.sd.InputStream", side_effect=fake_input_stream
+            ):
                 q = capture.start()
 
             assert captured_callback is not None
@@ -218,7 +220,9 @@ class TestAudioCallback:
                 captured_callback = kwargs["callback"]
                 return MagicMock()
 
-            with patch("asr_mcp.audio.sd.InputStream", side_effect=fake_input_stream):
+            with patch(
+                "asr_engine.audio.sd.InputStream", side_effect=fake_input_stream
+            ):
                 q = capture.start()
 
             fake_data = np.random.randint(

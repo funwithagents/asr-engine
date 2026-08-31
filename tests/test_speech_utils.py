@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from asr_mcp.speech_utils import contains_trigger_word
+from asr_engine.speech_utils import contains_trigger_word
 
 
 def test_exact_match_case_insensitive():

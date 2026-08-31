@@ -18,22 +18,22 @@ import asyncio
 import logging
 import sys
 
-from asr_mcp._logging import setup_logging
+from asr_engine._logging import setup_logging
 
 setup_logging()
 log = logging.getLogger("test_deepgram_live")
 
 
 async def run(version: str, config: dict, device: str | None) -> None:
-    from asr_mcp.audio import AudioCapture
-    from asr_mcp.modules.base import SpeechUtterance
+    from asr_engine.audio import AudioCapture
+    from asr_engine.modules.base import SpeechUtterance
 
     if version == "v1":
-        from asr_mcp.modules.deepgram_v1 import DeepgramV1Module
+        from asr_engine.modules.deepgram_v1 import DeepgramV1Module
 
         module = DeepgramV1Module(config=config)
     else:
-        from asr_mcp.modules.deepgram_v2 import DeepgramV2Module
+        from asr_engine.modules.deepgram_v2 import DeepgramV2Module
 
         module = DeepgramV2Module(config=config)
 
@@ -84,7 +84,7 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.list_devices:
-        from asr_mcp.audio import AudioCapture
+        from asr_engine.audio import AudioCapture
 
         devices = AudioCapture.list_devices()
         if devices:

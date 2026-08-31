@@ -1,6 +1,6 @@
 ---
 code:
-  - src/asr_mcp/sound_feedback.py
+  - src/asr_engine/sound_feedback.py
 tests:
   - tests/test_sound_feedback.py
 ---
@@ -9,27 +9,35 @@ tests:
 
 **Status:** Implemented
 
+> **Refactor note (2026-08-31):** ownership of sound feedback moves from the MCP
+> server into `ASREngine` — the engine constructs `SoundFeedback` from
+> `engine.sound_feedback` config and plays the cues inside `engine.listen`.
+> Config moves from the (deleted) `listen` block to `engine.sound_feedback`
+> (`enabled` + `output_device`); `audio.output_device` is removed. Implemented by
+> [plans/202608311612_asr-engine-refactor.md](../plans/202608311612_asr-engine-refactor.md).
+> (Package renamed `asr_mcp` → `asr_engine` in the same plan.)
+
 ## Purpose
 
-Play short audio cues when the `listen` tool starts and stops, so the user
+Play short audio cues when a `listen` session starts and stops, so the user
 gets an immediate physical signal that speech recognition is active or has
 ended — without having to look at a screen.
 
 ## Scope
 
-Sound feedback applies **only to the `listen` tool**. The `start` and `stop`
-tools are not affected.
+Sound feedback applies **only to `listen`** (the engine primitive and the tool
+built on it). The `start` and `stop` operations are not affected.
 
 ## Audio files
 
 Two WAV files are bundled inside the package at:
 
 ```
-src/asr_mcp/sounds/feedback_asr_start.wav   # played when listen begins
-src/asr_mcp/sounds/feedback_asr_stop.wav    # played when listen ends
+src/asr_engine/sounds/feedback_asr_start.wav   # played when listen begins
+src/asr_engine/sounds/feedback_asr_stop.wav    # played when listen ends
 ```
 
-They are resolved at runtime via `importlib.resources.files("asr_mcp") /
+They are resolved at runtime via `importlib.resources.files("asr_engine") /
 "sounds" / filename`, so they work correctly whether the package is installed
 or run in-place with `uv run`.
 
@@ -44,24 +52,26 @@ included in a built distribution.
 - `sd.wait()` is called after `sd.play()` to block until playback finishes.
   Because this is synchronous, playback runs in a thread pool via
   `asyncio.get_event_loop().run_in_executor(None, ...)`.
-- The output device is taken from `audio.output_device` in config (`None` =
-  system default, passed directly to `sd.play(device=...)`).
+- The output device is taken from `engine.sound_feedback.output_device` in config
+  (`None` = system default, passed directly to `sd.play(device=...)`).
 
 ## Timing within `listen`
 
+Playback happens **inside `engine.listen`** (see [engine.md](engine.md)):
+
 ```
-listen called
+engine.listen called
   └─ play start sound     ← feedback_asr_start.wav (awaited)
-  └─ engine.start()
+  └─ start()
   └─ collect until end condition
-  └─ engine.stop()
+  └─ stop()
   └─ play stop sound      ← feedback_asr_stop.wav (awaited)
-  └─ return {transcript, end_reason}
+  └─ return SpeechSegment
 ```
 
-The start sound plays **before** `engine.start()` so the user hears it before
-any processing delay. The stop sound plays **after** `engine.stop()` so it
-signals that the session is fully closed.
+The start sound plays **before** `start()` so the user hears it before any
+processing delay. The stop sound plays **after** `stop()` so it signals that the
+session is fully closed.
 
 Both sounds are played even if the session ends with an error (try/finally).
 
@@ -73,29 +83,20 @@ normally. Sound failures must never abort a `listen` call.
 
 ## Configuration
 
-### `listen` block — new field
+Sound feedback is configured by the `engine.sound_feedback` sub-block (see
+[configuration.md](configuration.md)):
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `sound_feedback` | boolean | `true` | Play start/stop audio cues during `listen`. Set to `false` to disable. |
+| `enabled` | boolean | `true` | Play start/stop audio cues during `listen`. `false` installs a no-op stub. |
+| `output_device` | string / integer / null | `null` | Output device name or index for cue playback. `null` = system default, passed directly to `sd.play(device=...)`. |
 
-### `audio` block — new field
-
-| Field | Type | Default | Description |
-|---|---|---|---|
-| `output_device` | string or null | `null` | Audio output device name or index for sound feedback playback. `null` = system default. Same semantics as `audio.device` for input. |
-
-### Updated config example
+### Config example
 
 ```json
 {
-  "audio": {
-    "device": null,
-    "output_device": null
-  },
-  "listen": {
-    "segment_mode": "trigger_word",
-    "sound_feedback": true
+  "engine": {
+    "sound_feedback": { "enabled": true, "output_device": null }
   }
 }
 ```
@@ -116,9 +117,9 @@ class SoundFeedback:
 A module-level `_SOUNDS_DIR` constant resolves the bundled sounds directory
 once at import time.
 
-`SoundFeedback` is instantiated in `create_mcp_server()` when
-`listen_config.sound_feedback` is `True`; a no-op stub is used otherwise so
-the `listen` tool calls `play_start` / `play_stop` unconditionally.
+`SoundFeedback` is instantiated **by `ASREngine`** at construction when
+`config.sound_feedback.enabled` is `True`; a no-op stub is used otherwise so the
+engine's `listen` calls `play_start` / `play_stop` unconditionally.
 
 ## Unit testing
 

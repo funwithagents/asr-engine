@@ -1,7 +1,7 @@
 ---
 code:
-  - src/asr_mcp/modules/base.py
-  - src/asr_mcp/engine.py
+  - src/asr_engine/modules/base.py
+  - src/asr_engine/engine.py
 tests:
   - tests/modules/test_base.py
   - tests/test_engine.py
@@ -85,7 +85,7 @@ Audio capture is responsible for resampling to this format before placing chunks
 Modules are registered in a central registry mapping `type` string → module class:
 
 ```python
-# src/asr_mcp/modules/__init__.py
+# src/asr_engine/modules/__init__.py
 REGISTRY: dict[str, type[ASRModule]] = {
     "deepgram_v1": DeepgramV1Module,
     "deepgram_v2": DeepgramV2Module,

@@ -29,37 +29,37 @@ Where things live. This is a coarse, module-level map — for the full file inve
 
 | Path | What's there |
 |---|---|
-| `src/asr_mcp/` | The library itself — one module per core concept (see below); pluggable backends in `modules/`, bundled cues in `sounds/` |
+| `src/asr_engine/` | The library itself — one module per core concept (see below); pluggable backends in `modules/`, bundled cues in `sounds/` |
 | `specs/` | Pre-implementation design docs, one per concept, each with a `**Status:**` — indexed by [specs/_index.md](specs/_index.md) |
 | `plans/` | Implementation plans turning settled specs into buildable steps — indexed by [plans/_index.md](plans/_index.md) |
-| `tests/` | Fast, deterministic, no-network tests; mirrors the `src/asr_mcp/` module structure |
+| `tests/` | Fast, deterministic, no-network tests; mirrors the `src/asr_engine/` module structure |
 | `tests-e2e/` | Opt-in live tests that call the real Deepgram API (not collected by the fast dev loop) |
 | `scripts/` | Standalone debug/utility scripts (not part of the package) |
 
-### `src/asr_mcp/` modules
+### `src/asr_engine/` modules
 
 <!-- One row per concept module. Keep this in sync with the code (a test enforces it). The modules/ subpackage (base.py, deepgram_v1.py, deepgram_v2.py) and sounds/ assets are not top-level modules. -->
 
 | Module | Role | Spec |
 |---|---|---|
-| [cli.py](src/asr_mcp/cli.py) | Server entry point (argparse → wires everything) | [mcp-server.md](specs/mcp-server.md) |
-| [config.py](src/asr_mcp/config.py) | Config dataclasses + load/validate | [configuration.md](specs/configuration.md) |
-| [audio.py](src/asr_mcp/audio.py) | `AudioCapture`, `AudioSource` protocol, `FileAudioSource` | [architecture.md](specs/architecture.md) |
-| [engine.py](src/asr_mcp/engine.py) | `ASREngine`: wires audio + module, start/stop, segmentation, `listen` | [engine.md](specs/engine.md) |
-| [server.py](src/asr_mcp/server.py) | MCP server: resource, tools, StreamableHTTP, `listen` tool | [mcp-server.md](specs/mcp-server.md) |
-| [resource_subscriber.py](src/asr_mcp/resource_subscriber.py) | `ResourceSubscriber`: generic MCP resource watcher | [demo-client.md](specs/demo-client.md) |
-| [resource_client.py](src/asr_mcp/resource_client.py) | `AsrResourceClient`: subscribe to `asr://utterance` / `asr://segment` | [demo-client.md](specs/demo-client.md) |
-| [tool_client.py](src/asr_mcp/tool_client.py) | `McpToolClient`: single-call MCP tool invocation | [demo-client.md](specs/demo-client.md) |
-| [asr_resource_client.py](src/asr_mcp/asr_resource_client.py) | Demo CLI: subscribe to `asr://utterance`, log results | [demo-client.md](specs/demo-client.md) |
-| [speech_utils.py](src/asr_mcp/speech_utils.py) | `contains_trigger_word()` — shared trigger-word detection | [engine.md](specs/engine.md) |
-| [segmenter.py](src/asr_mcp/segmenter.py) | `Segmenter` + `SpeechSegment`: utterance→segment aggregation (utterance/trigger_word/timeout) | [engine.md](specs/engine.md) |
-| [sound_feedback.py](src/asr_mcp/sound_feedback.py) | `SoundFeedback` + `NoOpSoundFeedback`: WAV cue playback | [sound-feedback.md](specs/sound-feedback.md) |
-| [terminal_typer.py](src/asr_mcp/terminal_typer.py) | `TerminalTyper`: xdotool/ydotool keystroke injection | [asr-to-terminal.md](specs/asr-to-terminal.md) |
-| [asr_to_terminal.py](src/asr_mcp/asr_to_terminal.py) | `AsrToTerminal` state machine + `asr-to-terminal` CLI | [asr-to-terminal.md](specs/asr-to-terminal.md) |
-| [_logging.py](src/asr_mcp/_logging.py) | `setup_logging()` for entry points and scripts | [project.md](specs/project.md) |
-| [__init__.py](src/asr_mcp/__init__.py) | Package glue (no owning spec) | — |
+| [mcp_server_cli.py](src/asr_engine/mcp_server_cli.py) | MCP server entry point (argparse → wires everything) | [mcp-server.md](specs/mcp-server.md) |
+| [config.py](src/asr_engine/config.py) | Config dataclasses + load/validate | [configuration.md](specs/configuration.md) |
+| [audio.py](src/asr_engine/audio.py) | `AudioCapture`, `AudioSource` protocol, `FileAudioSource` | [architecture.md](specs/architecture.md) |
+| [engine.py](src/asr_engine/engine.py) | `ASREngine`: built from `ASREngineConfig`; wires audio + module, start/stop, segmentation, sound feedback, logging level, `listen` | [engine.md](specs/engine.md) |
+| [tools.py](src/asr_engine/tools.py) | `AsrTools`: transport-agnostic `start`/`stop`/`is_running`/`listen` over an `ASREngine` | [tools.md](specs/tools.md) |
+| [server.py](src/asr_engine/server.py) | MCP server: resources + StreamableHTTP, thin MCP adapter over `AsrTools` | [mcp-server.md](specs/mcp-server.md) |
+| [resource_subscriber.py](src/asr_engine/resource_subscriber.py) | `ResourceSubscriber`: generic MCP resource watcher | [demo-client.md](specs/demo-client.md) |
+| [resource_client.py](src/asr_engine/resource_client.py) | `AsrResourceClient`: subscribe to `asr://utterance` / `asr://segment` | [demo-client.md](specs/demo-client.md) |
+| [asr_resource_client.py](src/asr_engine/asr_resource_client.py) | Demo CLI: subscribe to `asr://utterance`, log results | [demo-client.md](specs/demo-client.md) |
+| [speech_utils.py](src/asr_engine/speech_utils.py) | `contains_trigger_word()` — shared trigger-word detection | [engine.md](specs/engine.md) |
+| [segmenter.py](src/asr_engine/segmenter.py) | `Segmenter` + `SpeechSegment`: utterance→segment aggregation (utterance/trigger_word/timeout) | [engine.md](specs/engine.md) |
+| [sound_feedback.py](src/asr_engine/sound_feedback.py) | `SoundFeedback` + `NoOpSoundFeedback`: WAV cue playback | [sound-feedback.md](specs/sound-feedback.md) |
+| [terminal_typer.py](src/asr_engine/terminal_typer.py) | `TerminalTyper`: xdotool/ydotool keystroke injection | [asr-to-terminal.md](specs/asr-to-terminal.md) |
+| [asr_to_terminal.py](src/asr_engine/asr_to_terminal.py) | `AsrToTerminal` state machine + `asr-to-terminal` CLI | [asr-to-terminal.md](specs/asr-to-terminal.md) |
+| [_logging.py](src/asr_engine/_logging.py) | `setup_logging()` for entry points and scripts | [project.md](specs/project.md) |
+| [__init__.py](src/asr_engine/__init__.py) | Package glue (no owning spec) | — |
 
-**Keep this map current:** when you add, rename, or remove a top-level `src/asr_mcp/` module or a root directory, update the map in the same change — same discipline as keeping spec/plan statuses honest (below). A test (`tests/test_project_map.py`) enforces that every `src/asr_mcp/*.py` module appears here and vice-versa — and that the spec frontmatter (see below) stays honest too.
+**Keep this map current:** when you add, rename, or remove a top-level `src/asr_engine/` module or a root directory, update the map in the same change — same discipline as keeping spec/plan statuses honest (below). A test (`tests/test_project_map.py`) enforces that every `src/asr_engine/*.py` module appears here and vice-versa — and that the spec frontmatter (see below) stays honest too.
 
 ## Keeping statuses current
 
@@ -79,7 +79,7 @@ Every spec opens with a YAML frontmatter block naming the code and tests it gove
 ```
 ---
 code:
-  - src/asr_mcp/<module>.py
+  - src/asr_engine/<module>.py
 tests:
   - tests/test_<module>.py
 ---
@@ -89,7 +89,7 @@ This is the **spec → code/tests** mapping — the inverse of the module → sp
 
 The mapping is **many-to-many**: a file can be governed by several specs, so the same path legitimately appears in more than one spec's frontmatter.
 
-**Keep it current** (same discipline as statuses): when you move, rename, or delete a file a spec governs — or add a new `src/asr_mcp/` module — update the affected spec's `code:`/`tests:` in the same change. `tests/test_project_map.py` enforces three invariants: every listed path exists, every spec declares a non-empty `code:` list, and every concept module in `src/asr_mcp/` is named by at least one spec (`__init__.py` is exempt as package glue).
+**Keep it current** (same discipline as statuses): when you move, rename, or delete a file a spec governs — or add a new `src/asr_engine/` module — update the affected spec's `code:`/`tests:` in the same change. `tests/test_project_map.py` enforces three invariants: every listed path exists, every spec declares a non-empty `code:` list, and every concept module in `src/asr_engine/` is named by at least one spec (`__init__.py` is exempt as package glue).
 
 ## Testing
 
@@ -109,7 +109,7 @@ Some tests call the real Deepgram API over the network. They live in `tests-e2e/
 zsh -ic 'uv run pytest tests-e2e'
 ```
 
-**System dependencies for e2e terminal tests:** `tests-e2e/test_asr_to_terminal.py` needs two system packages **not** installed by `uv` — `xdotool` (keystroke injection on X11) and `xterm` (the injection target) — plus a live X11 display (`$DISPLAY`). On Debian/Ubuntu: `sudo apt-get install xdotool xterm`. On a headless server, use Xvfb (`Xvfb :99 -screen 0 1024x768x24 &` then `export DISPLAY=:99`).
+**e2e terminal tests are self-contained:** `tests-e2e/test_asr_to_terminal.py` injects an in-memory `RecordingTyper` (a `KeystrokeSink`) into `AsrToTerminal`, so it drives the full live pipeline without `xterm`, `xdotool`, or an X11 display — it runs anywhere with a Deepgram API key. Only the runtime `asr-to-terminal` CLI needs `xdotool` (X11) / `ydotool` (Wayland) installed.
 
 ## Implementation plans
 
@@ -136,7 +136,7 @@ uv run pytest tests-e2e/     # opt-in live tier (needs config.json + API key)
 ### Entry points
 
 ```bash
-uv run asr-mcp-server --config config.json   # Start the MCP server
+uv run asr-engine-mcp --config config.json   # Start the MCP server
 uv run asr-mcp-client                        # Demo resource client (default: http://127.0.0.1:8000/mcp)
 uv run asr-to-terminal [--server URL] [--submit-words WORD ...] [--display-server x11|wayland]
 ```
@@ -150,13 +150,13 @@ All ASR modules receive audio as **16 kHz, 16-bit signed PCM, mono, ~100 ms chun
 ### Logging
 
 - Every module that logs uses `log = logging.getLogger(__name__)` (variable name `log`, not `logger`).
-- **Library modules** (`src/asr_mcp/`) never call `basicConfig` or configure handlers — they only get a logger and use it.
-- **Entry points and scripts** call `setup_logging()` from `asr_mcp._logging` at startup to configure the root logger.
+- **Library modules** (`src/asr_engine/`) never call `basicConfig` or configure handlers — they only get a logger and use it. `ASREngine` additionally sets the *level* of the `asr_engine` package logger from `config.logging.level` at construction (level only — still no handlers/`basicConfig`).
+- **Entry points and scripts** call `setup_logging()` from `asr_engine._logging` at startup to configure the root logger.
 - The MCP server (`server.py`) additionally passes a uvicorn-specific `log_config` dict to `uvicorn.Config` to control uvicorn's own loggers — separate from `setup_logging()`, don't change without good reason.
 
 ### Adding a new ASR module
 
-1. Create `src/asr_mcp/modules/<name>.py` implementing `ASRModule` from `modules/base.py`.
+1. Create `src/asr_engine/modules/<name>.py` implementing `ASRModule` from `modules/base.py`.
 2. Register it in `modules/__init__.py`: `REGISTRY["<name>"] = <ClassName>`.
-3. Document its config fields (the `asr` block accepts any fields beyond `type`).
+3. Document its config fields (the `engine.module` block accepts any fields beyond `type`).
 4. Update [specs/deepgram-module.md](specs/deepgram-module.md) or add a new spec, and its frontmatter `code:` list.

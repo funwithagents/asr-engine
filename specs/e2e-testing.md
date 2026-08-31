@@ -1,7 +1,8 @@
 ---
 code:
-  - src/asr_mcp/audio.py
+  - src/asr_engine/audio.py
 tests:
+  - tests-e2e/test_engine_e2e.py
   - tests-e2e/test_asr_resource_client.py
   - tests-e2e/test_mcp_tool_client.py
   - tests-e2e/test_asr_to_terminal.py
@@ -20,14 +21,32 @@ Deepgram API.
 
 ## Scope
 
-The tests cover the complete data path:
+The tests cover the complete data path at two levels.
+
+**Engine-direct** (`test_engine_e2e.py`) — the `ASREngine` on its own, the way a
+program that `import asr_engine` uses it, no MCP server:
 
 ```
 FileAudioSource → asyncio.Queue → ASRModule (Deepgram API)
                                          │
-                                    ASREngine._handle_result
+                                    ASREngine (utterance/segment callbacks, listen)
                                          │
-                                  MCP server (in-process uvicorn)
+                                  collected results → assertion
+```
+
+Built with the `build_file_engine(...)` helper (in `helpers.py`), which wires a
+`FileAudioSource` to an `ASREngine` (sound feedback disabled). Covers the always-on
+utterance/segment callback streams and the `listen` primitive (trigger_word + timeout).
+
+**Through MCP** (`test_asr_resource_client.py`, `test_mcp_tool_client.py`,
+`test_asr_to_terminal.py`) — the same pipeline surfaced over the server:
+
+```
+FileAudioSource → asyncio.Queue → ASRModule (Deepgram API)
+                                         │
+                                    ASREngine (utterance/segment callbacks)
+                                         │
+                                  MCP server (subprocess / in-process)
                                          │
                                   MCP client (in-process)
                                          │
@@ -51,7 +70,7 @@ it is used instead of constructing an `AudioCapture` from config.
 `run_server` selects the source from config: when `audio.audio_file` is set it
 builds a `FileAudioSource(audio_file, trailing_silence_s=audio.trailing_silence_s)`
 instead of a live `AudioCapture` (see [configuration.md](configuration.md)). This
-is how the subprocess-based e2e tests drive the real `asr-mcp-server` binary from
+is how the subprocess-based e2e tests drive the real `asr-engine-mcp` binary from
 a WAV fixture without a microphone — `tests-e2e/helpers.start_mcp_server` writes a
 temp config with those two fields.
 

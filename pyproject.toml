@@ -1,7 +1,7 @@
 [project]
-name = "asr-mcp"
+name = "asr-engine"
 version = "0.1.0"
-description = "Real-time ASR MCP server"
+description = "Real-time ASR engine with an MCP server"
 readme = "README.md"
 authors = [
     { name = "thervier", email = "thibault@fr2g.io" }
@@ -15,16 +15,16 @@ dependencies = [
 ]
 
 [project.scripts]
-asr-mcp-server = "asr_mcp.cli:main"
-asr-mcp-client = "asr_mcp.asr_resource_client:main"
-asr-to-terminal = "asr_mcp.asr_to_terminal:main"
+asr-engine-mcp = "asr_engine.mcp_server_cli:main"
+asr-mcp-client = "asr_engine.asr_resource_client:main"
+asr-to-terminal = "asr_engine.asr_to_terminal:main"
 
 [build-system]
 requires = ["uv_build>=0.9.28,<0.10.0"]
 build-backend = "uv_build"
 
 [tool.uv_build]
-include = ["src/asr_mcp/sounds/*.wav"]
+include = ["src/asr_engine/sounds/*.wav"]
 
 [tool.ruff]
 target-version = "py311"  # keep in sync with requires-python

@@ -1,21 +1,59 @@
 ---
 code:
-  - src/asr_mcp/server.py
-  - src/asr_mcp/cli.py
+  - src/asr_engine/server.py
+  - src/asr_engine/mcp_server_cli.py
 tests:
   - tests/test_server.py
-  - tests/test_cli.py
+  - tests/test_mcp_server_cli.py
 ---
 
 # MCP Server Specification
 
 **Status:** Implemented
 
+> **Refactor note (2026-08-31):** the MCP server becomes a thin transport over a
+> transport-agnostic **tools layer** (`AsrTools`, see below), and `ASREngine`
+> now self-configures from `ASREngineConfig` — so `create_mcp_server` takes just
+> the engine, no longer wires `set_segmentation_mode`, and no longer owns sound
+> feedback (moved into the engine). The server entry-point command is renamed
+> `asr-mcp-server` → `asr-engine-mcp`. Implemented by
+> [plans/202608311612_asr-engine-refactor.md](../plans/202608311612_asr-engine-refactor.md).
+> (Package renamed `asr_mcp` → `asr_engine` in the same plan.) A dedicated
+> `specs/tools.md` for the tools layer is added by that plan alongside
+> `src/asr_engine/tools.py`.
+
+## Tools layer (`AsrTools`)
+
+The control operations are defined once, transport-agnostically, in
+`asr_engine/tools.py` so they can be called directly (`import asr_engine`) or
+exposed over MCP:
+
+```python
+class AsrTools:
+    def __init__(self, engine: ASREngine) -> None: ...
+
+    async def start(self) -> dict:        # {"status": "running"}
+    async def stop(self) -> dict:         # {"status": "stopped"}
+    def is_running(self) -> dict:         # engine.status()
+    async def listen(
+        self,
+        mode: str | None = None,
+        on_progress: ProgressCallback | None = None,
+    ) -> dict:                            # {"transcript", "end_reason"}
+```
+
+`AsrTools` owns the "a listen session is already in progress" lock and calls
+`engine.listen(mode, on_update=...)`, translating segment updates into a generic
+`on_progress(progress, total, message)` callback. It does **not** know about
+FastMCP, `Context`, or HTTP. The MCP server wraps each method as an MCP tool; a
+direct importer can call them as plain coroutines.
+
 ## Transport
 
 - Protocol: **StreamableHTTP**
 - Default endpoint: `http://<host>:<port>/mcp`
-- Host and port are read from the config file
+- Host and port are read from the `server` block of the config file
+- Started via the `asr-engine-mcp` console script (`asr_engine.mcp_server_cli:main`)
 
 ## Resources
 
@@ -163,7 +201,10 @@ listen called
 
 #### End conditions
 
-Controlled by the `listen` config block (see [Configuration](configuration.md)).
+The mode defaults to `engine.listen_default_segmentation_mode`; the trigger
+words and timeouts come from `engine.segmentation` — the same params the always-on
+stream uses (`listen` never overrides them). See
+[Configuration](configuration.md).
 
 **Mode: `trigger_word`**
 
@@ -182,8 +223,8 @@ Two independent timers govern the session:
 
 | Timer | Config field | Default | Reset trigger | Fires when |
 |---|---|---|---|---|
-| Initial silence | `listen.initial_silence_timeout_s` | `10.0` | Never | No ASR event received since session start |
-| End-of-speech | `listen.end_of_speech_timeout_s` | `5.0` | Every interim or final ASR event | No ASR event received for the configured duration |
+| Initial silence | `engine.segmentation.initial_silence_timeout_s` | `10.0` | Never | No ASR event received since session start |
+| End-of-speech | `engine.segmentation.end_of_speech_timeout_s` | `5.0` | Every interim or final ASR event | No ASR event received for the configured duration |
 
 - The initial-silence timer starts when the session starts.
 - The end-of-speech timer starts after the first ASR event and resets on every
@@ -236,17 +277,18 @@ result = await client.call_tool("listen", progress_callback=on_progress)
 #### Internal implementation
 
 The session logic lives in the engine's `listen` primitive and its `Segmenter`
-(see [engine.md](engine.md)). The tool:
+(see [engine.md](engine.md)); the reusable tool logic (the in-progress lock and
+progress translation) lives in `AsrTools.listen` (see the Tools layer above).
+The MCP `listen` tool:
 
-1. Builds the `listen` config (mode, trigger words, timeouts).
-2. Plays the start sound cue, then calls
-   `engine.listen(..., on_update=_report_progress)`.
-3. Maps `on_update` to `notifications/progress` (see Streaming below).
-4. Plays the stop cue and returns
-   `{"transcript": segment.transcript, "end_reason": segment.end_reason}`.
+1. Calls `AsrTools.listen(mode=None, on_progress=...)`.
+2. Maps `on_progress(progress, total, message)` to `ctx.report_progress(...)`
+   (see Streaming below).
+3. Returns `{"transcript": ..., "end_reason": ...}`.
 
-The returned `SpeechSegment` carries the committed finals (`transcript`) and the
-`end_reason` that closed it.
+Sound cues are played by `engine.listen` itself — the tool no longer wraps the
+call with cue playback. The returned `SpeechSegment` carries the committed
+finals (`transcript`) and the `end_reason` that closed it.
 
 ## Lifecycle
 

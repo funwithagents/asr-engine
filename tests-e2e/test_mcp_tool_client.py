@@ -8,8 +8,7 @@ from pathlib import Path
 
 import pytest
 from helpers import load_api_key, start_mcp_server, stop_mcp_server
-
-from asr_mcp.tool_client import McpToolClient
+from mcp_tool_client import McpToolClient
 
 _FIXTURE_WAV = Path(__file__).parent / "fixtures" / "sample.wav"
 _FIXTURE_SUBMIT_WAV = Path(__file__).parent / "fixtures" / "sample_submit.wav"
@@ -28,11 +27,11 @@ async def test_e2e_listen_trigger_word() -> None:
         "deepgram_v1",
         {"api_key": api_key, "model": "nova-3"},
         port=18003,
-        engine_config={"auto_start": False},
-        listen_config={
-            "segment_mode": "trigger_word",
-            "trigger_words": ["validate"],
-            "sound_feedback": True,
+        engine_overrides={
+            "auto_start": False,
+            "listen_default_segmentation_mode": "trigger_word",
+            "segmentation": {"trigger_words": ["validate"]},
+            "sound_feedback": {"enabled": True},
         },
     )
     try:
@@ -58,11 +57,11 @@ async def test_e2e_listen_streaming() -> None:
         "deepgram_v1",
         {"api_key": api_key, "model": "nova-3"},
         port=18005,
-        engine_config={"auto_start": False},
-        listen_config={
-            "segment_mode": "timeout",
-            "end_of_speech_timeout_s": 2.0,
-            "sound_feedback": True,
+        engine_overrides={
+            "auto_start": False,
+            "listen_default_segmentation_mode": "timeout",
+            "segmentation": {"end_of_speech_timeout_s": 2.0},
+            "sound_feedback": {"enabled": True},
         },
     )
     try:
@@ -94,11 +93,11 @@ async def test_e2e_listen_timeout() -> None:
         "deepgram_v1",
         {"api_key": api_key, "model": "nova-3"},
         port=18004,
-        engine_config={"auto_start": False},
-        listen_config={
-            "segment_mode": "timeout",
-            "end_of_speech_timeout_s": 2.0,
-            "sound_feedback": True,
+        engine_overrides={
+            "auto_start": False,
+            "listen_default_segmentation_mode": "timeout",
+            "segmentation": {"end_of_speech_timeout_s": 2.0},
+            "sound_feedback": {"enabled": True},
         },
     )
     try:

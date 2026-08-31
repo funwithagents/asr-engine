@@ -7,28 +7,51 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from asr_mcp.config import ASRConfig, AudioConfig
-from asr_mcp.engine import ASREngine
-from asr_mcp.modules.base import SpeechUtterance
-from asr_mcp.segmenter import SpeechSegment
+from asr_engine.config import (
+    ASREngineConfig,
+    ModuleConfig,
+    SegmentationConfig,
+    SoundFeedbackConfig,
+)
+from asr_engine.engine import ASREngine
+from asr_engine.modules.base import SpeechUtterance
+from asr_engine.segmenter import SpeechSegment
 
 # ---------------------------------------------------------------------------
 # Helpers / fixtures
 # ---------------------------------------------------------------------------
 
 
-def make_engine(on_speech_utterance=None, on_speech_segment=None):
+def make_config(
+    module_type: str = "mock",
+    *,
+    extra: dict | None = None,
+    segmentation_mode: str = "utterance",
+    listen_default_segmentation_mode: str = "trigger_word",
+    trigger_words: list[str] | None = None,
+) -> ASREngineConfig:
+    """Build an ASREngineConfig with sound feedback disabled (no real audio)."""
+    seg = SegmentationConfig()
+    if trigger_words is not None:
+        seg.trigger_words = trigger_words
+    return ASREngineConfig(
+        segmentation_mode=segmentation_mode,
+        listen_default_segmentation_mode=listen_default_segmentation_mode,
+        segmentation=seg,
+        sound_feedback=SoundFeedbackConfig(enabled=False),
+        module=ModuleConfig(type=module_type, extra=extra or {}),
+    )
+
+
+def make_engine(on_speech_utterance=None, on_speech_segment=None, **cfg_kwargs):
     """Return an ASREngine backed by a mock ASRModule, patching REGISTRY."""
-    audio_config = AudioConfig(device=None)
     module = MagicMock()
     module.start = AsyncMock(return_value=None)
     module.stop = AsyncMock(return_value=None)
     mock_class = MagicMock(return_value=module)
-    asr_config = ASRConfig(type="mock")
-    with patch.dict("asr_mcp.engine.REGISTRY", {"mock": mock_class}):
+    with patch.dict("asr_engine.engine.REGISTRY", {"mock": mock_class}):
         engine = ASREngine(
-            audio_config,
-            asr_config,
+            make_config(**cfg_kwargs),
             on_speech_utterance=on_speech_utterance,
             on_speech_segment=on_speech_segment,
         )
@@ -51,18 +74,15 @@ class _ScriptedModule:
         self._stopped.set()
 
 
-def make_scripted_engine(utterances: list[SpeechUtterance]):
+def make_scripted_engine(utterances: list[SpeechUtterance], **cfg_kwargs):
     """Engine wired to a _ScriptedModule and a fake audio source."""
-    audio_config = AudioConfig(device=None)
     module = _ScriptedModule(utterances)
     audio_source = MagicMock()
     audio_source.start.return_value = asyncio.Queue()
     with patch.dict(
-        "asr_mcp.engine.REGISTRY", {"mock": MagicMock(return_value=module)}
+        "asr_engine.engine.REGISTRY", {"mock": MagicMock(return_value=module)}
     ):
-        engine = ASREngine(
-            audio_config, ASRConfig(type="mock"), audio_source=audio_source
-        )
+        engine = ASREngine(make_config(**cfg_kwargs), audio_source=audio_source)
     return engine
 
 
@@ -72,21 +92,42 @@ def make_scripted_engine(utterances: list[SpeechUtterance]):
 
 
 def test_unknown_asr_type_raises():
-    audio_config = AudioConfig(device=None)
-    asr_config = ASRConfig(type="no_such_module")
     with pytest.raises(ValueError, match="no_such_module"):
-        ASREngine(audio_config, asr_config)
+        ASREngine(make_config(module_type="no_such_module"))
 
 
 def test_known_asr_type_instantiates_module():
-    audio_config = AudioConfig(device=None)
     mock_module = MagicMock()
     mock_class = MagicMock(return_value=mock_module)
-    asr_config = ASRConfig(type="fake", extra={"key": "val"})
-    with patch.dict("asr_mcp.engine.REGISTRY", {"fake": mock_class}):
-        engine = ASREngine(audio_config, asr_config)
+    with patch.dict("asr_engine.engine.REGISTRY", {"fake": mock_class}):
+        engine = ASREngine(make_config(module_type="fake", extra={"key": "val"}))
     mock_class.assert_called_once_with(config={"key": "val"})
     assert engine._asr_module is mock_module
+
+
+def test_constructor_applies_segmentation_mode_from_config():
+    """The engine builds its segmenter from config, no set_segmentation_mode call."""
+    segments: list[SpeechSegment] = []
+
+    async def on_segment(seg):
+        segments.append(seg)
+
+    engine, _ = make_engine(
+        on_speech_segment=on_segment,
+        segmentation_mode="trigger_word",
+        trigger_words=["stop"],
+    )
+    assert engine._segment_mode == "trigger_word"
+
+
+def test_constructor_sets_package_logger_level():
+    import logging
+
+    with patch.dict("asr_engine.engine.REGISTRY", {"mock": MagicMock()}):
+        cfg = make_config()
+        cfg.logging.level = "WARNING"
+        ASREngine(cfg)
+    assert logging.getLogger("asr_engine").level == logging.WARNING
 
 
 # ---------------------------------------------------------------------------
@@ -117,7 +158,7 @@ async def test_start_sets_running():
     engine, module = make_engine()
     fake_queue: asyncio.Queue[bytes] = asyncio.Queue()
 
-    with patch("asr_mcp.engine.AudioCapture") as MockCapture:
+    with patch("asr_engine.engine.AudioCapture") as MockCapture:
         instance = MockCapture.return_value
         instance.start.return_value = fake_queue
 
@@ -136,7 +177,7 @@ async def test_stop_sets_not_running():
     engine, module = make_engine()
     fake_queue: asyncio.Queue[bytes] = asyncio.Queue()
 
-    with patch("asr_mcp.engine.AudioCapture") as MockCapture:
+    with patch("asr_engine.engine.AudioCapture") as MockCapture:
         instance = MockCapture.return_value
         instance.start.return_value = fake_queue
 
@@ -159,7 +200,7 @@ async def test_stop_cancels_task():
 
     engine._asr_module.start = hang
 
-    with patch("asr_mcp.engine.AudioCapture") as MockCapture:
+    with patch("asr_engine.engine.AudioCapture") as MockCapture:
         instance = MockCapture.return_value
         instance.start.return_value = fake_queue
 
@@ -199,25 +240,26 @@ async def test_handle_utterance_fires_utterance_and_segment_callbacks():
 
 
 # ---------------------------------------------------------------------------
-# set_segment_mode
+# set_segmentation_mode / set_segmentation_params
 # ---------------------------------------------------------------------------
 
 
-def test_set_segment_mode_invalid_raises():
+def test_set_segmentation_mode_invalid_raises():
     engine, _ = make_engine()
     with pytest.raises(ValueError, match="Invalid segment mode"):
-        engine.set_segment_mode("nonsense")
+        engine.set_segmentation_mode("nonsense")
 
 
 @pytest.mark.asyncio
-async def test_set_segment_mode_switches_behaviour():
+async def test_set_segmentation_mode_and_params_switch_behaviour():
     segments: list[SpeechSegment] = []
 
     async def on_segment(seg):
         segments.append(seg)
 
     engine, _ = make_engine(on_speech_segment=on_segment)
-    engine.set_segment_mode("trigger_word", trigger_words=["stop"])
+    engine.set_segmentation_params(trigger_words=["stop"])
+    engine.set_segmentation_mode("trigger_word")
 
     # Two finals accumulate; neither closes the segment.
     await engine._handle_utterance(SpeechUtterance("the sky", True, None))
@@ -245,17 +287,15 @@ async def test_listen_returns_first_closed_segment():
             SpeechUtterance("the sky", False, None),
             SpeechUtterance("the sky is blue", True, None),
             SpeechUtterance("submit", True, None),
-        ]
+        ],
+        trigger_words=["submit"],
     )
     updates: list[SpeechSegment] = []
 
-    segment = await engine.listen(
-        mode="trigger_word",
-        trigger_words=["submit"],
-        initial_silence_timeout_s=10.0,
-        end_of_speech_timeout_s=5.0,
-        on_update=lambda s: updates.append(s) or asyncio.sleep(0),
-    )
+    async def on_update(s):
+        updates.append(s)
+
+    segment = await engine.listen(mode="trigger_word", on_update=on_update)
 
     assert segment.is_final is True
     assert segment.transcript == "the sky is blue"
@@ -266,19 +306,42 @@ async def test_listen_returns_first_closed_segment():
 
 
 @pytest.mark.asyncio
+async def test_listen_uses_default_mode_when_none():
+    """listen(None) falls back to listen_default_segmentation_mode."""
+    engine = make_scripted_engine(
+        [
+            SpeechUtterance("hello there", True, None),
+            SpeechUtterance("go", True, None),
+        ],
+        listen_default_segmentation_mode="trigger_word",
+        trigger_words=["go"],
+    )
+    segment = await engine.listen()
+    assert segment.end_reason == "trigger_word"
+    assert segment.transcript == "hello there"
+
+
+@pytest.mark.asyncio
+async def test_listen_restores_previous_mode():
+    engine = make_scripted_engine(
+        [SpeechUtterance("hi", True, None), SpeechUtterance("go", True, None)],
+        segmentation_mode="utterance",
+        trigger_words=["go"],
+    )
+    assert engine._segment_mode == "utterance"
+    await engine.listen(mode="trigger_word")
+    assert engine._segment_mode == "utterance"
+
+
+@pytest.mark.asyncio
 async def test_listen_rejects_running_engine():
     engine, _ = make_engine()
     fake_queue: asyncio.Queue[bytes] = asyncio.Queue()
-    with patch("asr_mcp.engine.AudioCapture") as MockCapture:
+    with patch("asr_engine.engine.AudioCapture") as MockCapture:
         MockCapture.return_value.start.return_value = fake_queue
         await engine.start()
         try:
             with pytest.raises(ValueError, match="already running"):
-                await engine.listen(
-                    mode="trigger_word",
-                    trigger_words=["submit"],
-                    initial_silence_timeout_s=10.0,
-                    end_of_speech_timeout_s=5.0,
-                )
+                await engine.listen(mode="trigger_word")
         finally:
             await engine.stop()

@@ -1,8 +1,8 @@
 ---
 code:
-  - src/asr_mcp/engine.py
-  - src/asr_mcp/segmenter.py
-  - src/asr_mcp/speech_utils.py
+  - src/asr_engine/engine.py
+  - src/asr_engine/segmenter.py
+  - src/asr_engine/speech_utils.py
 tests:
   - tests/test_engine.py
   - tests/test_segmenter.py
@@ -12,6 +12,17 @@ tests:
 # ASR Engine Specification
 
 **Status:** Implemented
+
+> **Refactor note (2026-08-31):** `ASREngine` becomes the self-contained heart of
+> the repo — constructed from a single `ASREngineConfig`, owning audio, module,
+> segmentation, sound feedback, and its own logging level, so it is usable
+> directly (via `import asr_engine`) without the MCP server. `set_segmentation_mode`
+> becomes mode-only, segmentation params move to a new `set_segmentation_params`,
+> and `listen` takes just a mode and never mutates the segmentation params.
+> Implemented by
+> [plans/202608311612_asr-engine-refactor.md](../plans/202608311612_asr-engine-refactor.md).
+> (The package is renamed `asr_mcp` → `asr_engine` in the same plan; paths below
+> use the new name.)
 
 ## Purpose
 
@@ -99,7 +110,7 @@ The two fire independently; a consumer may use either or both.
 
 ## Segment modes
 
-The current mode is set with `set_segment_mode` (below) and defaults to
+The current mode is set with `set_segmentation_mode` (below) and defaults to
 `"utterance"`. In every mode the engine emits an interim `SpeechSegment`
 (`is_final=False`, `end_reason=None`) whose `transcript` is **the committed
 final utterances joined by a space, followed by the current interim utterance**
@@ -184,24 +195,52 @@ class Segmenter:
 class ASREngine:
     def __init__(
         self,
-        audio_config: AudioConfig,
-        asr_config: ASRConfig,
+        config: ASREngineConfig,
+        *,
         on_speech_utterance: UtteranceCallback | None = None,
         on_speech_segment: SegmentCallback | None = None,
         audio_source: AudioSource | None = None,
     ) -> None: ...
 ```
 
-Both callbacks default to a no-op and are settable afterwards. The initial
-segment mode is `"utterance"` with default trigger words / timeouts until
-`set_segment_mode` is called.
+The engine is constructed from a single `ASREngineConfig` (see
+[configuration.md](configuration.md)), which carries the audio, module,
+`auto_start`, `segmentation_mode`, `segmentation` params,
+`listen_default_segmentation_mode`, `sound_feedback`, and `logging` settings.
+Both callbacks default to a no-op and are settable afterwards.
 
-### `set_segment_mode`
+At construction the engine:
+
+- Sets the level on the **`asr_engine` package logger** from `config.logging.level`
+  (level only — never `basicConfig`, never handler configuration; a direct
+  importer keeps full control of formatting and handlers).
+- Instantiates the ASR module from `config.module` (raising `ValueError` on an
+  unknown `type`).
+- Builds its `Segmenter` from `config.segmentation_mode` and the
+  `config.segmentation` params.
+- Constructs a `SoundFeedback` (or a no-op stub when `sound_feedback.enabled` is
+  `false`) from `config.sound_feedback`; the engine plays cues itself inside
+  `listen` (see [sound-feedback.md](sound-feedback.md)).
+
+`config.auto_start` is **not** acted on by the engine itself — it is a signal to
+the caller (the MCP server) about whether to call `start()` at startup.
+
+### `set_segmentation_mode`
 
 ```python
-def set_segment_mode(
+def set_segmentation_mode(self, mode: str) -> None: ...
+```
+
+Switches the segment **mode only** (`"utterance"` / `"trigger_word"` /
+`"timeout"`), keeping the current segmentation params. Rebuilds the internal
+`Segmenter`, discarding any in-progress segment. Raises `ValueError` on an
+unknown mode. Safe to call while the engine is running.
+
+### `set_segmentation_params`
+
+```python
+def set_segmentation_params(
     self,
-    mode: str,  # "utterance" | "trigger_word" | "timeout"
     *,
     trigger_words: list[str] | None = None,
     initial_silence_timeout_s: float | None = None,
@@ -209,9 +248,10 @@ def set_segment_mode(
 ) -> None: ...
 ```
 
-Rebuilds the internal `Segmenter` with the given mode and parameters (omitted
-params keep their current values), discarding any in-progress segment. Raises
-`ValueError` on an unknown mode. Safe to call while the engine is running.
+Updates the segmentation params (omitted params keep their current values) and
+rebuilds the `Segmenter` under the current mode, discarding any in-progress
+segment. This is the *only* way to change trigger words / timeouts after
+construction — `set_segmentation_mode` and `listen` never touch them.
 
 ### Lifecycle
 
@@ -229,43 +269,57 @@ first closed segment. It is the engine primitive behind the `listen` MCP tool.
 ```python
 async def listen(
     self,
+    mode: str | None = None,  # "trigger_word" | "timeout"; None → config default
     *,
-    mode: str,  # "trigger_word" | "timeout"
-    trigger_words: list[str],
-    initial_silence_timeout_s: float,
-    end_of_speech_timeout_s: float,
     on_update: SegmentCallback | None = None,
 ) -> SpeechSegment: ...
 ```
 
+`listen` takes **only a mode** — it never changes the segmentation params, which
+stay exactly as configured (or as last set via `set_segmentation_params`). When
+`mode` is `None`, the engine's `listen_default_segmentation_mode` is used.
+
 Behaviour:
 
 1. Raise `ValueError` if the engine is already running.
-2. Save the current segment mode and `on_speech_segment` callback.
-3. `set_segment_mode(mode, ...)`; install an internal `on_speech_segment` that
-   forwards every update to `on_update` (if given) and resolves a future on the
-   first **final** segment.
-4. `await start()`, await the future, then `await stop()` — always, even on
-   error (try/finally).
-5. Restore the saved segment mode and callback.
-6. Return the closed `SpeechSegment`.
+2. Resolve `mode` (falling back to `listen_default_segmentation_mode`).
+3. Save the current segment mode and `on_speech_segment` callback.
+4. `set_segmentation_mode(mode)` (mode only — params untouched); install an internal
+   `on_speech_segment` that forwards every update to `on_update` (if given) and
+   resolves a future on the first **final** segment.
+5. Play the start sound cue, then `await start()`, await the future, then
+   `await stop()` and play the stop cue — always, even on error (try/finally).
+6. Restore the saved segment mode and callback.
+7. Return the closed `SpeechSegment`.
+
+Sound-feedback cues are played by the engine itself (see
+[sound-feedback.md](sound-feedback.md)); callers no longer wrap `listen` with
+cue playback.
 
 ---
 
 ## Usage
 
+### Direct import (no MCP)
+
+`ASREngine(ASREngineConfig(...))` is fully usable on its own: set the two
+callbacks (or pass them to the constructor), `await start()`, and consume
+utterances/segments — no MCP server required.
+
 ### Always-on server
 
 `server.py` sets `on_speech_utterance` and `on_speech_segment` to publish the
-`asr://utterance` and `asr://segment` resources, and calls `set_segment_mode`
-from the `engine` config block at startup (see
+`asr://utterance` and `asr://segment` resources. The engine already applied its
+`segmentation_mode` from `ASREngineConfig` at construction, so the server no
+longer calls `set_segmentation_mode` at startup (see
 [configuration.md](configuration.md) and [mcp-server.md](mcp-server.md)).
 
 ### `listen` tool
 
-The `listen` tool calls `engine.listen(...)` with the `listen` config block,
-wraps it with sound-feedback cues, and maps `on_update` to
-`notifications/progress`.
+The `listen` tool (via the transport-agnostic tools layer — see
+[mcp-server.md](mcp-server.md)) calls `engine.listen(mode=None)`, which uses the
+configured `listen_default_segmentation_mode` and plays its own sound-feedback
+cues. The tool maps `on_update` to `notifications/progress`.
 
 ### `AsrToTerminal`
 

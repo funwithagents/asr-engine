@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 
-from asr_mcp.resource_client import AsrResourceClient
+from asr_engine.resource_client import AsrResourceClient
 
 _DEFAULT_SERVER = "http://127.0.0.1:8000/mcp"
 

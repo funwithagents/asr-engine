@@ -1,4 +1,4 @@
-"""Unit tests for asr_mcp.config — Plan 02."""
+"""Unit tests for asr_engine.config."""
 
 from __future__ import annotations
 
@@ -7,22 +7,27 @@ from pathlib import Path
 
 import pytest
 
-from asr_mcp.config import (
+from asr_engine.config import (
     AppConfig,
-    ASRConfig,
+    ASREngineConfig,
+    ModuleConfig,
     load_config,
     validate_asr_type,
 )
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
 
 
 def write_config(tmp_path: Path, data: dict) -> str:
     p = tmp_path / "config.json"
     p.write_text(json.dumps(data))
     return str(p)
+
+
+def _min(engine_overrides: dict | None = None, **top) -> dict:
+    """Minimal valid config dict with a module.type, plus overrides."""
+    engine = {"module": {"type": "deepgram"}}
+    if engine_overrides:
+        engine.update(engine_overrides)
+    return {"engine": engine, **top}
 
 
 # ---------------------------------------------------------------------------
@@ -35,37 +40,72 @@ def test_load_config_full(tmp_path: Path) -> None:
         tmp_path,
         {
             "server": {"host": "0.0.0.0", "port": 9000},
-            "audio": {"device": "hw:0"},
-            "asr": {"type": "deepgram", "api_key": "secret", "language": "fr"},
+            "engine": {
+                "auto_start": False,
+                "segmentation_mode": "timeout",
+                "listen_default_segmentation_mode": "timeout",
+                "segmentation": {
+                    "trigger_words": ["stop"],
+                    "initial_silence_timeout_s": 7.0,
+                    "end_of_speech_timeout_s": 2.0,
+                },
+                "sound_feedback": {"enabled": False, "output_device": "speakers"},
+                "logging": {"level": "DEBUG"},
+                "audio": {"device": "hw:0"},
+                "module": {"type": "deepgram", "api_key": "secret", "language": "fr"},
+            },
         },
     )
     cfg = load_config(path)
 
     assert cfg.server.host == "0.0.0.0"
     assert cfg.server.port == 9000
-    assert cfg.audio.device == "hw:0"
-    assert cfg.asr.type == "deepgram"
-    assert cfg.asr.extra == {"api_key": "secret", "language": "fr"}
+    assert cfg.engine.auto_start is False
+    assert cfg.engine.segmentation_mode == "timeout"
+    assert cfg.engine.listen_default_segmentation_mode == "timeout"
+    assert cfg.engine.segmentation.trigger_words == ["stop"]
+    assert cfg.engine.segmentation.initial_silence_timeout_s == 7.0
+    assert cfg.engine.segmentation.end_of_speech_timeout_s == 2.0
+    assert cfg.engine.sound_feedback.enabled is False
+    assert cfg.engine.sound_feedback.output_device == "speakers"
+    assert cfg.engine.logging.level == "DEBUG"
+    assert cfg.engine.audio.device == "hw:0"
+    assert cfg.engine.module.type == "deepgram"
+    assert cfg.engine.module.extra == {"api_key": "secret", "language": "fr"}
 
 
 def test_load_config_defaults(tmp_path: Path) -> None:
-    """Omitting server and audio blocks should apply defaults."""
-    path = write_config(tmp_path, {"asr": {"type": "deepgram"}})
-    cfg = load_config(path)
+    """Omitting optional blocks applies defaults."""
+    cfg = load_config(write_config(tmp_path, _min()))
 
     assert cfg.server.host == "127.0.0.1"
     assert cfg.server.port == 8000
-    assert cfg.audio.device is None
-    assert cfg.asr.extra == {}
+    assert cfg.engine.auto_start is True
+    assert cfg.engine.segmentation_mode == "utterance"
+    assert cfg.engine.listen_default_segmentation_mode == "trigger_word"
+    assert cfg.engine.segmentation.initial_silence_timeout_s == 10.0
+    assert cfg.engine.segmentation.end_of_speech_timeout_s == 5.0
+    assert "submit" in cfg.engine.segmentation.trigger_words
+    assert cfg.engine.sound_feedback.enabled is True
+    assert cfg.engine.sound_feedback.output_device is None
+    assert cfg.engine.logging.level == "INFO"
+    assert cfg.engine.audio.device is None
+    assert cfg.engine.module.extra == {}
 
 
 def test_load_config_partial_server_defaults(tmp_path: Path) -> None:
-    """Partial server block: only overridden field changes."""
-    path = write_config(tmp_path, {"server": {"port": 7777}, "asr": {"type": "x"}})
-    cfg = load_config(path)
-
+    cfg = load_config(write_config(tmp_path, _min(server={"port": 7777})))
     assert cfg.server.host == "127.0.0.1"
     assert cfg.server.port == 7777
+
+
+def test_load_config_custom_trigger_words(tmp_path: Path) -> None:
+    cfg = load_config(
+        write_config(
+            tmp_path, _min({"segmentation": {"trigger_words": ["go", "send"]}})
+        )
+    )
+    assert cfg.engine.segmentation.trigger_words == ["go", "send"]
 
 
 # ---------------------------------------------------------------------------
@@ -85,127 +125,48 @@ def test_load_config_invalid_json(tmp_path: Path) -> None:
         load_config(str(p))
 
 
-def test_load_config_missing_asr_type(tmp_path: Path) -> None:
-    path = write_config(tmp_path, {"asr": {"api_key": "x"}})
-    with pytest.raises(ValueError, match="asr.type"):
+def test_load_config_missing_module_type(tmp_path: Path) -> None:
+    path = write_config(tmp_path, {"engine": {"module": {"api_key": "x"}}})
+    with pytest.raises(ValueError, match="engine.module.type"):
         load_config(path)
 
 
-def test_load_config_empty_asr_type(tmp_path: Path) -> None:
-    """asr.type present but empty string should also raise."""
-    path = write_config(tmp_path, {"asr": {"type": ""}})
-    with pytest.raises(ValueError, match="asr.type"):
+def test_load_config_empty_module_type(tmp_path: Path) -> None:
+    path = write_config(tmp_path, {"engine": {"module": {"type": ""}}})
+    with pytest.raises(ValueError, match="engine.module.type"):
         load_config(path)
 
 
-def test_load_config_missing_asr_block(tmp_path: Path) -> None:
-    """No asr block at all should raise about asr.type."""
+def test_load_config_missing_engine_block(tmp_path: Path) -> None:
     path = write_config(tmp_path, {"server": {"port": 8080}})
-    with pytest.raises(ValueError, match="asr.type"):
+    with pytest.raises(ValueError, match="engine.module.type"):
         load_config(path)
 
 
-# ---------------------------------------------------------------------------
-# load_config — engine and listen blocks
-# ---------------------------------------------------------------------------
-
-
-def test_load_config_engine_and_listen_defaults(tmp_path: Path) -> None:
-    """Omitting engine and listen blocks uses defaults."""
-    path = write_config(tmp_path, {"asr": {"type": "deepgram"}})
-    cfg = load_config(path)
-
-    assert cfg.engine.auto_start is True
-    assert cfg.engine.segment_mode == "utterance"
-    assert cfg.listen.segment_mode == "trigger_word"
-    assert cfg.listen.initial_silence_timeout_s == 10.0
-    assert cfg.listen.end_of_speech_timeout_s == 5.0
-    assert "submit" in cfg.listen.trigger_words
-    assert cfg.listen.sound_feedback is True
-    assert cfg.audio.output_device is None
-
-
-def test_load_config_engine_segment_block(tmp_path: Path) -> None:
-    path = write_config(
-        tmp_path,
-        {
-            "asr": {"type": "x"},
-            "engine": {
-                "segment_mode": "timeout",
-                "trigger_words": ["stop"],
-                "end_of_speech_timeout_s": 2.0,
-            },
-        },
-    )
-    cfg = load_config(path)
-    assert cfg.engine.segment_mode == "timeout"
-    assert cfg.engine.trigger_words == ["stop"]
-    assert cfg.engine.end_of_speech_timeout_s == 2.0
-
-
-def test_load_config_invalid_engine_segment_mode(tmp_path: Path) -> None:
-    path = write_config(
-        tmp_path,
-        {"asr": {"type": "x"}, "engine": {"segment_mode": "bad_mode"}},
-    )
-    with pytest.raises(ValueError, match="engine.segment_mode"):
+def test_load_config_invalid_segmentation_mode(tmp_path: Path) -> None:
+    path = write_config(tmp_path, _min({"segmentation_mode": "bad_mode"}))
+    with pytest.raises(ValueError, match="engine.segmentation_mode"):
         load_config(path)
 
 
-def test_load_config_auto_start_false(tmp_path: Path) -> None:
+def test_load_config_invalid_listen_default_mode(tmp_path: Path) -> None:
+    # "utterance" is not valid for listen.
     path = write_config(
-        tmp_path, {"asr": {"type": "x"}, "engine": {"auto_start": False}}
+        tmp_path, _min({"listen_default_segmentation_mode": "utterance"})
     )
-    cfg = load_config(path)
-    assert cfg.engine.auto_start is False
-
-
-def test_load_config_listen_timeout_mode(tmp_path: Path) -> None:
-    path = write_config(
-        tmp_path,
-        {
-            "asr": {"type": "x"},
-            "listen": {
-                "segment_mode": "timeout",
-                "end_of_speech_timeout_s": 3.0,
-            },
-        },
-    )
-    cfg = load_config(path)
-    assert cfg.listen.segment_mode == "timeout"
-    assert cfg.listen.end_of_speech_timeout_s == 3.0
-
-
-def test_load_config_custom_trigger_words(tmp_path: Path) -> None:
-    path = write_config(
-        tmp_path,
-        {"asr": {"type": "x"}, "listen": {"trigger_words": ["go", "send"]}},
-    )
-    cfg = load_config(path)
-    assert cfg.listen.trigger_words == ["go", "send"]
-
-
-def test_load_config_sound_feedback_and_output_device(tmp_path: Path) -> None:
-    path = write_config(
-        tmp_path,
-        {
-            "asr": {"type": "x"},
-            "audio": {"output_device": "speakers"},
-            "listen": {"sound_feedback": False},
-        },
-    )
-    cfg = load_config(path)
-    assert cfg.audio.output_device == "speakers"
-    assert cfg.listen.sound_feedback is False
-
-
-def test_load_config_invalid_listen_segment_mode(tmp_path: Path) -> None:
-    path = write_config(
-        tmp_path,
-        {"asr": {"type": "x"}, "listen": {"segment_mode": "bad_mode"}},
-    )
-    with pytest.raises(ValueError, match="listen.segment_mode"):
+    with pytest.raises(ValueError, match="engine.listen_default_segmentation_mode"):
         load_config(path)
+
+
+def test_load_config_invalid_logging_level(tmp_path: Path) -> None:
+    path = write_config(tmp_path, _min({"logging": {"level": "LOUD"}}))
+    with pytest.raises(ValueError, match="engine.logging.level"):
+        load_config(path)
+
+
+def test_load_config_logging_level_case_insensitive(tmp_path: Path) -> None:
+    cfg = load_config(write_config(tmp_path, _min({"logging": {"level": "debug"}})))
+    assert cfg.engine.logging.level == "DEBUG"
 
 
 # ---------------------------------------------------------------------------
@@ -213,8 +174,8 @@ def test_load_config_invalid_listen_segment_mode(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _cfg(asr_type: str) -> AppConfig:
-    return AppConfig(asr=ASRConfig(type=asr_type))
+def _cfg(module_type: str) -> AppConfig:
+    return AppConfig(engine=ASREngineConfig(module=ModuleConfig(type=module_type)))
 
 
 def test_validate_asr_type_known() -> None:

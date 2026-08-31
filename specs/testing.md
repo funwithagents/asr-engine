@@ -22,7 +22,7 @@ Tests split into two directories, and the split is structural — a directory bo
 | Unit / integration | `tests/` | never | yes | normal dev loop |
 | Live / e2e | `tests-e2e/` | real Deepgram API | no | verify against a live service |
 
-- **`tests/` is the normal dev loop.** Fast, deterministic, no real network, no credentials — this is what runs on every change and what any contributor or CI can run with zero secrets. `pyproject.toml`'s `testpaths = ["tests"]` points the default `uv run pytest` here. It mirrors the `src/asr_mcp/` module layout (`test_<module>.py`, plus the `tests/modules/` subpackage and the `test_project_map.py` drift-guard).
+- **`tests/` is the normal dev loop.** Fast, deterministic, no real network, no credentials — this is what runs on every change and what any contributor or CI can run with zero secrets. `pyproject.toml`'s `testpaths = ["tests"]` points the default `uv run pytest` here. It mirrors the `src/asr_engine/` module layout (`test_<module>.py`, plus the `tests/modules/` subpackage and the `test_project_map.py` drift-guard).
 - **`tests-e2e/` is opt-in.** It drives the full pipeline against the real Deepgram API — network, credentials (`config.json`), non-deterministic output — so it is deliberately *not* collected by the default run. Because `testpaths` already excludes it, no marker or flag is needed: the physical separation is the whole mechanism. Run it explicitly (`uv run pytest tests-e2e`), organized around live scenarios rather than modules. Some scenarios also need system packages (`xdotool`, `xterm`) and a live X11 display; see [AGENTS.md](../AGENTS.md). Credentials are read from `config.json` (never committed) via `tests-e2e/helpers.load_api_key()`.
 
 ## What a good test asserts

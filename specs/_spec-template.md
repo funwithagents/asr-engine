@@ -1,6 +1,6 @@
 ---
 code:
-  - src/asr_mcp/example.py
+  - src/asr_engine/example.py
 tests:
   - tests/test_example.py
 ---

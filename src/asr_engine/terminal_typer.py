@@ -5,6 +5,19 @@ from __future__ import annotations
 import asyncio
 import os
 import sys
+from typing import Protocol
+
+
+class KeystrokeSink(Protocol):
+    """The keystroke operations ``AsrToTerminal`` drives.
+
+    ``TerminalTyper`` is the production implementation (real OS injection); tests
+    can supply an in-memory sink that records the same operations.
+    """
+
+    async def type_text(self, text: str) -> None: ...
+    async def backspace(self, n: int) -> None: ...
+    async def send_enter(self) -> None: ...
 
 
 class TerminalTyper:

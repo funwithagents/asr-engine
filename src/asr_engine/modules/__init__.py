@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from asr_mcp.modules.base import ASRModule
-from asr_mcp.modules.deepgram_v1 import DeepgramV1Module
-from asr_mcp.modules.deepgram_v2 import DeepgramV2Module
+from asr_engine.modules.base import ASRModule
+from asr_engine.modules.deepgram_v1 import DeepgramV1Module
+from asr_engine.modules.deepgram_v2 import DeepgramV2Module
 
 REGISTRY: dict[str, type[ASRModule]] = {
     "deepgram_v1": DeepgramV1Module,

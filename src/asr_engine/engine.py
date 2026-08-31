@@ -3,15 +3,14 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from asr_mcp.audio import AudioCapture, AudioSource
-from asr_mcp.config import ASRConfig, AudioConfig
-from asr_mcp.modules import REGISTRY
-from asr_mcp.modules.base import SpeechUtterance, UtteranceCallback
-from asr_mcp.segmenter import SegmentCallback, Segmenter, SpeechSegment
+from asr_engine.audio import AudioCapture, AudioSource
+from asr_engine.config import ASREngineConfig
+from asr_engine.modules import REGISTRY
+from asr_engine.modules.base import SpeechUtterance, UtteranceCallback
+from asr_engine.segmenter import SegmentCallback, Segmenter, SpeechSegment
+from asr_engine.sound_feedback import NoOpSoundFeedback, SoundFeedback
 
 log = logging.getLogger(__name__)
-
-_DEFAULT_TRIGGER_WORDS: list[str] = ["submit"]
 
 
 async def _noop_utterance(utterance: SpeechUtterance) -> None:
@@ -23,7 +22,9 @@ async def _noop_segment(segment: SpeechSegment) -> None:
 
 
 class ASREngine:
-    """Wires AudioCapture to the ASR module, owns segmentation, and manages lifecycle.
+    """Wires AudioCapture to the ASR module, owns segmentation, sound feedback,
+    and lifecycle. Constructed from a single ``ASREngineConfig`` so it is usable
+    directly (``import asr_engine``) without the MCP server.
 
     Emits two independent streams to its consumers:
 
@@ -37,19 +38,25 @@ class ASREngine:
 
     def __init__(
         self,
-        audio_config: AudioConfig,
-        asr_config: ASRConfig,
+        config: ASREngineConfig,
+        *,
         on_speech_utterance: UtteranceCallback | None = None,
         on_speech_segment: SegmentCallback | None = None,
         audio_source: AudioSource | None = None,
     ) -> None:
-        if asr_config.type not in REGISTRY:
+        # Set the package logger level from config (level only — never basicConfig
+        # or handler configuration; a direct importer keeps control of those).
+        logging.getLogger("asr_engine").setLevel(config.logging.level)
+
+        if config.module.type not in REGISTRY:
             available = ", ".join(sorted(REGISTRY)) or "(none)"
             raise ValueError(
-                f"Unknown ASR type '{asr_config.type}'. Available: {available}"
+                f"Unknown ASR type '{config.module.type}'. Available: {available}"
             )
-        self._audio_config = audio_config
-        self._asr_module = REGISTRY[asr_config.type](config=asr_config.extra)
+
+        self._config = config
+        self._audio_config = config.audio
+        self._asr_module = REGISTRY[config.module.type](config=config.module.extra)
         self.on_speech_utterance: UtteranceCallback = (
             on_speech_utterance or _noop_utterance
         )
@@ -60,11 +67,19 @@ class ASREngine:
         self._audio_capture: AudioSource | None = None
         self._task: asyncio.Task | None = None
 
+        if config.sound_feedback.enabled:
+            self._sound_feedback: SoundFeedback | NoOpSoundFeedback = SoundFeedback(
+                output_device=config.sound_feedback.output_device
+            )
+        else:
+            self._sound_feedback = NoOpSoundFeedback()
+
         # Segmentation state (mode + params) so it can be saved/restored.
-        self._segment_mode = "utterance"
-        self._trigger_words: list[str] = list(_DEFAULT_TRIGGER_WORDS)
-        self._initial_silence_timeout_s = 10.0
-        self._end_of_speech_timeout_s = 5.0
+        self._segment_mode = config.segmentation_mode
+        self._listen_default_segment_mode = config.listen_default_segmentation_mode
+        self._trigger_words: list[str] = list(config.segmentation.trigger_words)
+        self._initial_silence_timeout_s = config.segmentation.initial_silence_timeout_s
+        self._end_of_speech_timeout_s = config.segmentation.end_of_speech_timeout_s
         self._segmenter = self._build_segmenter()
 
     def _build_segmenter(self) -> Segmenter:
@@ -80,23 +95,33 @@ class ASREngine:
         # Read the callback dynamically so listen() can swap it at runtime.
         await self.on_speech_segment(segment)
 
-    def set_segment_mode(
+    def set_segmentation_mode(self, mode: str) -> None:
+        """Switch the segment *mode* only, keeping the current segmentation params.
+
+        Rebuilds the internal ``Segmenter``, discarding any in-progress segment.
+        Raises ``ValueError`` on an unknown mode. Safe to call while running.
+        """
+        self._segment_mode = mode
+        self._segmenter = self._build_segmenter()  # raises ValueError on bad mode
+        if self._running:
+            asyncio.ensure_future(self._segmenter.start())
+
+    def set_segmentation_params(
         self,
-        mode: str,
         *,
         trigger_words: list[str] | None = None,
         initial_silence_timeout_s: float | None = None,
         end_of_speech_timeout_s: float | None = None,
     ) -> None:
-        """Rebuild the segmenter with *mode* (omitted params keep current values)."""
-        self._segment_mode = mode
+        """Update segmentation params (omitted params keep current values) and
+        rebuild the ``Segmenter`` under the current mode."""
         if trigger_words is not None:
             self._trigger_words = trigger_words
         if initial_silence_timeout_s is not None:
             self._initial_silence_timeout_s = initial_silence_timeout_s
         if end_of_speech_timeout_s is not None:
             self._end_of_speech_timeout_s = end_of_speech_timeout_s
-        self._segmenter = self._build_segmenter()  # raises ValueError on bad mode
+        self._segmenter = self._build_segmenter()
         if self._running:
             asyncio.ensure_future(self._segmenter.start())
 
@@ -151,27 +176,26 @@ class ASREngine:
 
     async def listen(
         self,
+        mode: str | None = None,
         *,
-        mode: str,
-        trigger_words: list[str],
-        initial_silence_timeout_s: float,
-        end_of_speech_timeout_s: float,
         on_update: SegmentCallback | None = None,
     ) -> SpeechSegment:
         """Single-shot capture: start, wait for the first closed segment, stop.
 
-        Returns the closed ``SpeechSegment``. ``on_update`` (if given) receives
-        every segment update, including interim ones. Raises ``ValueError`` if the
-        engine is already running.
+        Takes only a *mode* (falling back to ``listen_default_segmentation_mode``
+        when ``None``); the segmentation params are never changed. Plays the
+        start/stop sound cues. ``on_update`` (if given) receives every segment
+        update, including interim ones. Raises ``ValueError`` if the engine is
+        already running.
         """
         if self._running:
             raise ValueError("ASR is already running. Stop it before calling listen.")
 
+        if mode is None:
+            mode = self._listen_default_segment_mode
+
         prev_on_segment = self.on_speech_segment
         prev_mode = self._segment_mode
-        prev_trigger_words = self._trigger_words
-        prev_initial = self._initial_silence_timeout_s
-        prev_eos = self._end_of_speech_timeout_s
 
         loop = asyncio.get_running_loop()
         future: asyncio.Future[SpeechSegment] = loop.create_future()
@@ -183,21 +207,13 @@ class ASREngine:
                 future.set_result(segment)
 
         self.on_speech_segment = _on_segment
-        self.set_segment_mode(
-            mode,
-            trigger_words=trigger_words,
-            initial_silence_timeout_s=initial_silence_timeout_s,
-            end_of_speech_timeout_s=end_of_speech_timeout_s,
-        )
-        await self.start()
+        self.set_segmentation_mode(mode)  # mode only — params untouched
+        await self._sound_feedback.play_start()
         try:
+            await self.start()
             return await future
         finally:
             await self.stop()
+            await self._sound_feedback.play_stop()
             self.on_speech_segment = prev_on_segment
-            self.set_segment_mode(
-                prev_mode,
-                trigger_words=prev_trigger_words,
-                initial_silence_timeout_s=prev_initial,
-                end_of_speech_timeout_s=prev_eos,
-            )
+            self.set_segmentation_mode(prev_mode)

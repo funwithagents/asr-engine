@@ -3,12 +3,14 @@
     "host": "127.0.0.1",
     "port": 8000
   },
-  "audio": {
-    "device": null
-  },
-  "asr": {
-    "type": "deepgram_v1",
-    "api_key_env": "DEEPGRAM_API_KEY",
-    "model": "nova-3"
+  "engine": {
+    "audio": {
+      "device": null
+    },
+    "module": {
+      "type": "deepgram_v1",
+      "api_key_env": "DEEPGRAM_API_KEY",
+      "model": "nova-3"
+    }
   }
 }

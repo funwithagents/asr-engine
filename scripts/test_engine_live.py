@@ -1,7 +1,7 @@
 """
 Manual test script — ASREngine with a real Deepgram module and AudioCapture.
 
-Exercises start / pause / resume / stop and prints status at each step.
+Exercises start / stop and prints status and live transcripts.
 
 Usage:
     uv run python scripts/test_engine_live.py --api-key YOUR_KEY
@@ -19,27 +19,23 @@ import asyncio
 import logging
 import sys
 
-from asr_mcp._logging import setup_logging
+from asr_engine._logging import setup_logging
 
 setup_logging()
 log = logging.getLogger("test_engine_live")
 
 
-async def run(version: str, config: dict, device: str | None) -> None:
-    from asr_mcp.config import AudioConfig
-    from asr_mcp.engine import ASREngine
-    from asr_mcp.modules.base import SpeechUtterance
+async def run(version: str, module_config: dict, device: str | None) -> None:
+    from asr_engine.config import (
+        ASREngineConfig,
+        AudioConfig,
+        ModuleConfig,
+        SoundFeedbackConfig,
+    )
+    from asr_engine.engine import ASREngine
+    from asr_engine.modules.base import SpeechUtterance
 
-    if version == "v1":
-        from asr_mcp.modules.deepgram_v1 import DeepgramV1Module
-
-        module = DeepgramV1Module(config=config)
-    else:
-        from asr_mcp.modules.deepgram_v2 import DeepgramV2Module
-
-        module = DeepgramV2Module(config=config)
-
-    audio_config = AudioConfig(device=device)
+    module_type = "deepgram_v1" if version == "v1" else "deepgram_v2"
 
     async def on_result(result: SpeechUtterance) -> None:
         tag = "[FINAL]  " if result.is_final else "[interim]"
@@ -48,24 +44,19 @@ async def run(version: str, config: dict, device: str | None) -> None:
         )
         print(f"{tag} {result.transcript}{conf}")
 
-    engine = ASREngine(audio_config, module, on_result)
+    config = ASREngineConfig(
+        audio=AudioConfig(device=device),
+        sound_feedback=SoundFeedbackConfig(enabled=False),
+        module=ModuleConfig(type=module_type, extra=module_config),
+    )
+    engine = ASREngine(config, on_speech_utterance=on_result)
 
     log.info("Starting engine (device=%s, version=%s)…", device or "default", version)
     await engine.start()
     log.info("Status: %s", engine.status())
 
-    log.info("Speak for 5 seconds…")
-    await asyncio.sleep(5)
-
-    log.info("Pausing for 3 seconds — results should be suppressed…")
-    engine.pause()
-    log.info("Status: %s", engine.status())
-    await asyncio.sleep(3)
-
-    log.info("Resuming — speak again for 5 seconds…")
-    engine.resume()
-    log.info("Status: %s", engine.status())
-    await asyncio.sleep(5)
+    log.info("Speak for 10 seconds…")
+    await asyncio.sleep(10)
 
     log.info("Stopping…")
     await engine.stop()
@@ -92,7 +83,7 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.list_devices:
-        from asr_mcp.audio import AudioCapture
+        from asr_engine.audio import AudioCapture
 
         devices = AudioCapture.list_devices()
         if devices:

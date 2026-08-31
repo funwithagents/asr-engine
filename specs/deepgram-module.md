@@ -1,7 +1,7 @@
 ---
 code:
-  - src/asr_mcp/modules/deepgram_v1.py
-  - src/asr_mcp/modules/deepgram_v2.py
+  - src/asr_engine/modules/deepgram_v1.py
+  - src/asr_engine/modules/deepgram_v2.py
 tests:
   - tests/modules/test_deepgram_v1.py
   - tests/modules/test_deepgram_v2.py

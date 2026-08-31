@@ -1,6 +1,6 @@
 ---
 code:
-  - src/asr_mcp/config.py
+  - src/asr_engine/config.py
 tests:
   - tests/test_config.py
 ---
@@ -9,97 +9,134 @@ tests:
 
 **Status:** Implemented
 
+> **Refactor note (2026-08-31):** the config schema is being restructured so the
+> engine is configured by a single nested `ASREngineConfig` (usable without the
+> MCP server), the ASR-backend block is renamed `asr` → `module`, sound feedback
+> and logging move under the engine, `audio.output_device` is removed, and the
+> separate `listen` block is deleted. Implemented by
+> [plans/202608311612_asr-engine-refactor.md](../plans/202608311612_asr-engine-refactor.md).
+> The importable package is being renamed `asr_mcp` → `asr_engine` in the same
+> plan.
+
 ## Config File
 
-The server reads a JSON config file at startup, passed as a CLI argument:
+The MCP server reads a JSON config file at startup, passed as a CLI argument:
 
 ```bash
-uv run asr-mcp-server --config config.json
+uv run asr-engine-mcp --config config.json
 ```
+
+The file has two top-level blocks: `server` (an MCP-only concern — host/port) and
+`engine` (everything the `ASREngine` itself needs). A direct importer of the
+library builds an `ASREngineConfig` from the `engine` block alone and never needs
+`server`.
 
 ## Schema
 
 ```json
 {
   "server": {
-    "host": "0.0.0.0",
+    "host": "127.0.0.1",
     "port": 8000
-  },
-  "audio": {
-    "device": null,
-    "output_device": null
-  },
-  "asr": {
-    "type": "<module_type>",
-    ...module-specific fields...
   },
   "engine": {
     "auto_start": true,
-    "segment_mode": "utterance",
-    "trigger_words": ["submit", "enter", "validate", "send", "confirm", "go",
-                      "envoyer", "valider", "confirmer", "soumettre", "entree", "entrée"],
-    "initial_silence_timeout_s": 10.0,
-    "end_of_speech_timeout_s": 5.0
-  },
-  "listen": {
-    "segment_mode": "trigger_word",
-    "trigger_words": ["submit", "enter", "validate", "send", "confirm", "go",
-                      "envoyer", "valider", "confirmer", "soumettre", "entree", "entrée"],
-    "initial_silence_timeout_s": 10.0,
-    "end_of_speech_timeout_s": 5.0,
-    "sound_feedback": true
+    "segmentation_mode": "utterance",
+    "listen_default_segmentation_mode": "trigger_word",
+    "segmentation": {
+      "trigger_words": ["submit", "enter", "validate", "send", "confirm", "go",
+                        "envoyer", "valider", "confirmer", "soumettre", "entree", "entrée"],
+      "initial_silence_timeout_s": 10.0,
+      "end_of_speech_timeout_s": 5.0
+    },
+    "sound_feedback": {
+      "enabled": true,
+      "output_device": null
+    },
+    "logging": {
+      "level": "INFO"
+    },
+    "audio": {
+      "device": null,
+      "audio_file": null,
+      "trailing_silence_s": 0.0
+    },
+    "module": {
+      "type": "<module_type>",
+      "...": "...module-specific fields..."
+    }
   }
 }
 ```
 
-### `server` block
+### `server` block (MCP only)
+
+Consumed by the MCP entry point, not by `ASREngine`.
 
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `host` | string | `"127.0.0.1"` | Host to bind the HTTP server to |
 | `port` | integer | `8000` | Port to bind the HTTP server to |
 
-### `audio` block
+### `engine` block → `ASREngineConfig`
+
+The whole `engine` block maps to one `ASREngineConfig` dataclass, the single
+argument to `ASREngine(config=...)` (see [engine.md](engine.md)). It carries the
+scalar engine settings plus five nested sub-blocks.
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `device` | string or null | `null` | Audio input device name or index. `null` = system default |
-| `output_device` | string or null | `null` | Audio output device name or index for sound feedback playback. `null` = system default |
-| `audio_file` | string or null | `null` | Path to a WAV file (16 kHz, mono, s16) to stream **instead of** the live input device. When set, the server feeds this file through a `FileAudioSource` at real-time pace. Primarily a testing hook — see [e2e-testing.md](e2e-testing.md). |
-| `trailing_silence_s` | float | `0.0` | (`audio_file` only) Seconds of silence appended after the file ends, so the ASR backend receives the tail-silence it needs to emit a final result. Ignored for live capture. |
+| `auto_start` | boolean | `true` | If `true`, ASR starts automatically at server startup. If `false`, the engine is initialised but not started — use the `start` or `listen` tool to begin capture. |
+| `segmentation_mode` | string | `"utterance"` | How the always-on engine segments the stream: `"utterance"`, `"trigger_word"`, or `"timeout"`. Drives `asr://segment` and what `asr-to-terminal` consumes. |
+| `listen_default_segmentation_mode` | string | `"trigger_word"` | The segmentation mode `listen()` uses when its caller passes no explicit mode. Must be `"trigger_word"` or `"timeout"`. |
+| `segmentation` | object | see below | Segmentation parameters (trigger words + timeouts) shared by the always-on stream **and** `listen`. |
+| `sound_feedback` | object | see below | Start/stop audio cues, owned and played by the engine during `listen`. |
+| `logging` | object | see below | Engine logging level. |
+| `audio` | object | see below | Audio input / file-source settings. |
+| `module` | object | — | ASR backend selection and its module-specific fields. **Required.** |
 
-### `asr` block
+#### `engine.segmentation` sub-block
 
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `type` | string | yes | Identifies which ASR module to load (e.g. `"deepgram"`) |
-| *(other fields)* | any | depends | Module-specific configuration, parsed by the module |
-
-### `engine` block
-
-Controls the always-on engine, including how it segments the live stream into
-the `asr://segment` resource (see [engine.md](engine.md)).
+The single source of segmentation parameters. Both the always-on segmenter and
+`listen` read these — `listen` only ever changes the *mode*, never these params
+(see [engine.md](engine.md)).
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `auto_start` | boolean | `true` | If `true`, ASR starts automatically at server startup. If `false`, the engine is initialised (config validated, audio device checked) but not started — use the `start` tool or `listen` tool to begin capture. |
-| `segment_mode` | string | `"utterance"` | How the always-on engine segments the stream: `"utterance"` (one segment per final), `"trigger_word"`, or `"timeout"`. Drives `asr://segment` and what `asr-to-terminal` consumes. |
 | `trigger_words` | list of strings | see below | Words that close a segment in `trigger_word` mode. Replaces the built-in default list entirely when specified. |
 | `initial_silence_timeout_s` | float | `10.0` | (`timeout` mode only) Seconds of silence from segment start before closing. |
 | `end_of_speech_timeout_s` | float | `5.0` | (`timeout` mode only) Seconds of silence after the last event before closing a segment. |
 
-### `listen` block
-
-Controls the behaviour of the `listen` MCP tool (a single-shot capture that
-returns the first closed segment).
+#### `engine.sound_feedback` sub-block
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `segment_mode` | string | `"trigger_word"` | How to close the segment: `"trigger_word"` or `"timeout"`. |
-| `trigger_words` | list of strings | see below | Words that close the segment in `trigger_word` mode. Replaces the built-in default list entirely when specified. |
-| `initial_silence_timeout_s` | float | `10.0` | (`timeout` mode only) Seconds of silence from session start before giving up. |
-| `end_of_speech_timeout_s` | float | `5.0` | (`timeout` mode only) Seconds of silence after the last ASR event (interim or final) before ending the session. |
-| `sound_feedback` | boolean | `true` | Play start/stop audio cues during `listen`. Set to `false` to disable. |
+| `enabled` | boolean | `true` | Play start/stop audio cues during `listen`. `false` installs a no-op. |
+| `output_device` | string / integer / null | `null` | Output device name or index for cue playback. `null` = system default. |
+
+#### `engine.logging` sub-block
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `level` | string | `"INFO"` | Level applied to the `asr_engine` package logger by the engine at construction (`"DEBUG"`, `"INFO"`, `"WARNING"`, …). The engine sets the level on its own package logger only — it never calls `basicConfig` or configures handlers. |
+
+#### `engine.audio` sub-block
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `device` | string / null | `null` | Audio input device name or index. `null` = system default. |
+| `audio_file` | string / null | `null` | Path to a WAV file (16 kHz, mono, s16) to stream **instead of** the live input device, fed through a `FileAudioSource` at real-time pace. Primarily a testing hook — see [e2e-testing.md](e2e-testing.md). |
+| `trailing_silence_s` | float | `0.0` | (`audio_file` only) Seconds of silence appended after the file ends, so the ASR backend receives the tail-silence it needs to emit a final result. Ignored for live capture. |
+
+> **Removed:** `audio.output_device` — the playback device now lives at
+> `engine.sound_feedback.output_device`.
+
+#### `engine.module` sub-block
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `type` | string | yes | Identifies which ASR module to load (e.g. `"deepgram_v1"`). |
+| *(other fields)* | any | depends | Module-specific configuration, parsed by the module. |
 
 **Default trigger words:**
 ```
@@ -107,7 +144,7 @@ submit, enter, validate, send, confirm, go,
 envoyer, valider, confirmer, soumettre, entree, entrée
 ```
 
-**`segment_mode` behaviour summary** (both `engine` and `listen` blocks):
+**`segmentation_mode` behaviour summary:**
 
 | Mode | Segment closes when | Timeouts |
 |---|---|---|
@@ -115,8 +152,9 @@ envoyer, valider, confirmer, soumettre, entree, entrée
 | `trigger_word` | A final utterance contains a trigger word (case-insensitive substring match) | None |
 | `timeout` | Silence for `end_of_speech_timeout_s` after last event, or `initial_silence_timeout_s` with no speech at all | Both timers active |
 
-`utterance` mode is only meaningful for the always-on `engine` block; the
-`listen` tool uses `trigger_word` or `timeout`.
+`utterance` mode is only meaningful for the always-on stream; `listen` uses
+`trigger_word` or `timeout` — hence the separate
+`listen_default_segmentation_mode` (which excludes `utterance`).
 
 ## Example: Deepgram config
 
@@ -126,14 +164,16 @@ envoyer, valider, confirmer, soumettre, entree, entrée
     "host": "0.0.0.0",
     "port": 8000
   },
-  "audio": {
-    "device": null
-  },
-  "asr": {
-    "type": "deepgram_v1",
-    "api_key": "YOUR_DEEPGRAM_API_KEY",
-    "language": "en-US",
-    "model": "nova-3"
+  "engine": {
+    "auto_start": true,
+    "segmentation_mode": "utterance",
+    "audio": { "device": null },
+    "module": {
+      "type": "deepgram_v1",
+      "api_key_env": "DEEPGRAM_API_KEY",
+      "language": "en-US",
+      "model": "nova-3"
+    }
   }
 }
 ```
@@ -142,9 +182,12 @@ envoyer, valider, confirmer, soumettre, entree, entrée
 
 - The server must fail fast at startup with a clear error message if:
   - The config file is missing or not valid JSON
-  - Required fields (`asr.type`) are absent
-  - The specified `asr.type` is unknown
-  - Module-specific required fields (e.g. `api_key`) are missing
+  - The required field `engine.module.type` is absent
+  - The specified `engine.module.type` is unknown
+  - Module-specific required fields (e.g. `api_key` / `api_key_env`) are missing
+  - `engine.segmentation_mode` is not one of `utterance` / `trigger_word` / `timeout`
+  - `engine.listen_default_segmentation_mode` is not one of `trigger_word` / `timeout`
+  - `engine.logging.level` is not a recognised level name
 - The specified audio device is verified when audio capture first starts, and an
   unknown device raises a clear error there — at startup when `engine.auto_start`
   is `true`, or on the first `start`/`listen` call when it is `false`.

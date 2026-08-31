@@ -92,13 +92,13 @@ def main() -> None:
     if args.verbose:
         # Let server output flow directly to the terminal
         server_proc = subprocess.Popen(
-            ["uv", "run", "asr-mcp-server", "--config", str(config_path)],
+            ["uv", "run", "asr-engine-mcp", "--config", str(config_path)],
         )
         server_log_lines: list[str] = []
     else:
         # Capture server output silently; dump it only on failure
         server_proc = subprocess.Popen(
-            ["uv", "run", "asr-mcp-server", "--config", str(config_path)],
+            ["uv", "run", "asr-engine-mcp", "--config", str(config_path)],
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,

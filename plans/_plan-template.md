@@ -8,7 +8,7 @@ Implements the settled behavior in `specs/<spec>.md` ("<section>"). One-sentence
 
 The exact files this plan touches, each with a one-line note on what changes:
 
-- `src/asr_mcp/example.py` — what's added/changed here
+- `src/asr_engine/example.py` — what's added/changed here
 - `tests/test_example.py` — functional tests for the above
 
 ## Steps
