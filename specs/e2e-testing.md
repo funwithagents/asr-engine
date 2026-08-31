@@ -74,6 +74,37 @@ is how the subprocess-based e2e tests drive the real `asr-engine-mcp` binary fro
 a WAV fixture without a microphone — `tests-e2e/helpers.start_mcp_server` writes a
 temp config with those two fields.
 
+### `ScriptableAudioSource` — hand-sequenced playback
+
+`FileAudioSource` plays one file, front to back, the moment the engine starts —
+it fixes the whole audio timeline up front. `ScriptableAudioSource` (in
+`audio.py`, the third `AudioSource` implementation) instead lets a test **decide
+at runtime when each utterance is spoken**, which is what a developer building on
+`import asr_engine` needs to script a multi-utterance scenario:
+
+- Once `start()`ed it feeds **digital silence** into the queue at real-time
+  cadence, so a streaming backend stays connected and finalizes utterances on the
+  gaps between them.
+- `await play(path, *, trailing_silence_s=0.0)` feeds that WAV's audio followed by
+  the trailing silence, then silence resumes. It **resolves once the audio has
+  been fed onto the queue**, not once the backend has transcribed it — the source
+  can't see the ASR's state, so the test then waits on the engine's own
+  utterance/segment output. The trailing silence is what prompts the backend to
+  finalize the just-played utterance. Queued/concurrent `play` calls run in order.
+- It validates each file against the audio contract (16 kHz mono s16), raising
+  `ValueError` on a mismatch and `RuntimeError` if `play` is called before
+  `start`.
+- `real_time=False` drops the per-chunk pacing sleep (feeding as fast as the
+  consumer drains) so the source's own mechanics can be unit-tested deterministically
+  and fast, off the network, in `tests/test_audio.py`.
+
+Because playback is driven by method calls rather than config, this source is for
+**in-process / direct-engine** tests (via `ASREngine(config, audio_source=...)` or
+the `build_engine` helper) — not the config-driven subprocess server path, which
+stays with `FileAudioSource`. The engine-direct scenario
+`test_e2e_scriptable_source_sequences_two_utterances` uses it to play two fixtures
+one after the other and assert a distinct final segment for each.
+
 ## Audio Fixture
 
 - **Format:** WAV, 16 kHz, mono, signed 16-bit PCM (matches pipeline constants in

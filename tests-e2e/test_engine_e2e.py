@@ -12,10 +12,9 @@ import re
 from pathlib import Path
 
 import pytest
-from helpers import build_file_engine, load_api_key
+from helpers import build_engine, build_file_engine, load_api_key
 
-from asr_engine.modules.base import SpeechUtterance
-from asr_engine.segmenter import SpeechSegment
+from asr_engine import ScriptableAudioSource, SpeechSegment, SpeechUtterance
 
 _FIXTURE_WAV = Path(__file__).parent / "fixtures" / "sample.wav"
 _FIXTURE_SUBMIT_WAV = Path(__file__).parent / "fixtures" / "sample_submit.wav"
@@ -112,3 +111,42 @@ async def test_e2e_engine_listen_timeout() -> None:
     assert segment.is_final is True
     assert segment.end_reason == "end_of_speech_timeout"
     assert "the sky is blue" in _normalize(segment.transcript)
+
+
+@pytest.mark.asyncio
+async def test_e2e_scriptable_source_sequences_two_utterances() -> None:
+    """ScriptableAudioSource plays two files on demand; each yields its own final segment."""
+    api_key = load_api_key()
+    finals: list[SpeechSegment] = []
+
+    async def on_seg(s: SpeechSegment) -> None:
+        if s.is_final:
+            finals.append(s)
+
+    source = ScriptableAudioSource()
+    engine = build_engine(
+        source,
+        "deepgram_v1",
+        {"api_key": api_key, "model": "nova-3"},
+        segmentation_mode="utterance",
+        on_speech_segment=on_seg,
+    )
+    try:
+        await engine.start()
+
+        # First utterance: play, then wait for the engine to close its segment.
+        await source.play(_FIXTURE_WAV, trailing_silence_s=2.0)
+        await _wait_until(lambda: len(finals) >= 1)
+        after_first = len(finals)
+
+        # Second utterance, sequenced after the first — a fresh segment closes.
+        await source.play(_FIXTURE_SUBMIT_WAV, trailing_silence_s=2.0)
+        await _wait_until(lambda: len(finals) > after_first)
+    finally:
+        await engine.stop()
+
+    assert "the sky is blue" in _normalize(finals[0].transcript)
+    # The second fixture adds the word "validate"; it lands in a later segment.
+    assert "validate" in _normalize(
+        " ".join(s.transcript for s in finals[after_first:])
+    )

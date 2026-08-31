@@ -35,8 +35,8 @@ def load_api_key() -> str:
     return value
 
 
-def build_file_engine(
-    audio_file: Path | str,
+def build_engine(
+    audio_source,
     module_type: str,
     module_config: dict,
     *,
@@ -45,15 +45,15 @@ def build_file_engine(
     trigger_words: list[str] | None = None,
     initial_silence_timeout_s: float = 10.0,
     end_of_speech_timeout_s: float = 5.0,
-    trailing_silence_s: float = 0.0,
     on_speech_utterance=None,
     on_speech_segment=None,
 ):
-    """Build an ASREngine that reads *audio_file* through a FileAudioSource.
+    """Build an ASREngine driven by *audio_source* (no MCP server).
 
-    Drives the engine directly (no MCP server). Sound feedback is disabled.
+    Sound feedback is disabled. ``audio_source`` is any object matching the
+    ``AudioSource`` protocol — e.g. a ``FileAudioSource`` (see
+    ``build_file_engine``) or a ``ScriptableAudioSource`` for hand-sequenced audio.
     """
-    from asr_engine.audio import FileAudioSource
     from asr_engine.config import (
         ASREngineConfig,
         ModuleConfig,
@@ -76,13 +76,30 @@ def build_file_engine(
         sound_feedback=SoundFeedbackConfig(enabled=False),
         module=ModuleConfig(type=module_type, extra=module_config),
     )
-    source = FileAudioSource(str(audio_file), trailing_silence_s=trailing_silence_s)
     return ASREngine(
         config,
         on_speech_utterance=on_speech_utterance,
         on_speech_segment=on_speech_segment,
-        audio_source=source,
+        audio_source=audio_source,
     )
+
+
+def build_file_engine(
+    audio_file: Path | str,
+    module_type: str,
+    module_config: dict,
+    *,
+    trailing_silence_s: float = 0.0,
+    **kwargs,
+):
+    """Build an ASREngine that reads *audio_file* through a FileAudioSource.
+
+    Thin wrapper over ``build_engine`` — see it for the accepted keyword args.
+    """
+    from asr_engine.audio import FileAudioSource
+
+    source = FileAudioSource(str(audio_file), trailing_silence_s=trailing_silence_s)
+    return build_engine(source, module_type, module_config, **kwargs)
 
 
 async def _wait_for_port(host: str, port: int, timeout: float = 10.0) -> None:

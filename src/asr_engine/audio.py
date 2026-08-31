@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import wave
+from collections.abc import Iterator
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
@@ -24,6 +26,43 @@ class AudioSource(Protocol):
     def stop(self) -> None:
         """Stop and close the source."""
         ...
+
+
+def _silence_chunk(chunk_samples: int) -> bytes:
+    """One chunk of digital silence (all-zero s16 samples)."""
+    return b"\x00" * (chunk_samples * 2)
+
+
+def _validate_wav_format(wf: wave.Wave_read, path: Path) -> None:
+    """Assert a WAV matches the pipeline audio contract, raising ValueError if not."""
+    if wf.getframerate() != SAMPLE_RATE:
+        raise ValueError(
+            f"{path}: expected sample rate {SAMPLE_RATE}, got {wf.getframerate()}"
+        )
+    if wf.getnchannels() != CHANNELS:
+        raise ValueError(
+            f"{path}: expected {CHANNELS} channel(s), got {wf.getnchannels()}"
+        )
+    if wf.getsampwidth() != 2:
+        raise ValueError(
+            f"{path}: expected 2-byte samples (s16), got {wf.getsampwidth()}"
+        )
+
+
+def _iter_wav_chunks(path: Path | str, chunk_samples: int) -> Iterator[bytes]:
+    """Yield a validated WAV's PCM frames in ``chunk_samples``-sized chunks.
+
+    Validates the format up front (raising ValueError on a mismatch), then yields
+    each chunk of raw bytes; the final chunk may be shorter than a full chunk.
+    """
+    path = Path(path)
+    with wave.open(str(path), "rb") as wf:
+        _validate_wav_format(wf, path)
+        while True:
+            data = wf.readframes(chunk_samples)
+            if not data:
+                break
+            yield data
 
 
 class FileAudioSource:
@@ -49,24 +88,11 @@ class FileAudioSource:
     async def _feed(self) -> None:
         assert self._queue is not None  # set by start() before this task runs
         chunk_duration = self._chunk_samples / SAMPLE_RATE
-        with wave.open(str(self._path), "rb") as wf:
-            assert wf.getframerate() == SAMPLE_RATE, (
-                f"Expected sample rate {SAMPLE_RATE}, got {wf.getframerate()}"
-            )
-            assert wf.getnchannels() == CHANNELS, (
-                f"Expected {CHANNELS} channel(s), got {wf.getnchannels()}"
-            )
-            assert wf.getsampwidth() == 2, (
-                f"Expected 2-byte samples (s16), got {wf.getsampwidth()}"
-            )
-            while True:
-                data = wf.readframes(self._chunk_samples)
-                if not data:
-                    break
-                await self._queue.put(data)
-                await asyncio.sleep(chunk_duration)
+        for data in _iter_wav_chunks(self._path, self._chunk_samples):
+            await self._queue.put(data)
+            await asyncio.sleep(chunk_duration)
 
-        silence_chunk = b"\x00" * (self._chunk_samples * 2)
+        silence_chunk = _silence_chunk(self._chunk_samples)
         silence_chunks = int(self._trailing_silence_s / chunk_duration)
         for _ in range(silence_chunks):
             await self._queue.put(silence_chunk)
@@ -76,6 +102,125 @@ class FileAudioSource:
         if self._task is not None:
             self._task.cancel()
             self._task = None
+
+
+@dataclass
+class _PlayRequest:
+    """One queued ``ScriptableAudioSource.play`` call."""
+
+    chunks: list[bytes]
+    trailing_silence_chunks: int
+    done: asyncio.Future[None]
+
+
+class ScriptableAudioSource:
+    """An ``AudioSource`` a test drives by hand: continuous silence, files on demand.
+
+    Implements the same ``start()`` / ``stop()`` interface as ``AudioCapture`` and
+    ``FileAudioSource``, so it drops straight into
+    ``ASREngine(config, audio_source=...)``. Once started it feeds digital silence
+    into the queue at real-time cadence — keeping a streaming ASR backend connected
+    and letting it finalize utterances on the gaps. Call ``play(path)`` to feed a
+    WAV file's audio; ``play`` resolves once the file (plus any
+    ``trailing_silence_s``) has been fed onto the queue, after which silence
+    resumes. Concurrent/queued ``play`` calls run in order.
+
+    This lets a test decide exactly when each utterance is spoken and sequence
+    several, one after the other::
+
+        source = ScriptableAudioSource()
+        engine = ASREngine(config, audio_source=source, on_speech_segment=collect)
+        await engine.start()
+        await source.play("hello.wav", trailing_silence_s=2.0)
+        # ...await the engine's utterances/segments, then assert...
+        await source.play("world.wav", trailing_silence_s=2.0)
+        await engine.stop()
+
+    ``play`` resolves when the audio has been *fed*, not when the backend has
+    transcribed it — the source cannot see the ASR's state — so wait on the
+    engine's own output for that. The trailing silence is what prompts a streaming
+    backend to finalize the just-played utterance.
+
+    Set ``real_time=False`` to feed as fast as the consumer drains (no per-chunk
+    sleep) for fast, deterministic unit tests.
+    """
+
+    def __init__(
+        self,
+        chunk_samples: int = CHUNK_SAMPLES,
+        *,
+        real_time: bool = True,
+        maxsize: int = 50,
+    ) -> None:
+        self._chunk_samples = chunk_samples
+        self._chunk_duration = chunk_samples / SAMPLE_RATE
+        self._real_time = real_time
+        self._maxsize = maxsize
+        self._silence = _silence_chunk(chunk_samples)
+        self._queue: asyncio.Queue[bytes] | None = None
+        self._requests: asyncio.Queue[_PlayRequest] | None = None
+        self._task: asyncio.Task | None = None
+
+    def start(self) -> asyncio.Queue[bytes]:
+        """Start feeding silence and return the queue that receives PCM chunks."""
+        self._queue = asyncio.Queue(maxsize=self._maxsize)
+        self._requests = asyncio.Queue()
+        self._task = asyncio.create_task(self._run())
+        return self._queue
+
+    async def play(self, path: Path | str, *, trailing_silence_s: float = 0.0) -> None:
+        """Feed one WAV file's audio, then ``trailing_silence_s`` of silence.
+
+        Resolves once every chunk has been put on the queue (not when the backend
+        has transcribed it). Raises ValueError if the file does not match the audio
+        contract (16 kHz mono s16), and RuntimeError if called before ``start()``.
+        """
+        if self._requests is None:
+            raise RuntimeError("ScriptableAudioSource.play() called before start()")
+        # list(...) validates the format now, so a bad file raises here at the call
+        # site rather than later inside the background task.
+        chunks = list(_iter_wav_chunks(path, self._chunk_samples))
+        trailing = int(trailing_silence_s / self._chunk_duration)
+        done: asyncio.Future[None] = asyncio.get_running_loop().create_future()
+        await self._requests.put(_PlayRequest(chunks, trailing, done))
+        await done
+
+    async def _run(self) -> None:
+        assert self._queue is not None and self._requests is not None
+        while True:
+            try:
+                request = self._requests.get_nowait()
+            except asyncio.QueueEmpty:
+                await self._emit(self._silence)
+                continue
+            try:
+                for chunk in request.chunks:
+                    await self._emit(chunk)
+                for _ in range(request.trailing_silence_chunks):
+                    await self._emit(self._silence)
+            finally:
+                if not request.done.done():
+                    request.done.set_result(None)
+
+    async def _emit(self, chunk: bytes) -> None:
+        assert self._queue is not None
+        await self._queue.put(chunk)
+        await asyncio.sleep(self._chunk_duration if self._real_time else 0)
+
+    def stop(self) -> None:
+        """Stop feeding and resolve any still-pending ``play`` calls."""
+        if self._task is not None:
+            self._task.cancel()
+            self._task = None
+        # Unblock any queued play() awaiters so they don't hang after stop().
+        if self._requests is not None:
+            while True:
+                try:
+                    request = self._requests.get_nowait()
+                except asyncio.QueueEmpty:
+                    break
+                if not request.done.done():
+                    request.done.set_result(None)
 
 
 class AudioCapture:
