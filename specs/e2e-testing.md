@@ -130,11 +130,11 @@ This tolerates differences in punctuation and capitalisation across models.
   `asyncio.Event` when a final result arrives.
 - **Timeout:** 30 seconds per test (covers real-time audio playback + API
   round-trip).
-- **API key:** `helpers.load_api_key()` reads the committed
-  `tests-e2e/e2e.config.json`, whose `asr.api_key_env` names an environment
-  variable (`DEEPGRAM_API_KEY`) holding the key — no secret is committed. When
-  that variable is unset the helper **skips** the test (via `pytest.skip`) rather
-  than failing, keeping e2e opt-in. See AGENTS.md "Live/e2e tests".
+- **API key:** `helpers.load_api_key()` reads the key from the
+  `DEEPGRAM_API_KEY` environment variable (its name is the `API_KEY_ENV`
+  constant in `helpers.py`) — no secret is committed. When that variable is unset
+  the helper **skips** the test (via `pytest.skip`) rather than failing, keeping
+  e2e opt-in. See AGENTS.md "Live/e2e tests".
 
 ## Non-Goals
 

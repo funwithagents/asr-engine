@@ -27,9 +27,8 @@ Both modules resolve their API key via `resolve_api_key` (see
 - `api_key_env` — the **name** of an environment variable holding the key.
 
 `api_key` wins if both are present. `api_key_env` keeps secrets out of config
-files so the config can be committed (used by `tests-e2e/e2e.config.json`). If
-neither is set — or the named variable is unset/empty — construction raises
-`ValueError`.
+files so the config can be committed. If neither is set — or the named variable
+is unset/empty — construction raises `ValueError`.
 
 ---
 

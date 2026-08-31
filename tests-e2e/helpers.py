@@ -13,36 +13,26 @@ import pytest
 
 log = logging.getLogger(__name__)
 
-_E2E_CONFIG = Path(__file__).parent / "e2e.config.json"
+# Environment variable holding the Deepgram API key for e2e tests. The key never
+# lives in the repo — only its variable name does, here.
+API_KEY_ENV = "DEEPGRAM_API_KEY"
 
 
 def load_api_key() -> str:
-    """Resolve the Deepgram API key for e2e tests from the committed e2e.config.json.
+    """Resolve the Deepgram API key for e2e tests from ``$DEEPGRAM_API_KEY``.
 
-    The config names an environment variable via ``engine.module.api_key_env``
-    (see the ``resolve_api_key`` helper). When that variable is unset the test is
-    skipped rather than failed — e2e is opt-in and needs credentials the shell may
-    not have (the keys live in ``~/.zshrc``; a non-interactive shell doesn't
-    source it — run under an interactive zsh: ``zsh -ic 'uv run pytest tests-e2e'``).
+    When that variable is unset the test is skipped rather than failed — e2e is
+    opt-in and needs credentials the shell may not have (the keys live in
+    ``~/.zshrc``; a non-interactive shell doesn't source it — run under an
+    interactive zsh: ``zsh -ic 'uv run pytest tests-e2e'``).
     """
-    with open(_E2E_CONFIG) as f:
-        module = json.load(f)["engine"]["module"]
-
-    api_key = module.get("api_key")
-    if api_key:
-        return api_key
-
-    env_name = module.get("api_key_env")
-    if env_name:
-        value = os.environ.get(env_name)
-        if not value:
-            pytest.skip(
-                f"e2e: environment variable '{env_name}' (from e2e.config.json "
-                f"api_key_env) is not set — see AGENTS.md 'Live/e2e tests'"
-            )
-        return value
-
-    pytest.skip("e2e: e2e.config.json defines neither api_key nor api_key_env")
+    value = os.environ.get(API_KEY_ENV)
+    if not value:
+        pytest.skip(
+            f"e2e: environment variable '{API_KEY_ENV}' is not set — "
+            f"see AGENTS.md 'Live/e2e tests'"
+        )
+    return value
 
 
 def build_file_engine(

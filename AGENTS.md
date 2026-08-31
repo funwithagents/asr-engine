@@ -101,7 +101,7 @@ The mapping is **many-to-many**: a file can be governed by several specs, so the
 
 Some tests call the real Deepgram API over the network. They live in `tests-e2e/`, a directory separate from `tests/`, so the fast dev loop (`uv run pytest tests/`) never needs network access or credentials. Run them explicitly (`uv run pytest tests-e2e`), and only when you actually want to verify against the live service. The file-based e2e pipeline design is specced in [specs/e2e-testing.md](specs/e2e-testing.md).
 
-**Credentials.** `tests-e2e/helpers.load_api_key()` reads the committed `tests-e2e/e2e.config.json`, which names an environment variable via `asr.api_key_env` (`DEEPGRAM_API_KEY`) rather than embedding a secret — so the config is safe to commit. When that variable is unset, `load_api_key()` **skips** the test rather than failing it.
+**Credentials.** `tests-e2e/helpers.load_api_key()` reads the Deepgram key from the `DEEPGRAM_API_KEY` environment variable (named by the `API_KEY_ENV` constant in `helpers.py`) — no secret lives in the repo. When that variable is unset, `load_api_key()` **skips** the test rather than failing it.
 
 **The keys live in `~/.zshrc`**, but the shell tool runs a non-interactive `bash`/`zsh` that doesn't source it — a plain `uv run pytest tests-e2e` in that shell sees no keys and every case skips. Source it explicitly in an interactive `zsh` invocation:
 
