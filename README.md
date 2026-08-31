@@ -15,17 +15,28 @@ A real-time Automatic Speech Recognition (ASR) **MCP server** written in Python.
 | `is_running` | Return `{ "running": bool, "connected": bool }` |
 | `listen` | Blocking single-shot capture — returns `{ "transcript": str, "end_reason": str }` |
 
-### Resource: `asr://result`
+### Resources
 
-The single rolling resource holding the latest ASR utterance. Updated on every interim and final result.
+Two rolling resources, both `application/json` and both subscribable:
 
-**Payload schema:**
+**`asr://utterance`** — the latest ASR utterance (one atomic result, interim or final), updated on every event:
 
 ```json
 {
   "transcript": "Hello, how are you?",
   "is_final": true,
   "confidence": 0.98,
+  "timestamp": "2026-03-17T10:23:47.456Z"
+}
+```
+
+**`asr://segment`** — the latest *segment*, an aggregation of utterances per the engine's `segment_mode`. `is_final` is `false` while the segment grows and `true` (with an `end_reason`) when it closes:
+
+```json
+{
+  "transcript": "the sky is blue",
+  "is_final": true,
+  "end_reason": "trigger_word",
   "timestamp": "2026-03-17T10:23:47.456Z"
 }
 ```
@@ -75,10 +86,14 @@ cp config.example.json config.json
     "model": "flux-general-en"
   },
   "engine": {
-    "auto_start": true
+    "auto_start": true,
+    "segment_mode": "utterance",
+    "trigger_words": ["submit", "validate", "send"],
+    "initial_silence_timeout_s": 10.0,
+    "end_of_speech_timeout_s": 5.0
   },
   "listen": {
-    "end_of_utterance_mode": "trigger_word",
+    "segment_mode": "trigger_word",
     "trigger_words": ["submit", "validate", "send"],
     "initial_silence_timeout_s": 10.0,
     "end_of_speech_timeout_s": 5.0,
@@ -108,7 +123,8 @@ cp config.example.json config.json
 | Field | Required | Description |
 |---|---|---|
 | `type` | yes | Module to use: `"deepgram_v1"` or `"deepgram_v2"` |
-| `api_key` | yes | Deepgram API key |
+| `api_key` | one of | Deepgram API key (literal) |
+| `api_key_env` | one of | Name of an environment variable holding the key — keeps the secret out of committed configs. Provide exactly one of `api_key` / `api_key_env`. |
 | `model` | no | Model name (e.g. `"nova-3"`, `"flux-general-en"`) |
 | `language` | no | (v1 only) BCP-47 language code or `"multi"` |
 | `eot_threshold` | no | (v2 only) End-of-turn confidence threshold, default `0.7` |
@@ -116,16 +132,22 @@ cp config.example.json config.json
 
 #### `engine`
 
+Controls the always-on engine, including how it segments the live stream into the `asr://segment` resource (what `asr-to-terminal` consumes).
+
 | Field | Default | Description |
 |---|---|---|
 | `auto_start` | `true` | Start ASR at server launch. Set to `false` to use `listen` tool instead. |
+| `segment_mode` | `"utterance"` | `"utterance"` (one segment per final), `"trigger_word"`, or `"timeout"` |
+| `trigger_words` | see above | Words that close a segment in `trigger_word` mode |
+| `initial_silence_timeout_s` | `10.0` | (`timeout` mode) Seconds with no speech before closing |
+| `end_of_speech_timeout_s` | `5.0` | (`timeout` mode) Seconds of silence after last event before closing |
 
 #### `listen`
 
 | Field | Default | Description |
 |---|---|---|
-| `end_of_utterance_mode` | `"trigger_word"` | `"trigger_word"` or `"timeout"` |
-| `trigger_words` | see above | Words that end the session in `trigger_word` mode |
+| `segment_mode` | `"trigger_word"` | `"trigger_word"` or `"timeout"` |
+| `trigger_words` | see above | Words that close the segment in `trigger_word` mode |
 | `initial_silence_timeout_s` | `10.0` | (`timeout` mode) Seconds with no speech before giving up |
 | `end_of_speech_timeout_s` | `5.0` | (`timeout` mode) Seconds of silence after last event before ending |
 | `sound_feedback` | `true` | Play audio cues at `listen` start and stop. Set to `false` to disable. |
@@ -165,7 +187,7 @@ Point your MCP client at `http://<host>:<port>/mcp`. For Claude Code or other ag
 ```
 
 The agent can then:
-- Subscribe to `asr://result` for a continuous live transcription feed
+- Subscribe to `asr://utterance` (raw results) or `asr://segment` (aggregated) for a continuous live transcription feed
 - Call the `listen` tool to collect a single spoken utterance on demand
 - Call `start` / `stop` / `is_running` to control the engine
 
@@ -188,7 +210,7 @@ The server uses a **pluggable module architecture**: one ASR backend is active a
 
 **Adding your own module** is straightforward — the interface is intentionally minimal:
 
-1. Create a class that extends `ASRModule` (in [src/asr_mcp/modules/base.py](src/asr_mcp/modules/base.py)) and implements two async methods: `start(audio_queue, on_result, on_connected)` and `stop()`. The engine feeds raw 16kHz PCM audio chunks via `audio_queue`; call `on_result(ASRResult(...))` whenever your backend produces a transcript.
+1. Create a class that extends `ASRModule` (in [src/asr_mcp/modules/base.py](src/asr_mcp/modules/base.py)) and implements two async methods: `start(audio_queue, on_utterance, on_connected)` and `stop()`. The engine feeds raw 16kHz PCM audio chunks via `audio_queue`; call `on_utterance(SpeechUtterance(...))` whenever your backend produces a transcript.
 2. Register it by name in the `REGISTRY` dict in [src/asr_mcp/modules/\_\_init\_\_.py](src/asr_mcp/modules/__init__.py).
 3. Set `"asr": { "type": "<your-name>", ... }` in your config.
 
@@ -206,28 +228,32 @@ All ASR results carry an `is_final` flag:
 { "transcript": "Hello, how are you?", "is_final": true,  "confidence": 0.98, "timestamp": "..." }
 ```
 
-The live MCP resource `asr://result` is updated on **every** result (interim and final). Clients that need only committed text should filter on `is_final: true`.
+The live MCP resource `asr://utterance` is updated on **every** result (interim and final). Clients that need only committed text should filter on `is_final: true`.
 
-### End-of-utterance detection
+### Utterances and segments
 
-Both the `listen` tool and `asr-to-terminal` use a shared end-of-utterance detector. Two modes are available:
+The engine emits two streams. An **utterance** is a single ASR result (interim or final); a **segment** is an aggregation of utterances closed by a condition. The engine's `Segmenter` owns all segmentation — the `listen` tool and `asr-to-terminal` consume segments rather than re-implementing the logic. Three segment modes are available (set via `engine.segment_mode`, or `listen.segment_mode` for the `listen` tool):
 
-**`trigger_word` mode (default)**
+**`utterance` mode**
 
-The session ends when any final result contains one of the configured trigger words (case-insensitive substring match). The trigger-word utterance is not included in the returned transcript — it fires the action, not the text. No timeouts apply; the session waits indefinitely.
+Each final utterance is its own segment (1:1). `end_reason` is `"utterance"`.
+
+**`trigger_word` mode**
+
+The segment accumulates finals until one contains a configured trigger word (case-insensitive substring match). The trigger-word utterance is not included in the segment transcript — it fires the action, not the text. No timeouts apply. `end_reason` is `"trigger_word"`.
 
 Default trigger words: `submit`, `enter`, `validate`, `send`, `confirm`, `go`, `envoyer`, `valider`, `confirmer`, `soumettre`, `entree`, `entrée`
 
 **`timeout` mode**
 
-Two independent timers govern the session:
+Two independent timers govern the segment:
 
 | Timer | Default | Fires when |
 |---|---|---|
-| Initial silence | 10 s | No speech at all since session start |
+| Initial silence | 10 s | No speech at all since the segment began |
 | End-of-speech | 5 s | No ASR event received after the last interim or final result |
 
-Whichever fires first ends the session. The return value includes an `end_reason` field: `"trigger_word"`, `"end_of_speech_timeout"`, or `"initial_silence_timeout"`.
+Whichever fires first closes the segment. The `end_reason` is then `"end_of_speech_timeout"` or `"initial_silence_timeout"`.
 
 ---
 
@@ -235,10 +261,10 @@ Whichever fires first ends the session. The return value includes an `end_reason
 
 ### Push — always-on streaming via MCP resource subscriptions
 
-With `engine.auto_start: true` (the default), the ASR engine starts at server startup and runs continuously. Clients **subscribe** to the `asr://result` MCP resource and receive a push notification every time a new result is emitted — no polling required.
+With `engine.auto_start: true` (the default), the ASR engine starts at server startup and runs continuously. Clients **subscribe** to the `asr://utterance` and/or `asr://segment` MCP resources and receive a push notification every time they change — no polling required.
 
 ```
-Audio input → ASREngine → asr://result resource
+Audio input → ASREngine → asr://utterance + asr://segment resources
                                   ↓ push notifications
                              MCP clients (subscribed)
 ```
@@ -247,9 +273,9 @@ This pattern suits scenarios where a client or agent wants live transcription fe
 
 **Available push clients:**
 
-- **`asr-mcp-client`** — a demo CLI that subscribes to `asr://result` and logs each result to stdout. Useful for testing and monitoring.
-- **`asr-to-terminal`** — subscribes to `asr://result` and injects keystrokes into the active terminal window (see below).
-- **Any MCP client** — connect to `http://<host>:<port>/mcp`, subscribe to `asr://result`, and receive live transcription events.
+- **`asr-mcp-client`** — a demo CLI that subscribes to `asr://utterance` and logs each result to stdout. Useful for testing and monitoring.
+- **`asr-to-terminal`** — subscribes to `asr://segment` and injects keystrokes into the active terminal window (see below).
+- **Any MCP client** — connect to `http://<host>:<port>/mcp`, subscribe to a resource, and receive live transcription events.
 
 ### Pull — on-demand capture via the `listen` tool
 
@@ -278,7 +304,7 @@ A key feature of this server is that it exposes live ASR data through the **MCP 
 
 Standard HTTP is request/response. To receive live data from a running server without polling, this server uses **MCP's StreamableHTTP transport** combined with resource subscriptions:
 
-1. A client connects to `http://<host>:<port>/mcp` and subscribes to `asr://result`.
+1. A client connects to `http://<host>:<port>/mcp` and subscribes to `asr://utterance` or `asr://segment`.
 2. The server keeps the connection open and sends `notifications/resources/updated` messages each time the resource changes.
 3. The client receives these notifications in real time, then reads the new resource value.
 
@@ -290,28 +316,20 @@ The `AsrResourceClient` class ([src/asr_mcp/resource_client.py](src/asr_mcp/reso
 
 ## `asr-to-terminal`
 
-`asr-to-terminal` is a client that subscribes to the live ASR stream and **types the transcription into your active terminal window** using keystroke injection (`xdotool` on X11, `ydotool` on Wayland).
+`asr-to-terminal` is a client that subscribes to the server's `asr://segment` resource and **types the transcription into your active terminal window** using keystroke injection (`xdotool` on X11, `ydotool` on Wayland).
 
 **How it works:**
 
-- **Interim results** are typed immediately and erased (via Backspace) when a new interim or final arrives — giving a live "typeahead" effect.
-- **Final results** replace the interim text with the committed transcript.
-- **End-of-utterance** is detected by a background session loop that fires Enter once and immediately starts listening for the next utterance.
+- Each `asr://segment` update is typed progressively — the client backspaces the changed suffix and types the new text, giving a live "typeahead" effect as the segment grows.
+- When a segment **closes** (`is_final: true`), the client sends Enter and starts fresh.
 
-Two end-of-utterance modes are supported (same semantics as the `listen` tool):
-
-| Mode | How Enter is fired |
-|---|---|
-| `trigger_word` (default) | When a final result contains one of the configured trigger words |
-| `timeout` | After a configurable silence following the last speech event |
+Segmentation — including the mode (`trigger_word` / `timeout` / `utterance`), trigger words, and timeouts — is configured **on the server** via the `engine` config block, so every client shares the same behaviour. `asr-to-terminal` itself only needs the server URL and display server.
 
 This makes it possible to dictate text directly into any terminal application using your voice.
 
 ```bash
 uv run asr-to-terminal
 uv run asr-to-terminal --server http://192.168.1.10:8000/mcp
-uv run asr-to-terminal --trigger-words submit validate confirm
-uv run asr-to-terminal --mode timeout --end-of-speech-timeout 3.0
 uv run asr-to-terminal --display-server wayland
 ```
 

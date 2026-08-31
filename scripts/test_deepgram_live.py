@@ -26,7 +26,7 @@ log = logging.getLogger("test_deepgram_live")
 
 async def run(version: str, config: dict, device: str | None) -> None:
     from asr_mcp.audio import AudioCapture
-    from asr_mcp.modules.base import ASRResult
+    from asr_mcp.modules.base import SpeechUtterance
 
     if version == "v1":
         from asr_mcp.modules.deepgram_v1 import DeepgramV1Module
@@ -40,7 +40,7 @@ async def run(version: str, config: dict, device: str | None) -> None:
     loop = asyncio.get_running_loop()
     capture = AudioCapture(device=device, loop=loop)
 
-    async def on_result(result: ASRResult) -> None:
+    async def on_result(result: SpeechUtterance) -> None:
         tag = "[FINAL]  " if result.is_final else "[interim]"
         conf = (
             f"  conf={result.confidence:.2f}" if result.confidence is not None else ""

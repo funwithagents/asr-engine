@@ -43,11 +43,17 @@ class ASRConfig:
 @dataclass
 class EngineConfig:
     auto_start: bool = True
+    segment_mode: str = "utterance"
+    trigger_words: list[str] = field(
+        default_factory=lambda: list(_DEFAULT_TRIGGER_WORDS)
+    )
+    initial_silence_timeout_s: float = 10.0
+    end_of_speech_timeout_s: float = 5.0
 
 
 @dataclass
 class ListenConfig:
-    end_of_utterance_mode: str = "trigger_word"
+    segment_mode: str = "trigger_word"
     trigger_words: list[str] = field(
         default_factory=lambda: list(_DEFAULT_TRIGGER_WORDS)
     )
@@ -101,20 +107,30 @@ def load_config(path: str) -> AppConfig:
     asr = ASRConfig(type=asr_type, extra=extra)
 
     engine_data = data.get("engine", {})
+    engine_segment_mode = engine_data.get("segment_mode", "utterance")
+    if engine_segment_mode not in ("utterance", "trigger_word", "timeout"):
+        raise ValueError(
+            f"Invalid engine.segment_mode: '{engine_segment_mode}'. "
+            f"Must be 'utterance', 'trigger_word', or 'timeout'."
+        )
     engine = EngineConfig(
         auto_start=engine_data.get("auto_start", True),
+        segment_mode=engine_segment_mode,
+        trigger_words=engine_data.get("trigger_words", list(_DEFAULT_TRIGGER_WORDS)),
+        initial_silence_timeout_s=engine_data.get("initial_silence_timeout_s", 10.0),
+        end_of_speech_timeout_s=engine_data.get("end_of_speech_timeout_s", 5.0),
     )
 
     listen_data = data.get("listen", {})
-    end_of_utterance_mode = listen_data.get("end_of_utterance_mode", "trigger_word")
-    if end_of_utterance_mode not in ("trigger_word", "timeout"):
+    listen_segment_mode = listen_data.get("segment_mode", "trigger_word")
+    if listen_segment_mode not in ("trigger_word", "timeout"):
         raise ValueError(
-            f"Invalid end_of_utterance_mode: '{end_of_utterance_mode}'. "
+            f"Invalid listen.segment_mode: '{listen_segment_mode}'. "
             f"Must be 'trigger_word' or 'timeout'."
         )
     trigger_words = listen_data.get("trigger_words", list(_DEFAULT_TRIGGER_WORDS))
     listen = ListenConfig(
-        end_of_utterance_mode=end_of_utterance_mode,
+        segment_mode=listen_segment_mode,
         trigger_words=trigger_words,
         initial_silence_timeout_s=listen_data.get("initial_silence_timeout_s", 10.0),
         end_of_speech_timeout_s=listen_data.get("end_of_speech_timeout_s", 5.0),

@@ -106,13 +106,16 @@ This tolerates differences in punctuation and capitalisation across models.
 - **Server:** `create_mcp_server` + `uvicorn.Server` run as an `asyncio` background
   task on a dedicated test port. The test waits for `server.started` before
   proceeding.
-- **Client:** a minimal inline coroutine that subscribes to `asr://result`,
+- **Client:** a minimal inline coroutine that subscribes to `asr://utterance`,
   collects payloads on each `ResourceUpdatedNotification`, and resolves an
   `asyncio.Event` when a final result arrives.
 - **Timeout:** 30 seconds per test (covers real-time audio playback + API
   round-trip).
-- **API key:** loaded from `config.json` at the repo root (local-only; no CI
-  integration required at this stage).
+- **API key:** `helpers.load_api_key()` reads the committed
+  `tests-e2e/e2e.config.json`, whose `asr.api_key_env` names an environment
+  variable (`DEEPGRAM_API_KEY`) holding the key — no secret is committed. When
+  that variable is unset the helper **skips** the test (via `pytest.skip`) rather
+  than failing, keeping e2e opt-in. See AGENTS.md "Live/e2e tests".
 
 ## Non-Goals
 

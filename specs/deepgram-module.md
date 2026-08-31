@@ -18,6 +18,19 @@ Two Deepgram modules are provided, targeting different API versions and use case
 | `deepgram_v1` | `DeepgramV1Module` | Listen v1 (Nova-3, Nova-2, …) | Multi-language, general transcription |
 | `deepgram_v2` | `DeepgramV2Module` | Listen v2 (Flux) | English conversational AI, built-in turn detection |
 
+## API key resolution
+
+Both modules resolve their API key via `resolve_api_key` (see
+[asr-module-interface.md](asr-module-interface.md)). Provide **either**:
+
+- `api_key` — a literal key, or
+- `api_key_env` — the **name** of an environment variable holding the key.
+
+`api_key` wins if both are present. `api_key_env` keeps secrets out of config
+files so the config can be committed (used by `tests-e2e/e2e.config.json`). If
+neither is set — or the named variable is unset/empty — construction raises
+`ValueError`.
+
 ---
 
 ## deepgram_v1 — Listen v1 (Nova-3)
@@ -30,11 +43,14 @@ Uses the Deepgram Listen v1 WebSocket API with any v1-compatible model. Utteranc
 
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `api_key` | string | yes | — | Deepgram API key |
+| `api_key` | string | one of¹ | — | Deepgram API key (literal) |
+| `api_key_env` | string | one of¹ | — | Name of an env var holding the key |
 | `model` | string | no | `"nova-3"` | Deepgram model name |
 | `language` | string | no | `"multi"` | BCP-47 language code, or `"multi"` for auto-detection |
 | `punctuate` | boolean | no | `true` | Enable automatic punctuation |
 | `interim_results` | boolean | no | `true` | Enable interim results |
+
+¹ Provide exactly one of `api_key` / `api_key_env` (see [API key resolution](#api-key-resolution)).
 
 ### Example Config
 
@@ -63,11 +79,11 @@ All transcription arrives as `ListenV1Results` messages (type `"Results"`).
 ```
 msg.channel.alternatives[0].transcript  → transcript
 msg.channel.alternatives[0].confidence  → confidence
-msg.is_final                             → ASRResult.is_final
+msg.is_final                             → SpeechUtterance.is_final
 ```
 
-- `is_final=True` → Deepgram has committed this segment → `ASRResult(is_final=True)`
-- `is_final=False` → interim, transcript still updating → `ASRResult(is_final=False)`
+- `is_final=True` → Deepgram has committed this segment → `SpeechUtterance(is_final=True)`
+- `is_final=False` → interim, transcript still updating → `SpeechUtterance(is_final=False)`
 - Results with empty transcript are discarded.
 - Non-`ListenV1Results` messages (e.g. `Metadata`) are ignored.
 
@@ -92,10 +108,13 @@ Supports only Flux-family models (`flux-general-en`, etc.). Not suitable for non
 
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `api_key` | string | yes | — | Deepgram API key |
+| `api_key` | string | one of¹ | — | Deepgram API key (literal) |
+| `api_key_env` | string | one of¹ | — | Name of an env var holding the key |
 | `model` | string | no | `"flux-general-en"` | Deepgram Flux model name |
 | `eot_threshold` | float | no | `0.7` | End-of-turn confidence threshold (0.5–0.9) |
 | `eot_timeout_ms` | int | no | `5000` | Silence timeout before forced turn-end (ms) |
+
+¹ Provide exactly one of `api_key` / `api_key_env` (see [API key resolution](#api-key-resolution)).
 
 ### Example Config
 
@@ -126,7 +145,7 @@ msg.end_of_turn_confidence → confidence
 msg.event                  → dispatch key
 ```
 
-| `msg.event` | `ASRResult.is_final` | Notes |
+| `msg.event` | `SpeechUtterance.is_final` | Notes |
 |---|---|---|
 | `"Update"`, `"StartOfTurn"`, `"EagerEndOfTurn"`, `"TurnResumed"` | `False` | Interim |
 | `"EndOfTurn"` | `True` | Turn complete |

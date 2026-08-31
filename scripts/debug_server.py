@@ -2,7 +2,7 @@
 Debug script — inspect a running ASR MCP server without relying on subscriptions.
 
 1. Connects to the server and prints the engine status (is_running tool).
-2. Polls asr://result every second and prints any change.
+2. Polls asr://utterance every second and prints any change.
 
 If results appear here but NOT in the demo client, the ASR pipeline is fine
 but the subscription / push-notification path is broken.
@@ -26,7 +26,7 @@ from mcp.client.streamable_http import streamable_http_client
 from pydantic import AnyUrl
 
 _DEFAULT_SERVER = "http://127.0.0.1:8000/mcp"
-_RESOURCE_URI = "asr://result"
+_RESOURCE_URI = "asr://utterance"
 
 
 async def _run(server_url: str) -> None:
@@ -56,8 +56,8 @@ async def _run(server_url: str) -> None:
                 print("[debug] Engine is PAUSED — call the resume tool to start it.")
                 return
 
-            # 2. Poll asr://result directly (no subscription)
-            print("=== Polling asr://result every second (speak now) ===")
+            # 2. Poll asr://utterance directly (no subscription)
+            print("=== Polling asr://utterance every second (speak now) ===")
             print("[debug] If transcripts appear here, ASR is working.")
             print(
                 "[debug] If they don't appear in the client, the issue is in push notifications."

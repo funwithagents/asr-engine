@@ -34,10 +34,15 @@ uv run asr-mcp-server --config config.json
     ...module-specific fields...
   },
   "engine": {
-    "auto_start": true
+    "auto_start": true,
+    "segment_mode": "utterance",
+    "trigger_words": ["submit", "enter", "validate", "send", "confirm", "go",
+                      "envoyer", "valider", "confirmer", "soumettre", "entree", "entrée"],
+    "initial_silence_timeout_s": 10.0,
+    "end_of_speech_timeout_s": 5.0
   },
   "listen": {
-    "end_of_utterance_mode": "trigger_word",
+    "segment_mode": "trigger_word",
     "trigger_words": ["submit", "enter", "validate", "send", "confirm", "go",
                       "envoyer", "valider", "confirmer", "soumettre", "entree", "entrée"],
     "initial_silence_timeout_s": 10.0,
@@ -72,18 +77,26 @@ uv run asr-mcp-server --config config.json
 
 ### `engine` block
 
+Controls the always-on engine, including how it segments the live stream into
+the `asr://segment` resource (see [engine.md](engine.md)).
+
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `auto_start` | boolean | `true` | If `true`, ASR starts automatically at server startup (existing behaviour). If `false`, the engine is initialised (config validated, audio device checked) but not started — use the `start` tool or `listen` tool to begin capture. |
+| `auto_start` | boolean | `true` | If `true`, ASR starts automatically at server startup. If `false`, the engine is initialised (config validated, audio device checked) but not started — use the `start` tool or `listen` tool to begin capture. |
+| `segment_mode` | string | `"utterance"` | How the always-on engine segments the stream: `"utterance"` (one segment per final), `"trigger_word"`, or `"timeout"`. Drives `asr://segment` and what `asr-to-terminal` consumes. |
+| `trigger_words` | list of strings | see below | Words that close a segment in `trigger_word` mode. Replaces the built-in default list entirely when specified. |
+| `initial_silence_timeout_s` | float | `10.0` | (`timeout` mode only) Seconds of silence from segment start before closing. |
+| `end_of_speech_timeout_s` | float | `5.0` | (`timeout` mode only) Seconds of silence after the last event before closing a segment. |
 
 ### `listen` block
 
-Controls the behaviour of the `listen` MCP tool.
+Controls the behaviour of the `listen` MCP tool (a single-shot capture that
+returns the first closed segment).
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `end_of_utterance_mode` | string | `"trigger_word"` | How to detect end of speech: `"trigger_word"` or `"timeout"`. |
-| `trigger_words` | list of strings | see below | Words that end the session in `trigger_word` mode. Replaces the built-in default list entirely when specified. |
+| `segment_mode` | string | `"trigger_word"` | How to close the segment: `"trigger_word"` or `"timeout"`. |
+| `trigger_words` | list of strings | see below | Words that close the segment in `trigger_word` mode. Replaces the built-in default list entirely when specified. |
 | `initial_silence_timeout_s` | float | `10.0` | (`timeout` mode only) Seconds of silence from session start before giving up. |
 | `end_of_speech_timeout_s` | float | `5.0` | (`timeout` mode only) Seconds of silence after the last ASR event (interim or final) before ending the session. |
 | `sound_feedback` | boolean | `true` | Play start/stop audio cues during `listen`. Set to `false` to disable. |
@@ -94,12 +107,16 @@ submit, enter, validate, send, confirm, go,
 envoyer, valider, confirmer, soumettre, entree, entrée
 ```
 
-**`end_of_utterance_mode` behaviour summary:**
+**`segment_mode` behaviour summary** (both `engine` and `listen` blocks):
 
-| Mode | Ends when | Timeouts |
+| Mode | Segment closes when | Timeouts |
 |---|---|---|
-| `trigger_word` | A final result contains a trigger word (case-insensitive substring match) | None — waits indefinitely |
+| `utterance` | Every final utterance (one segment each) | None |
+| `trigger_word` | A final utterance contains a trigger word (case-insensitive substring match) | None |
 | `timeout` | Silence for `end_of_speech_timeout_s` after last event, or `initial_silence_timeout_s` with no speech at all | Both timers active |
+
+`utterance` mode is only meaningful for the always-on `engine` block; the
+`listen` tool uses `trigger_word` or `timeout`.
 
 ## Example: Deepgram config
 

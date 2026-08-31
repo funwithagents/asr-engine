@@ -94,7 +94,7 @@ normally. Sound failures must never abort a `listen` call.
     "output_device": null
   },
   "listen": {
-    "end_of_utterance_mode": "trigger_word",
+    "segment_mode": "trigger_word",
     "sound_feedback": true
   }
 }

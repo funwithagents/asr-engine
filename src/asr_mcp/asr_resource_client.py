@@ -1,4 +1,4 @@
-"""Demo CLI: subscribe to asr://result and log each update."""
+"""Demo CLI: subscribe to asr://utterance and log each update."""
 
 from __future__ import annotations
 

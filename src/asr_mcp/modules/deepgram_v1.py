@@ -7,7 +7,13 @@ from deepgram import AsyncDeepgramClient
 from deepgram.core.events import EventType
 from deepgram.listen.v1.types.listen_v1results import ListenV1Results
 
-from asr_mcp.modules.base import ASRModule, ASRResult, ConnectedCallback, ResultCallback
+from asr_mcp.modules.base import (
+    ASRModule,
+    ConnectedCallback,
+    SpeechUtterance,
+    UtteranceCallback,
+    resolve_api_key,
+)
 
 log = logging.getLogger(__name__)
 
@@ -18,7 +24,7 @@ class DeepgramV1Module(ASRModule):
     Uses Nova-3 (or any v1-compatible model) with is_final-based segment
     detection. Supports language selection, punctuation, and interim results.
 
-    is_final=True (Deepgram segment finality) maps to ASRResult.is_final=True.
+    is_final=True (Deepgram segment finality) maps to SpeechUtterance.is_final=True.
     This fires whenever Deepgram commits a transcript chunk — more reliable than
     speech_final, which depends on endpointing configuration and model support.
 
@@ -28,10 +34,7 @@ class DeepgramV1Module(ASRModule):
 
     def __init__(self, config: dict) -> None:
         super().__init__(config)
-        if not config.get("api_key"):
-            raise ValueError("deepgram_v1 module requires 'api_key' in config")
-
-        self._api_key: str = config["api_key"]
+        self._api_key: str = resolve_api_key(config, "deepgram_v1")
         self._model: str = config.get("model", "nova-3")
         self._language: str = config.get("language", "multi")
         self._punctuate: bool = config.get("punctuate", True)
@@ -42,7 +45,7 @@ class DeepgramV1Module(ASRModule):
     async def start(
         self,
         audio_queue: asyncio.Queue[bytes],
-        on_result: ResultCallback,
+        on_utterance: UtteranceCallback,
         on_connected: ConnectedCallback | None = None,
     ) -> None:
         self._stop_event.clear()
@@ -80,8 +83,8 @@ class DeepgramV1Module(ASRModule):
                             # because it depends on endpointing configuration and is not
                             # reliably set by all models (notably nova-3).
                             is_final = bool(msg.is_final)
-                            await on_result(
-                                ASRResult(
+                            await on_utterance(
+                                SpeechUtterance(
                                     transcript=transcript,
                                     is_final=is_final,
                                     confidence=confidence,

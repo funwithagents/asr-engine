@@ -9,14 +9,40 @@ import os
 import tempfile
 from pathlib import Path
 
+import pytest
+
 log = logging.getLogger(__name__)
+
+_E2E_CONFIG = Path(__file__).parent / "e2e.config.json"
 
 
 def load_api_key() -> str:
-    config_path = Path(__file__).parent.parent / "config.json"
-    with open(config_path) as f:
-        data = json.load(f)
-    return data["asr"]["api_key"]
+    """Resolve the Deepgram API key for e2e tests from the committed e2e.config.json.
+
+    The config names an environment variable via ``asr.api_key_env`` (see the
+    ``resolve_api_key`` helper). When that variable is unset the test is skipped
+    rather than failed — e2e is opt-in and needs credentials the shell may not
+    have (the keys live in ``~/.zshrc``; a non-interactive shell doesn't source
+    it — run under an interactive zsh: ``zsh -ic 'uv run pytest tests-e2e'``).
+    """
+    with open(_E2E_CONFIG) as f:
+        asr = json.load(f)["asr"]
+
+    api_key = asr.get("api_key")
+    if api_key:
+        return api_key
+
+    env_name = asr.get("api_key_env")
+    if env_name:
+        value = os.environ.get(env_name)
+        if not value:
+            pytest.skip(
+                f"e2e: environment variable '{env_name}' (from e2e.config.json "
+                f"api_key_env) is not set — see AGENTS.md 'Live/e2e tests'"
+            )
+        return value
+
+    pytest.skip("e2e: e2e.config.json defines neither api_key nor api_key_env")
 
 
 async def _wait_for_port(host: str, port: int, timeout: float = 10.0) -> None:

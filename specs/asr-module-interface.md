@@ -24,14 +24,14 @@ from typing import Callable, Awaitable
 
 
 @dataclass
-class ASRResult:
+class SpeechUtterance:
     transcript: str
-    is_final: bool
+    is_final: bool  # False = interim/partial, True = final
     confidence: float | None  # None if not provided by backend
 
 
-# Callback type: called each time the module emits a result
-ResultCallback = Callable[[ASRResult], Awaitable[None]]
+# Callback type: called each time the module emits an utterance
+UtteranceCallback = Callable[[SpeechUtterance], Awaitable[None]]
 # Callback type: called when backend connection state changes (True=connected)
 ConnectedCallback = Callable[[bool], None]
 
@@ -44,14 +44,14 @@ class ASRModule(ABC):
     async def start(
         self,
         audio_queue: asyncio.Queue[bytes],
-        on_result: ResultCallback,
+        on_utterance: UtteranceCallback,
         on_connected: ConnectedCallback | None = None,
     ) -> None:
         """
         Start the ASR module.
 
         - audio_queue: async queue of raw PCM audio chunks (16-bit, mono, 16kHz)
-        - on_result: async callback invoked for each interim or final transcript
+        - on_utterance: async callback invoked for each interim or final utterance
         - on_connected: optional callback invoked with the backend connection
           state (True on connect, False on disconnect). Drives the `connected`
           field of the `is_running` tool.
@@ -103,6 +103,24 @@ module = REGISTRY[asr_type](config=asr_config_dict)
 ```
 
 Modules must validate their config in `__init__` and raise `ValueError` with a clear message if required fields are missing.
+
+## API key resolution
+
+`modules/base.py` provides a shared helper for modules that authenticate with an
+API key, so keys can be kept out of committed config files:
+
+```python
+def resolve_api_key(config: dict, module_label: str) -> str: ...
+```
+
+Resolution precedence:
+
+1. `config["api_key"]` — a literal key.
+2. `config["api_key_env"]` — the **name** of an environment variable to read.
+
+Raises `ValueError` if neither is provided, or if the named environment variable
+is unset or empty. Modules call it in `__init__`
+(e.g. `self._api_key = resolve_api_key(config, "deepgram_v1")`).
 
 ## Reconnection Contract
 

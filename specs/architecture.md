@@ -25,18 +25,19 @@ tests:
 │  │ (PyAudio /  │     │  Deepgram)   │                   │
 │  │  sounddevice│     │              │                   │
 │  └─────────────┘     └──────┬───────┘                   │
-│                             │ ASR results               │
+│                             │ utterances                │
 │                             ▼                           │
 │                      ┌──────────────┐                   │
 │                      │ ASR Engine   │  (background task) │
-│                      │              │                   │
+│                      │ + Segmenter  │                   │
 │                      └──────┬───────┘                   │
-│                             │ notify on update          │
+│                utterances / │ segments (notify)         │
 │                             ▼                           │
 │                      ┌──────────────┐                   │
 │                      │ Resource     │                   │
 │                      │ Manager      │                   │
-│                      │ asr://result │                   │
+│                      │ asr://utter. │                   │
+│                      │ asr://segment│                   │
 │                      └──────┬───────┘                   │
 │                             │                           │
 │                      ┌──────┴───────┐                   │
@@ -68,6 +69,13 @@ The server runs as a single Python process with an `asyncio` event loop:
 1. Audio thread captures PCM audio chunks from the selected input device
 2. Chunks are placed into a shared `asyncio.Queue`
 3. The ASR module reads chunks and streams them to the ASR backend (e.g. Deepgram WebSocket)
-4. The backend returns transcription events (interim / final)
-5. The ASR engine updates the current resource value and calls `notify_resource_updated`
-6. Subscribed MCP clients receive the updated resource
+4. The backend returns transcription events (interim / final) as `SpeechUtterance`s
+5. The ASR engine emits each utterance and, via its `Segmenter`, aggregates
+   utterances into `SpeechSegment`s according to the current segment mode
+   (see [engine.md](engine.md))
+6. The engine updates the `asr://utterance` and `asr://segment` resources and
+   calls `notify_resource_updated`
+7. Subscribed MCP clients receive the updated resources
+
+Segmentation (trigger-word / timeout / one-per-utterance) is owned entirely by
+the engine — see [engine.md](engine.md) for the detail.

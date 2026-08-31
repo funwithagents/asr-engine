@@ -30,7 +30,7 @@ async def test_e2e_listen_trigger_word() -> None:
         port=18003,
         engine_config={"auto_start": False},
         listen_config={
-            "end_of_utterance_mode": "trigger_word",
+            "segment_mode": "trigger_word",
             "trigger_words": ["validate"],
             "sound_feedback": True,
         },
@@ -60,7 +60,7 @@ async def test_e2e_listen_streaming() -> None:
         port=18005,
         engine_config={"auto_start": False},
         listen_config={
-            "end_of_utterance_mode": "timeout",
+            "segment_mode": "timeout",
             "end_of_speech_timeout_s": 2.0,
             "sound_feedback": True,
         },
@@ -96,7 +96,7 @@ async def test_e2e_listen_timeout() -> None:
         port=18004,
         engine_config={"auto_start": False},
         listen_config={
-            "end_of_utterance_mode": "timeout",
+            "segment_mode": "timeout",
             "end_of_speech_timeout_s": 2.0,
             "sound_feedback": True,
         },

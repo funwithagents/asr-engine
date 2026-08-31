@@ -7,7 +7,13 @@ from deepgram import AsyncDeepgramClient
 from deepgram.core.events import EventType
 from deepgram.listen.v2.types.listen_v2turn_info import ListenV2TurnInfo
 
-from asr_mcp.modules.base import ASRModule, ASRResult, ConnectedCallback, ResultCallback
+from asr_mcp.modules.base import (
+    ASRModule,
+    ConnectedCallback,
+    SpeechUtterance,
+    UtteranceCallback,
+    resolve_api_key,
+)
 
 log = logging.getLogger(__name__)
 
@@ -24,10 +30,7 @@ class DeepgramV2Module(ASRModule):
 
     def __init__(self, config: dict) -> None:
         super().__init__(config)
-        if not config.get("api_key"):
-            raise ValueError("deepgram_v2 module requires 'api_key' in config")
-
-        self._api_key: str = config["api_key"]
+        self._api_key: str = resolve_api_key(config, "deepgram_v2")
         self._model: str = config.get("model", "flux-general-en")
         self._eot_threshold: float = config.get("eot_threshold", 0.7)
         self._eot_timeout_ms: int = config.get("eot_timeout_ms", 5000)
@@ -37,7 +40,7 @@ class DeepgramV2Module(ASRModule):
     async def start(
         self,
         audio_queue: asyncio.Queue[bytes],
-        on_result: ResultCallback,
+        on_utterance: UtteranceCallback,
         on_connected: ConnectedCallback | None = None,
     ) -> None:
         self._stop_event.clear()
@@ -65,8 +68,8 @@ class DeepgramV2Module(ASRModule):
                             if not transcript:
                                 return
                             is_final = msg.event == "EndOfTurn"
-                            await on_result(
-                                ASRResult(
+                            await on_utterance(
+                                SpeechUtterance(
                                     transcript=transcript,
                                     is_final=is_final,
                                     confidence=msg.end_of_turn_confidence,

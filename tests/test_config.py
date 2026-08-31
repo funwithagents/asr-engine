@@ -116,12 +116,40 @@ def test_load_config_engine_and_listen_defaults(tmp_path: Path) -> None:
     cfg = load_config(path)
 
     assert cfg.engine.auto_start is True
-    assert cfg.listen.end_of_utterance_mode == "trigger_word"
+    assert cfg.engine.segment_mode == "utterance"
+    assert cfg.listen.segment_mode == "trigger_word"
     assert cfg.listen.initial_silence_timeout_s == 10.0
     assert cfg.listen.end_of_speech_timeout_s == 5.0
     assert "submit" in cfg.listen.trigger_words
     assert cfg.listen.sound_feedback is True
     assert cfg.audio.output_device is None
+
+
+def test_load_config_engine_segment_block(tmp_path: Path) -> None:
+    path = write_config(
+        tmp_path,
+        {
+            "asr": {"type": "x"},
+            "engine": {
+                "segment_mode": "timeout",
+                "trigger_words": ["stop"],
+                "end_of_speech_timeout_s": 2.0,
+            },
+        },
+    )
+    cfg = load_config(path)
+    assert cfg.engine.segment_mode == "timeout"
+    assert cfg.engine.trigger_words == ["stop"]
+    assert cfg.engine.end_of_speech_timeout_s == 2.0
+
+
+def test_load_config_invalid_engine_segment_mode(tmp_path: Path) -> None:
+    path = write_config(
+        tmp_path,
+        {"asr": {"type": "x"}, "engine": {"segment_mode": "bad_mode"}},
+    )
+    with pytest.raises(ValueError, match="engine.segment_mode"):
+        load_config(path)
 
 
 def test_load_config_auto_start_false(tmp_path: Path) -> None:
@@ -138,13 +166,13 @@ def test_load_config_listen_timeout_mode(tmp_path: Path) -> None:
         {
             "asr": {"type": "x"},
             "listen": {
-                "end_of_utterance_mode": "timeout",
+                "segment_mode": "timeout",
                 "end_of_speech_timeout_s": 3.0,
             },
         },
     )
     cfg = load_config(path)
-    assert cfg.listen.end_of_utterance_mode == "timeout"
+    assert cfg.listen.segment_mode == "timeout"
     assert cfg.listen.end_of_speech_timeout_s == 3.0
 
 
@@ -171,12 +199,12 @@ def test_load_config_sound_feedback_and_output_device(tmp_path: Path) -> None:
     assert cfg.listen.sound_feedback is False
 
 
-def test_load_config_invalid_end_of_utterance_mode(tmp_path: Path) -> None:
+def test_load_config_invalid_listen_segment_mode(tmp_path: Path) -> None:
     path = write_config(
         tmp_path,
-        {"asr": {"type": "x"}, "listen": {"end_of_utterance_mode": "bad_mode"}},
+        {"asr": {"type": "x"}, "listen": {"segment_mode": "bad_mode"}},
     )
-    with pytest.raises(ValueError, match="end_of_utterance_mode"):
+    with pytest.raises(ValueError, match="listen.segment_mode"):
         load_config(path)
 
 

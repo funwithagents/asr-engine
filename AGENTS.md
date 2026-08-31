@@ -8,14 +8,15 @@ A real-time Automatic Speech Recognition (ASR) MCP server written in Python.
 
 - Captures audio continuously from a system input device.
 - Streams audio to a pluggable ASR backend (first: Deepgram).
-- Exposes transcription results as a live MCP resource (`asr://result`) over StreamableHTTP.
+- Exposes transcription results as live MCP resources (`asr://utterance`, `asr://segment`) over StreamableHTTP.
 - Exposes tools to start, stop, query ASR state, and `listen` for a single utterance.
 - Includes a demo client that subscribes to the resource and logs results, and an `asr-to-terminal` bridge that types transcripts into the focused window.
 
 ### Key design decisions
 
 - **Always-on by default:** `engine.auto_start=true` (default) starts ASR at server startup. Set `auto_start=false` for on-demand use via the `start` or `listen` tool.
-- **Single rolling resource:** `asr://result` holds only the latest utterance (interim or final), not a full transcript history.
+- **Rolling resources:** `asr://utterance` holds only the latest utterance (interim or final); `asr://segment` holds the latest aggregated segment. Neither is a full transcript history.
+- **Engine-owned segmentation:** the `ASREngine`'s `Segmenter` aggregates utterances into segments (utterance/trigger_word/timeout modes); clients consume segments rather than re-implementing end-of-utterance logic.
 - **Pluggable modules:** one ASR module active at a time, selected via `asr.type` in config.
 - **StreamableHTTP transport:** enables remote access on a local network.
 - **asyncio throughout:** audio capture runs in a thread, everything else is async on one event loop.
@@ -44,14 +45,14 @@ Where things live. This is a coarse, module-level map — for the full file inve
 | [cli.py](src/asr_mcp/cli.py) | Server entry point (argparse → wires everything) | [mcp-server.md](specs/mcp-server.md) |
 | [config.py](src/asr_mcp/config.py) | Config dataclasses + load/validate | [configuration.md](specs/configuration.md) |
 | [audio.py](src/asr_mcp/audio.py) | `AudioCapture`, `AudioSource` protocol, `FileAudioSource` | [architecture.md](specs/architecture.md) |
-| [engine.py](src/asr_mcp/engine.py) | `ASREngine`: wires audio + module, start/stop | [architecture.md](specs/architecture.md) |
+| [engine.py](src/asr_mcp/engine.py) | `ASREngine`: wires audio + module, start/stop, segmentation, `listen` | [engine.md](specs/engine.md) |
 | [server.py](src/asr_mcp/server.py) | MCP server: resource, tools, StreamableHTTP, `listen` tool | [mcp-server.md](specs/mcp-server.md) |
 | [resource_subscriber.py](src/asr_mcp/resource_subscriber.py) | `ResourceSubscriber`: generic MCP resource watcher | [demo-client.md](specs/demo-client.md) |
-| [resource_client.py](src/asr_mcp/resource_client.py) | `AsrResourceClient`: subscribe to `asr://result` | [demo-client.md](specs/demo-client.md) |
+| [resource_client.py](src/asr_mcp/resource_client.py) | `AsrResourceClient`: subscribe to `asr://utterance` / `asr://segment` | [demo-client.md](specs/demo-client.md) |
 | [tool_client.py](src/asr_mcp/tool_client.py) | `McpToolClient`: single-call MCP tool invocation | [demo-client.md](specs/demo-client.md) |
-| [asr_resource_client.py](src/asr_mcp/asr_resource_client.py) | Demo CLI: subscribe to `asr://result`, log results | [demo-client.md](specs/demo-client.md) |
-| [speech_utils.py](src/asr_mcp/speech_utils.py) | `contains_trigger_word()` — shared trigger-word detection | [end-of-utterance-detector.md](specs/end-of-utterance-detector.md) |
-| [end_of_utterance_detector.py](src/asr_mcp/end_of_utterance_detector.py) | `EndOfUtteranceDetector` + `UtteranceResult`: end-of-utterance logic | [end-of-utterance-detector.md](specs/end-of-utterance-detector.md) |
+| [asr_resource_client.py](src/asr_mcp/asr_resource_client.py) | Demo CLI: subscribe to `asr://utterance`, log results | [demo-client.md](specs/demo-client.md) |
+| [speech_utils.py](src/asr_mcp/speech_utils.py) | `contains_trigger_word()` — shared trigger-word detection | [engine.md](specs/engine.md) |
+| [segmenter.py](src/asr_mcp/segmenter.py) | `Segmenter` + `SpeechSegment`: utterance→segment aggregation (utterance/trigger_word/timeout) | [engine.md](specs/engine.md) |
 | [sound_feedback.py](src/asr_mcp/sound_feedback.py) | `SoundFeedback` + `NoOpSoundFeedback`: WAV cue playback | [sound-feedback.md](specs/sound-feedback.md) |
 | [terminal_typer.py](src/asr_mcp/terminal_typer.py) | `TerminalTyper`: xdotool/ydotool keystroke injection | [asr-to-terminal.md](specs/asr-to-terminal.md) |
 | [asr_to_terminal.py](src/asr_mcp/asr_to_terminal.py) | `AsrToTerminal` state machine + `asr-to-terminal` CLI | [asr-to-terminal.md](specs/asr-to-terminal.md) |
@@ -98,7 +99,15 @@ The mapping is **many-to-many**: a file can be governed by several specs, so the
 
 ### Live/e2e tests
 
-Some tests call the real Deepgram API over the network. They live in `tests-e2e/`, a directory separate from `tests/`, so the fast dev loop (`uv run pytest tests/`) never needs network access or credentials. Run them explicitly (`uv run pytest tests-e2e`), and only when you actually want to verify against the live service. Credentials come from `config.json` (never committed) via `tests-e2e/helpers.load_api_key()`. The file-based e2e pipeline design is specced in [specs/e2e-testing.md](specs/e2e-testing.md).
+Some tests call the real Deepgram API over the network. They live in `tests-e2e/`, a directory separate from `tests/`, so the fast dev loop (`uv run pytest tests/`) never needs network access or credentials. Run them explicitly (`uv run pytest tests-e2e`), and only when you actually want to verify against the live service. The file-based e2e pipeline design is specced in [specs/e2e-testing.md](specs/e2e-testing.md).
+
+**Credentials.** `tests-e2e/helpers.load_api_key()` reads the committed `tests-e2e/e2e.config.json`, which names an environment variable via `asr.api_key_env` (`DEEPGRAM_API_KEY`) rather than embedding a secret — so the config is safe to commit. When that variable is unset, `load_api_key()` **skips** the test rather than failing it.
+
+**The keys live in `~/.zshrc`**, but the shell tool runs a non-interactive `bash`/`zsh` that doesn't source it — a plain `uv run pytest tests-e2e` in that shell sees no keys and every case skips. Source it explicitly in an interactive `zsh` invocation:
+
+```bash
+zsh -ic 'uv run pytest tests-e2e'
+```
 
 **System dependencies for e2e terminal tests:** `tests-e2e/test_asr_to_terminal.py` needs two system packages **not** installed by `uv` — `xdotool` (keystroke injection on X11) and `xterm` (the injection target) — plus a live X11 display (`$DISPLAY`). On Debian/Ubuntu: `sudo apt-get install xdotool xterm`. On a headless server, use Xvfb (`Xvfb :99 -screen 0 1024x768x24 &` then `export DISPLAY=:99`).
 

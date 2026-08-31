@@ -12,12 +12,18 @@ tests:
 
 ## Purpose
 
-`AsrToTerminal` bridges the ASR MCP client with the active terminal window: it
-types interim and final transcripts progressively, overwriting interim text as
-new results arrive, and sends Enter when the end of an utterance is detected.
-End-of-utterance detection is delegated to `EndOfUtteranceDetector`, which
-supports two modes: `trigger_word` (Enter fires when a submit word is spoken)
-and `timeout` (Enter fires after a configurable silence period).
+`AsrToTerminal` bridges the ASR MCP server with the active terminal window: it
+types the current speech *segment* progressively, overwriting text as the
+segment grows, and sends Enter when the segment closes.
+
+Segmentation is **no longer done by the client** — it is owned by the server's
+`ASREngine` and exposed as the `asr://segment` resource (see
+[engine.md](engine.md) and [mcp-server.md](mcp-server.md)). `AsrToTerminal`
+simply subscribes to `asr://segment`, types each `transcript` as it changes, and
+on a closed segment (`is_final=true`) sends Enter and starts fresh. The segment
+mode (`trigger_word` / `timeout` / `utterance`) and its trigger words / timeouts
+are configured **on the server** via the `engine` config block — not on the
+`asr-to-terminal` CLI.
 
 ---
 
@@ -51,38 +57,15 @@ the external tool and await completion).
 
 ### `AsrToTerminal`
 
-Owns an `AsrResourceClient`, a `TerminalTyper`, and a background session loop
-that drives `EndOfUtteranceDetector` instances (one per utterance).
+Owns an `AsrResourceClient` (subscribed to `asr://segment`) and a `TerminalTyper`.
+No session loop, no detector — the server closes segments.
 
 **Constructor parameters:**
 
-| Parameter                   | Type        | Default                              |
-|-----------------------------|-------------|--------------------------------------|
-| `server_url`                | `str`       | `"http://127.0.0.1:8000/mcp"`        |
-| `display_server`            | `str\|None` | `None` (auto-detect)                 |
-| `mode`                      | `str`       | `"trigger_word"`                     |
-| `trigger_words`             | `list[str]` | see *Default trigger words* below    |
-| `end_of_speech_timeout_s`   | `float`     | `5.0`                                |
-| `initial_silence_timeout_s` | `float`     | `10.0`                               |
-
-**Default trigger words** (case-insensitive, only used in `trigger_word` mode):
-
-```python
-[
-    "submit",
-    "enter",
-    "validate",
-    "send",
-    "confirm",
-    "go",
-    "envoyer",
-    "valider",
-    "confirmer",
-    "soumettre",
-    "entree",
-    "entrée",
-]
-```
+| Parameter        | Type        | Default                          |
+|------------------|-------------|----------------------------------|
+| `server_url`     | `str`       | `"http://127.0.0.1:8000/mcp"`    |
+| `display_server` | `str\|None` | `None` (auto-detect)             |
 
 ---
 
@@ -90,49 +73,22 @@ that drives `EndOfUtteranceDetector` instances (one per utterance).
 
 One piece of mutable state:
 
-- `_pending: str` — the interim text currently displayed in the terminal.
-  Reset to `""` after every final result or Enter.
+- `_pending: str` — the segment text currently displayed in the terminal.
+  Reset to `""` after Enter is sent (segment closed).
 
-### On any ASR event
+### On each `asr://segment` update
 
-Every event (interim and final) is forwarded to the current
-`EndOfUtteranceDetector` session via `session.on_result(result)` so that timers
-stay synchronised with the actual speech stream.
+Each update carries `{transcript, is_final, end_reason, ...}`.
 
-### On interim result
+1. **Type the diff:** send `len(_pending) - common_prefix_len` Backspaces, type
+   the differing suffix, then set `_pending = transcript`. (This handles both the
+   growing open segment and the final text in one path.)
+2. **If `is_final` is true (segment closed):** send Enter, then set
+   `_pending = ""` so the next segment starts fresh.
 
-1. Send `len(_pending)` Backspace keystrokes (erase previous interim).
-2. Type the new interim transcript.
-3. Set `_pending = new_transcript`.
-
-### On final result (no trigger word / no timeout yet)
-
-1. Send `len(_pending) - common_prefix_len` Backspace keystrokes.
-2. Type the suffix that differs.
-3. Set `_pending = ""` (text committed; next interim starts fresh).
-
-### Session loop (background task)
-
-Runs continuously while `AsrToTerminal` is active:
-
-1. Create a new `EndOfUtteranceDetector` for the current utterance.
-2. `await session.wait()` — blocks until end-of-utterance is signalled.
-3. Erase `_pending` (send `len(_pending)` Backspaces).
-4. Send Enter.
-5. Set `_pending = ""`.
-6. Go to step 1 (start the next utterance).
-
-#### `trigger_word` mode
-
-The session ends when a final result contains a submit word. The submit word
-utterance is not typed (the trigger detection fires before the text would be
-committed). All preceding finals have already been typed progressively.
-
-#### `timeout` mode
-
-The session ends after `end_of_speech_timeout_s` seconds of silence following
-the last ASR event (or `initial_silence_timeout_s` if nothing was heard at all).
-Enter fires automatically after the silence elapses.
+In `trigger_word` mode the server already excludes the trigger-word utterance
+from the closed segment's `transcript`, so the trigger word is never typed. In
+`timeout` mode Enter fires when the server closes the segment after silence.
 
 > **Note on character counting:** backspace count is based on `len(str)` (Unicode
 > code points). Display-width issues (CJK wide chars, combining chars) are out of
@@ -144,22 +100,16 @@ Enter fires automatically after the silence elapses.
 
 ```
 asr-to-terminal [--server URL] [--display-server x11|wayland]
-                [--mode trigger_word|timeout] [--trigger-words WORD ...]
-                [--end-of-speech-timeout SECONDS] [--initial-silence-timeout SECONDS]
 ```
 
-| Flag                        | Default                              |
-|-----------------------------|--------------------------------------|
-| `--server`                  | `http://127.0.0.1:8000/mcp`          |
-| `--display-server`          | auto-detect via `$XDG_SESSION_TYPE`  |
-| `--mode`                    | `trigger_word`                       |
-| `--trigger-words`           | (built-in defaults, see above)       |
-| `--end-of-speech-timeout`   | `5.0`                                |
-| `--initial-silence-timeout` | `10.0`                               |
+| Flag                | Default                              |
+|---------------------|--------------------------------------|
+| `--server`          | `http://127.0.0.1:8000/mcp`          |
+| `--display-server`  | auto-detect via `$XDG_SESSION_TYPE`  |
 
-When `--trigger-words` is provided it **replaces** the default list entirely.
-`--trigger-words`, `--end-of-speech-timeout`, and `--initial-silence-timeout`
-are only active in `trigger_word` and `timeout` modes respectively.
+Segment mode, trigger words and timeouts are set on the **server** (`engine`
+config block), not here — every client of the server shares the same
+segmentation.
 
 ---
 
@@ -171,9 +121,8 @@ session or interfere with injected keystrokes.
 | Event                        | Log line                                    |
 |------------------------------|---------------------------------------------|
 | Connected to MCP server      | `[INFO] Connected to <url>`                 |
-| Interim received             | `[INTERIM] <transcript>`                    |
-| Final committed              | `[FINAL] <transcript>`                      |
-| Submit word triggered        | `[SUBMIT] <transcript> → Enter`             |
+| Segment update (open)        | `[SEGMENT] <transcript>`                    |
+| Segment closed → Enter       | `[ENTER] <transcript> (<end_reason>)`       |
 | Connection lost / retrying   | `[WARN] Connection lost, retrying…`         |
 | Disconnected (Ctrl-C)        | `[INFO] Disconnected`                       |
 
@@ -183,16 +132,13 @@ session or interfere with injected keystrokes.
 
 ```
 src/asr_mcp/
-    speech_utils.py                  # contains_trigger_word() — shared with listen tool
-    terminal_typer.py                # TerminalTyper
-    end_of_utterance_detector.py     # EndOfUtteranceDetector + UtteranceResult
-    asr_to_terminal.py               # AsrToTerminal + main()
+    terminal_typer.py    # TerminalTyper
+    asr_to_terminal.py   # AsrToTerminal + main()
 ```
 
-`AsrToTerminal` delegates end-of-utterance logic to `EndOfUtteranceDetector`
-(see [end-of-utterance-detector.md](end-of-utterance-detector.md)). The submit
-word list passed to `EndOfUtteranceDetector` remains independent from the
-`listen` tool's trigger word list.
+`AsrToTerminal` does no segmentation of its own — it consumes the server's
+`asr://segment` resource, which the engine's `Segmenter` produces (see
+[engine.md](engine.md)).
 
 Entry point registered in `pyproject.toml`:
 

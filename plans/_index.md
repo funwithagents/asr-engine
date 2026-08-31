@@ -22,6 +22,8 @@ Implementation plans for ASR MCP — each plan turns a settled part of a spec (s
 | [202603200955_listen-streaming.md](202603200955_listen-streaming.md) | Progress notifications for `listen` tool: `on_final_committed` callback, `ctx: Context`, `progress_callback` in `McpToolClient` | Done |
 | [202603201532_end-of-utterance-detector.md](202603201532_end-of-utterance-detector.md) | Rename `ListenSession` → `EndOfUtteranceDetector`, wire into `AsrToTerminal` with `trigger_word`/`timeout` mode support | Done |
 | [202603201617_sound-feedback.md](202603201617_sound-feedback.md) | Play bundled WAV cues at `listen` start/stop; `audio.output_device` config; `SoundFeedback` module | Done |
+| [202608311200_utterance-segment-model.md](202608311200_utterance-segment-model.md) | `SpeechUtterance`/`SpeechSegment`, `Segmenter`, engine-owned segmentation, `asr://utterance`+`asr://segment`, thin `asr-to-terminal` | Done |
+| [202608311400_api-key-env.md](202608311400_api-key-env.md) | `api_key_env` config option + `resolve_api_key` helper; committed `e2e.config.json` referencing an env var | Done |
 
 ## Status legend
 

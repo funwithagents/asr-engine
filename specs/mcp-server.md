@@ -19,63 +19,76 @@ tests:
 
 ## Resources
 
-### `asr://result`
+The server exposes two rolling resources, both `application/json` and both
+subscribable. They are fed by the engine's `on_speech_utterance` and
+`on_speech_segment` callbacks respectively (see [engine.md](engine.md)).
 
-The single rolling resource holding the latest ASR utterance.
+### `asr://utterance`
 
-- **URI:** `asr://result`
-- **MIME type:** `application/json`
-- **Updated:** every time the ASR module emits an interim or final result
-- **Subscriptions:** clients may subscribe to receive push notifications on each update
+The latest ASR utterance — one atomic result, interim or final.
 
-#### Resource payload schema
+- **URI:** `asr://utterance`
+- **Updated:** every time the ASR module emits an interim or final utterance
+
+#### Payload schema
 
 ```json
 {
   "type": "object",
   "properties": {
-    "transcript": {
-      "type": "string",
-      "description": "The transcribed text of the current utterance"
-    },
-    "is_final": {
-      "type": "boolean",
-      "description": "true = final result for this utterance, false = interim/partial"
-    },
-    "confidence": {
-      "type": "number",
-      "description": "Confidence score between 0 and 1. null if not provided by the backend."
-    },
-    "timestamp": {
-      "type": "string",
-      "format": "date-time",
-      "description": "ISO 8601 UTC timestamp of when the result was emitted by the server"
-    }
+    "transcript": { "type": "string", "description": "Text of the current utterance" },
+    "is_final": { "type": "boolean", "description": "true = final, false = interim/partial" },
+    "confidence": { "type": "number", "description": "0–1, or null if not provided by the backend" },
+    "timestamp": { "type": "string", "format": "date-time", "description": "ISO 8601 UTC emit time" }
   },
   "required": ["transcript", "is_final", "timestamp"]
 }
 ```
 
-#### Example payloads
+Interim example:
+```json
+{ "transcript": "hello how are", "is_final": false, "confidence": null, "timestamp": "2026-03-17T10:23:45.123Z" }
+```
+Final example:
+```json
+{ "transcript": "Hello, how are you?", "is_final": true, "confidence": 0.98, "timestamp": "2026-03-17T10:23:47.456Z" }
+```
 
-Interim result:
+### `asr://segment`
+
+The latest ASR *segment* — an aggregation of utterances per the engine's
+current segment mode (`utterance` / `trigger_word` / `timeout`, configured by
+the `engine` block). `is_final=false` while the segment is still growing;
+`is_final=true` with an `end_reason` when it closes.
+
+- **URI:** `asr://segment`
+- **Updated:** every time the current segment changes (grows or closes)
+
+#### Payload schema
+
 ```json
 {
-  "transcript": "hello how are",
-  "is_final": false,
-  "confidence": null,
-  "timestamp": "2026-03-17T10:23:45.123Z"
+  "type": "object",
+  "properties": {
+    "transcript": { "type": "string", "description": "Committed finals joined, plus the current interim while open" },
+    "is_final": { "type": "boolean", "description": "true once the segment has closed" },
+    "end_reason": {
+      "type": "string",
+      "description": "null while open; else 'utterance', 'trigger_word', 'end_of_speech_timeout', or 'initial_silence_timeout'"
+    },
+    "timestamp": { "type": "string", "format": "date-time", "description": "ISO 8601 UTC emit time" }
+  },
+  "required": ["transcript", "is_final", "timestamp"]
 }
 ```
 
-Final result:
+Growing (open) example:
 ```json
-{
-  "transcript": "Hello, how are you?",
-  "is_final": true,
-  "confidence": 0.98,
-  "timestamp": "2026-03-17T10:23:47.456Z"
-}
+{ "transcript": "the sky is blue", "is_final": false, "end_reason": null, "timestamp": "2026-03-17T10:23:46.000Z" }
+```
+Closed example (trigger word spoken):
+```json
+{ "transcript": "the sky is blue", "is_final": true, "end_reason": "trigger_word", "timestamp": "2026-03-17T10:23:47.500Z" }
 ```
 
 ## Tools
@@ -194,10 +207,15 @@ The `listen` tool emits `notifications/progress` messages as each final ASR
 result is committed to the transcript. This allows callers to display
 incremental output without waiting for the full session to complete.
 
+The tool receives every segment update via `on_update` but reports progress
+**only when the committed-final count grows** (`len(segment.utterances)`
+increases) — interim segment updates and the trigger-word utterance do not
+produce notifications.
+
 - **One notification per committed final** — interim results and the
   trigger-word utterance (which ends the session) do not produce notifications.
-- **`progress` field** — the count of committed finals so far (monotonically
-  increasing; useful for clients that display a progress bar).
+- **`progress` field** — the count of committed finals so far
+  (`len(segment.utterances)`; monotonically increasing).
 - **`total` field** — always `None` (utterance length is unknown in advance).
 - **`message` field** — the full accumulated transcript up to and including
   the latest committed final (space-joined), not just the new fragment.
@@ -215,43 +233,20 @@ async def on_progress(
 result = await client.call_tool("listen", progress_callback=on_progress)
 ```
 
-#### Internal implementation: `EndOfUtteranceDetector`
+#### Internal implementation
 
-The session logic lives in `EndOfUtteranceDetector`, a shared class also used
-by `AsrToTerminal`. See [end-of-utterance-detector.md](end-of-utterance-detector.md)
-for the full specification.
+The session logic lives in the engine's `listen` primitive and its `Segmenter`
+(see [engine.md](engine.md)). The tool:
 
-```python
-class EndOfUtteranceDetector:
-    def __init__(
-        self,
-        mode: str,  # "trigger_word" or "timeout"
-        trigger_words: list[str],
-        initial_silence_timeout_s: float,  # timeout mode only
-        end_of_speech_timeout_s: float,  # timeout mode only
-        on_final_committed: ...,  # optional streaming callback
-    ) -> None: ...
+1. Builds the `listen` config (mode, trigger words, timeouts).
+2. Plays the start sound cue, then calls
+   `engine.listen(..., on_update=_report_progress)`.
+3. Maps `on_update` to `notifications/progress` (see Streaming below).
+4. Plays the stop cue and returns
+   `{"transcript": segment.transcript, "end_reason": segment.end_reason}`.
 
-    async def on_result(self, result: ASRResult) -> None:
-        """Feed an ASR result into the session."""
-
-    async def wait(self) -> UtteranceResult:
-        """Block until the session ends and return the result."""
-```
-
-`UtteranceResult` is a dataclass with fields `transcript: str` and `end_reason: str`.
-
-#### Shared trigger word detection
-
-Both `listen` and `AsrToTerminal` detect trigger/submit words using the same
-function, extracted to `src/asr_mcp/speech_utils.py`:
-
-```python
-def contains_trigger_word(transcript: str, words: list[str]) -> bool:
-    """Case-insensitive substring match of any word against transcript."""
-```
-
-`AsrToTerminal._contains_submit_word` is replaced by a call to this function.
+The returned `SpeechSegment` carries the committed finals (`transcript`) and the
+`end_reason` that closed it.
 
 ## Lifecycle
 

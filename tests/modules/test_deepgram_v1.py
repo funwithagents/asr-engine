@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from asr_mcp.modules.base import ASRResult
+from asr_mcp.modules.base import SpeechUtterance
 from asr_mcp.modules.deepgram_v1 import DeepgramV1Module
 
 # ---------------------------------------------------------------------------
@@ -216,9 +216,9 @@ async def test_audio_loop_exits_when_stopped() -> None:
 
 
 async def _run_with_messages(messages, module_config=None):
-    received: list[ASRResult] = []
+    received: list[SpeechUtterance] = []
 
-    async def on_result(r: ASRResult) -> None:
+    async def on_result(r: SpeechUtterance) -> None:
         received.append(r)
 
     conn = _make_mock_conn(messages)
@@ -252,7 +252,7 @@ async def test_on_message_interim_emits_non_final_result() -> None:
 
 @pytest.mark.asyncio
 async def test_on_message_is_final_emits_final_result() -> None:
-    """is_final=True → ASRResult.is_final=True (segment committed by Deepgram)."""
+    """is_final=True → SpeechUtterance.is_final=True (segment committed by Deepgram)."""
     received = await _run_with_messages(
         [make_v1_results("goodbye", is_final=True, confidence=0.95)]
     )
