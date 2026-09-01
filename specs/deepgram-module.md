@@ -20,15 +20,12 @@ Two Deepgram modules are provided, targeting different API versions and use case
 
 ## API key resolution
 
-Both modules resolve their API key via `resolve_api_key` (see
-[asr-module-interface.md](asr-module-interface.md)). Provide **either**:
+Both modules resolve their API key via `resolve_api_key` (see [asr-module-interface.md](asr-module-interface.md)). Provide **either**:
 
 - `api_key` — a literal key, or
 - `api_key_env` — the **name** of an environment variable holding the key.
 
-`api_key` wins if both are present. `api_key_env` keeps secrets out of config
-files so the config can be committed. If neither is set — or the named variable
-is unset/empty — construction raises `ValueError`.
+`api_key` wins if both are present. `api_key_env` keeps secrets out of config files so the config can be committed. If neither is set — or the named variable is unset/empty — construction raises `ValueError`.
 
 ---
 
@@ -36,11 +33,7 @@ is unset/empty — construction raises `ValueError`.
 
 ### Overview
 
-Uses the Deepgram Listen v1 WebSocket API with any v1-compatible model.
-`SpeechUtterance.is_final` maps from Deepgram's `is_final`, meaning the backend
-has committed that transcript chunk. The module deliberately does not use
-`speech_final`, so a final v1 result is not necessarily a natural
-end-of-utterance boundary.
+Uses the Deepgram Listen v1 WebSocket API with any v1-compatible model. `SpeechUtterance.is_final` maps from Deepgram's `is_final`, meaning the backend has committed that transcript chunk. The module deliberately does not use `speech_final`, so a final v1 result is not necessarily a natural end-of-utterance boundary.
 
 ### Configuration Fields
 
@@ -53,8 +46,7 @@ end-of-utterance boundary.
 | `punctuate` | boolean | no | `true` | Enable automatic punctuation |
 | `interim_results` | boolean | no | `true` | Enable interim results |
 
-¹ Provide at least one of `api_key` / `api_key_env`; `api_key` takes precedence
-when both are set (see [API key resolution](#api-key-resolution)).
+¹ Provide at least one of `api_key` / `api_key_env`; `api_key` takes precedence when both are set (see [API key resolution](#api-key-resolution)).
 
 ### Example Config
 
@@ -92,8 +84,7 @@ msg.is_final                             → SpeechUtterance.is_final
 - Results with empty transcript are discarded.
 - Non-`ListenV1Results` messages (e.g. `Metadata`) are ignored.
 
-Note: `speech_final` (endpointing signal) is intentionally not used. It depends on
-endpointing configuration and is not reliably set by all models (notably nova-3).
+Note: `speech_final` (endpointing signal) is intentionally not used. It depends on endpointing configuration and is not reliably set by all models (notably nova-3).
 
 ### KeepAlive
 
@@ -119,8 +110,7 @@ Supports only Flux-family models (`flux-general-en`, etc.). Not suitable for non
 | `eot_threshold` | float | no | `0.7` | End-of-turn confidence threshold (0.5–0.9) |
 | `eot_timeout_ms` | int | no | `2000` | Silence timeout before forced turn-end (ms) |
 
-¹ Provide at least one of `api_key` / `api_key_env`; `api_key` takes precedence
-when both are set (see [API key resolution](#api-key-resolution)).
+¹ Provide at least one of `api_key` / `api_key_env`; `api_key` takes precedence when both are set (see [API key resolution](#api-key-resolution)).
 
 ### Example Config
 

@@ -13,14 +13,10 @@ tests:
 
 Provide a real-time Automatic Speech Recognition (ASR) **engine** that:
 - Runs continuously, capturing audio and transcribing speech
-- Can be used two ways: **directly** (`import asr_engine`, construct an
-  `ASREngine`, consume utterances/segments) or **over MCP** (the bundled server)
-- Owns segmentation and sound feedback internally, so consumers don't re-implement
-  end-of-utterance logic
+- Can be used two ways: **directly** (`import asr_engine`, construct an `ASREngine`, consume utterances/segments) or **over MCP** (the bundled server)
+- Owns segmentation and sound feedback internally, so consumers don't re-implement end-of-utterance logic
 - Supports swappable ASR backend modules configured via a JSON config file
-- Exposes lifecycle, `listen`, and dictation tools as a transport-agnostic
-  layer that in-process agents can register directly and the MCP server surfaces
-  over StreamableHTTP
+- Exposes lifecycle, `listen`, and dictation tools as a transport-agnostic layer that in-process agents can register directly and the MCP server surfaces over StreamableHTTP
 
 ## Components
 
@@ -32,9 +28,7 @@ Provide a real-time Automatic Speech Recognition (ASR) **engine** that:
 | **ASR Module** | Pluggable backend implementing the ASR interface (first: Deepgram) |
 | **Audio Capture** | Reads from system audio input (configurable) |
 
-The three components below are **not part of the library** — they live in
-`examples/` as runnable consumers (see [project.md](project.md) "Repo shape"),
-outside the wheel, and demonstrate the two usage patterns:
+The three components below are **not part of the library** — they live in `examples/` as runnable consumers (see [project.md](project.md) "Repo shape"), outside the wheel, and demonstrate the two usage patterns:
 
 | Example | Description |
 |---|---|

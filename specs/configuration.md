@@ -17,10 +17,7 @@ The MCP server reads a JSON config file at startup, passed as a CLI argument:
 uv run asr-engine-mcp --config config.json
 ```
 
-The file has two top-level blocks: `server` (an MCP-only concern — host/port) and
-`engine` (everything the `ASREngine` itself needs). A direct importer of the
-library builds an `ASREngineConfig` from the `engine` block alone and never needs
-`server`.
+The file has two top-level blocks: `server` (an MCP-only concern — host/port) and `engine` (everything the `ASREngine` itself needs). A direct importer of the library builds an `ASREngineConfig` from the `engine` block alone and never needs `server`.
 
 ## Schema
 
@@ -73,9 +70,7 @@ Consumed by the MCP entry point, not by `ASREngine`.
 
 ### `engine` block → `ASREngineConfig`
 
-The whole `engine` block maps to one `ASREngineConfig` dataclass, the single
-argument to `ASREngine(config=...)` (see [engine.md](engine.md)). It carries the
-scalar engine settings plus five nested sub-blocks.
+The whole `engine` block maps to one `ASREngineConfig` dataclass, the single argument to `ASREngine(config=...)` (see [engine.md](engine.md)). It carries the scalar engine settings plus five nested sub-blocks.
 
 | Field | Type | Default | Description |
 |---|---|---|---|
@@ -85,24 +80,14 @@ scalar engine settings plus five nested sub-blocks.
 | `dictation_default_segmentation_mode` | string | `"trigger_word"` | The segmentation mode `start_dictation()` uses when its caller passes no explicit mode. One of `"utterance"`, `"trigger_word"`, or `"timeout"`. |
 | `segmentation` | object | see below | Segmentation parameters (trigger words + timeouts) shared by the always-on stream, `listen`, **and** dictation. |
 
-> **No always-on `segmentation_mode`.** The always-on `asr://segment` stream is
-> `utterance` mode (one segment per final utterance) unless a *dictation* session
-> is active. To aggregate utterances (trigger-word or timeout), either set
-> `auto_start_dictation=true` so the server begins in a persistent dictation at
-> startup, or have a consumer call the `start_dictation` tool / use `listen` —
-> all of which switch the engine's segmentation mode and revert to `utterance`
-> when they end. This is what `asr-to-terminal` relies on for continuous
-> aggregation (see [asr-to-terminal.md](asr-to-terminal.md)). See
-> [engine.md](engine.md).
+> **No always-on `segmentation_mode`.** The always-on `asr://segment` stream is `utterance` mode (one segment per final utterance) unless a *dictation* session is active. To aggregate utterances (trigger-word or timeout), either set `auto_start_dictation=true` so the server begins in a persistent dictation at startup, or have a consumer call the `start_dictation` tool / use `listen` — all of which switch the engine's segmentation mode and revert to `utterance` when they end. This is what `asr-to-terminal` relies on for continuous aggregation (see [asr-to-terminal.md](asr-to-terminal.md)). See [engine.md](engine.md).
 | `sound_feedback` | object | see below | Start/stop audio cues, owned and played by the engine during `listen`. |
 | `audio` | object | see below | Audio input / file-source settings. |
 | `module` | object | — | ASR backend selection and its module-specific fields. **Required.** |
 
 #### `engine.segmentation` sub-block
 
-The single source of segmentation parameters. The always-on segmenter, `listen`,
-and dictation all read these — `listen` and dictation only ever change the
-*mode*, never these params (see [engine.md](engine.md)).
+The single source of segmentation parameters. The always-on segmenter, `listen`, and dictation all read these — `listen` and dictation only ever change the *mode*, never these params (see [engine.md](engine.md)).
 
 | Field | Type | Default | Description |
 |---|---|---|---|
@@ -117,10 +102,7 @@ and dictation all read these — `listen` and dictation only ever change the
 | `enabled` | boolean | `true` | Play start/stop audio cues during `listen`. `false` installs a no-op. |
 | `output_device` | string / integer / null | `null` | Output device name or index for cue playback. `null` = system default. |
 
-> **No `engine.logging` block.** Logging is an application-layer concern: the
-> library configures nothing, and the `asr-engine-mcp` server's log level is set
-> by the `--log-level` CLI flag (default `INFO`), not by config. See
-> [project.md](project.md) and [mcp-server.md](mcp-server.md).
+> **No `engine.logging` block.** Logging is an application-layer concern: the library configures nothing, and the `asr-engine-mcp` server's log level is set by the `--log-level` CLI flag (default `INFO`), not by config. See [project.md](project.md) and [mcp-server.md](mcp-server.md).
 
 #### `engine.audio` sub-block
 
@@ -134,12 +116,7 @@ and dictation all read these — `listen` and dictation only ever change the
 | `encoding` | string | `"linear16"` | Wire encoding delivered to the module: `"linear16"` (s16 PCM) or `"mulaw"` (G.711 μ-law, transcoded in-pipeline from the captured s16). Reconciled like `sample_rate`. |
 | `on_unsupported_format` | string | `"error"` | Policy when a configured dimension isn't in the module's supported set: `"error"` fails fast at engine construction with a message listing supported values; `"fallback"` uses the module's declared default for that dimension and logs a warning. |
 
-The three format fields (`sample_rate`/`channels`/`encoding`) form the desired
-`AudioFormat`. Live capture opens its stream at that rate/channels (PortAudio
-does any device conversion) and transcodes to the encoding; `mulaw` silence is
-`0xFF`, not zero bytes, so silence is transcoded rather than assumed. WAV file
-sources are validated against the configured rate/channels (they are **not**
-resampled) and re-encoded to `mulaw` when asked.
+The three format fields (`sample_rate`/`channels`/`encoding`) form the desired `AudioFormat`. Live capture opens its stream at that rate/channels (PortAudio does any device conversion) and transcodes to the encoding; `mulaw` silence is `0xFF`, not zero bytes, so silence is transcoded rather than assumed. WAV file sources are validated against the configured rate/channels (they are **not** resampled) and re-encoded to `mulaw` when asked.
 
 #### `engine.module` sub-block
 
@@ -154,8 +131,7 @@ submit, enter, validate, send, confirm, go,
 envoyer, valider, confirmer, soumettre, entree, entrée
 ```
 
-**Segmentation mode behaviour summary** (applies to `listen` and dictation; the
-always-on stream is fixed to `utterance`):
+**Segmentation mode behaviour summary** (applies to `listen` and dictation; the always-on stream is fixed to `utterance`):
 
 | Mode | Segment closes when | Timeouts |
 |---|---|---|
@@ -163,9 +139,7 @@ always-on stream is fixed to `utterance`):
 | `trigger_word` | A final utterance contains a trigger word (case-insensitive substring match) | None |
 | `timeout` | Silence for `end_of_speech_timeout_s` after last event, or `initial_silence_timeout_s` with no speech at all | Both timers active |
 
-All three modes are valid for `listen` and dictation. In `utterance` mode a
-`listen` returns after exactly one final utterance, and a dictation with
-`end_on_final_segment=true` ends after one — coherent, if degenerate.
+All three modes are valid for `listen` and dictation. In `utterance` mode a `listen` returns after exactly one final utterance, and a dictation with `end_on_final_segment=true` ends after one — coherent, if degenerate.
 
 ## Example: Deepgram config
 
@@ -200,12 +174,5 @@ All three modes are valid for `listen` and dictation. In `utterance` mode a
   - `engine.auto_start_dictation` is `true` while `engine.auto_start` is `false`
   - `engine.audio.encoding` is not one of `linear16` / `mulaw`
   - `engine.audio.on_unsupported_format` is not one of `error` / `fallback`
-- The configured audio format is reconciled against the selected module's
-  declared support at engine construction (startup). Under the default
-  `on_unsupported_format="error"`, an unsupported `sample_rate` / `channels` /
-  `encoding` raises a clear `ValueError` listing the module's supported values;
-  under `"fallback"` it logs a warning and uses the module's default for that
-  dimension.
-- The specified audio device is verified when audio capture first starts, and an
-  unknown device raises a clear error there — at startup when `engine.auto_start`
-  is `true`, or on the first `start`/`listen` call when it is `false`.
+- The configured audio format is reconciled against the selected module's declared support at engine construction (startup). Under the default `on_unsupported_format="error"`, an unsupported `sample_rate` / `channels` / `encoding` raises a clear `ValueError` listing the module's supported values; under `"fallback"` it logs a warning and uses the module's default for that dimension.
+- The specified audio device is verified when audio capture first starts, and an unknown device raises a clear error there — at startup when `engine.auto_start` is `true`, or on the first `start`/`listen` call when it is `false`.
