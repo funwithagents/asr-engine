@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Awaitable, Callable
 
-from asr_engine.resource_subscriber import ResourceSubscriber
+from examples.mcp_client.resource_subscriber import ResourceSubscriber
 
 _DEFAULT_RESOURCE_URI = "asr://utterance"
 

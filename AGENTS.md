@@ -10,7 +10,7 @@ A real-time Automatic Speech Recognition (ASR) MCP server written in Python.
 - Streams audio to a pluggable ASR backend (first: Deepgram).
 - Exposes transcription results as live MCP resources (`asr://utterance`, `asr://segment`) over StreamableHTTP.
 - Exposes tools to start, stop, query ASR state, and `listen` for a single utterance.
-- Includes a demo client that subscribes to the resource and logs results, and an `asr-to-terminal` bridge that types transcripts into the focused window.
+- Ships `examples/` consumers (not part of the package): a demo client that subscribes to the resource and logs results, and an `asr-to-terminal` bridge that types transcripts into the focused window.
 
 ### Key design decisions
 
@@ -34,7 +34,7 @@ Where things live. This is a coarse, module-level map — for the full file inve
 | `plans/` | Implementation plans turning settled specs into buildable steps — indexed by [plans/_index.md](plans/_index.md) |
 | `tests/` | Fast, deterministic, no-network tests; mirrors the `src/asr_engine/` module structure |
 | `tests-e2e/` | Opt-in live tests that call the real Deepgram API (not collected by the fast dev loop) |
-| `examples/` | Runnable examples that depend on the library but aren't part of it (e.g. the Gradio demo — see [specs/gradio-demo.md](specs/gradio-demo.md)); not built into the wheel |
+| `examples/` | Runnable consumers of the library, not part of it and not built into the wheel. Three subpackages, each run via `python -m examples.<pkg>.<module>`: `gradio_demo/` (direct-import UI — [specs/gradio-demo.md](specs/gradio-demo.md)), `mcp_client/` (MCP subscription SDK `resource_subscriber`/`resource_client` + the `asr_resource_client` demo CLI — [specs/demo-client.md](specs/demo-client.md)), `asr_to_terminal/` (`terminal_typer` + the `asr_to_terminal` bridge — [specs/asr-to-terminal.md](specs/asr-to-terminal.md)). Examples may import each other (`asr_to_terminal` uses `mcp_client`). Their fast tests live in `tests/examples/`; e2e coverage in `tests-e2e/` |
 | `scripts/` | Standalone debug/utility scripts (not part of the package) |
 
 ### `src/asr_engine/` modules
@@ -49,14 +49,9 @@ Where things live. This is a coarse, module-level map — for the full file inve
 | [engine.py](src/asr_engine/engine.py) | `ASREngine`: built from `ASREngineConfig`; wires audio + module, start/stop, segmentation, sound feedback, logging level, `listen` | [engine.md](specs/engine.md) |
 | [tools.py](src/asr_engine/tools.py) | `AsrTools`: transport-agnostic `start`/`stop`/`is_running`/`listen` over an `ASREngine` | [tools.md](specs/tools.md) |
 | [server.py](src/asr_engine/server.py) | MCP server: resources + StreamableHTTP, thin MCP adapter over `AsrTools` | [mcp-server.md](specs/mcp-server.md) |
-| [resource_subscriber.py](src/asr_engine/resource_subscriber.py) | `ResourceSubscriber`: generic MCP resource watcher | [demo-client.md](specs/demo-client.md) |
-| [resource_client.py](src/asr_engine/resource_client.py) | `AsrResourceClient`: subscribe to `asr://utterance` / `asr://segment` | [demo-client.md](specs/demo-client.md) |
-| [asr_resource_client.py](src/asr_engine/asr_resource_client.py) | Demo CLI: subscribe to `asr://utterance`, log results | [demo-client.md](specs/demo-client.md) |
 | [speech_utils.py](src/asr_engine/speech_utils.py) | `contains_trigger_word()` — shared trigger-word detection | [engine.md](specs/engine.md) |
 | [segmenter.py](src/asr_engine/segmenter.py) | `Segmenter` + `SpeechSegment`: utterance→segment aggregation (utterance/trigger_word/timeout) | [engine.md](specs/engine.md) |
 | [sound_feedback.py](src/asr_engine/sound_feedback.py) | `SoundFeedback` + `NoOpSoundFeedback`: WAV cue playback | [sound-feedback.md](specs/sound-feedback.md) |
-| [terminal_typer.py](src/asr_engine/terminal_typer.py) | `TerminalTyper`: xdotool/ydotool keystroke injection | [asr-to-terminal.md](specs/asr-to-terminal.md) |
-| [asr_to_terminal.py](src/asr_engine/asr_to_terminal.py) | `AsrToTerminal` state machine + `asr-to-terminal` CLI | [asr-to-terminal.md](specs/asr-to-terminal.md) |
 | [_logging.py](src/asr_engine/_logging.py) | `setup_logging()` for entry points and scripts | [project.md](specs/project.md) |
 | [__init__.py](src/asr_engine/__init__.py) | Package glue (no owning spec) | — |
 
@@ -138,10 +133,14 @@ uv run pytest tests-e2e/     # opt-in live tier (needs the provider API key; con
 
 ### Entry points
 
+`asr-engine-mcp` is the only console script (the client-side apps live in
+`examples/`, outside the wheel, and run via `python -m`):
+
 ```bash
-uv run asr-engine-mcp --config config.json   # Start the MCP server
-uv run asr-mcp-client                        # Demo resource client (default: http://127.0.0.1:8000/mcp)
-uv run asr-to-terminal [--server URL] [--display-server x11|wayland]
+uv run asr-engine-mcp --config config.json                              # Start the MCP server
+uv run python -m examples.mcp_client.asr_resource_client                # Demo resource client (default: http://127.0.0.1:8000/mcp)
+uv run python -m examples.asr_to_terminal.asr_to_terminal [--server URL] [--display-server x11|wayland]
+uv run python -m examples.gradio_demo.app --config config.json          # Gradio demo UI
 ```
 
 ## Conventions

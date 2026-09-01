@@ -24,7 +24,7 @@ from helpers import (
     stop_mcp_server,
 )
 
-from asr_engine.asr_to_terminal import AsrToTerminal
+from examples.asr_to_terminal.asr_to_terminal import AsrToTerminal
 
 
 class RecordingTyper:

@@ -31,6 +31,7 @@ Implementation plans for ASR MCP — each plan turns a settled part of a spec (s
 | [202609011700_mp3-fixtures-and-e2e-format.md](202609011700_mp3-fixtures-and-e2e-format.md) | MP3/libsndfile file sources (`soundfile` dep); widen `deepgram_v2` to v1's format support (Flux verified at 44.1 kHz); e2e suite drives explicit `AudioFormat` (44.1 kHz mp3 default + 16 kHz wav compat test) | Done |
 | [202609011800_gradio-demo.md](202609011800_gradio-demo.md) | `examples/` Gradio demo: `DemoController` over an in-process `ASREngine`, device/module pickers (rebuild-on-change), start/stop/listen/segmentation-mode, live utterance+segment panels; `segmentation_mode` getter; optional `demo` dep group | Done |
 | [202609012010_dictation-sessions.md](202609012010_dictation-sessions.md) | Dictation sessions: non-blocking `start_dictation`/`stop_dictation`/`is_dictation_running` + default-mode setters; always-on fixed to `utterance` (drop `segmentation_mode` config), `auto_start_dictation` config; `_start_with_segmentation_mode(mode)` primitive, private `_set_segmentation_mode`; `listen` accepts `utterance`; asr-to-terminal + gradio rewired | Done |
+| [202609012100_server-only-package.md](202609012100_server-only-package.md) | Server-only package: move the MCP subscription SDK, demo client, and `asr-to-terminal` bridge to `examples/`; drop their console scripts; add fast `tests/examples/` + e2e coverage, incl. new `DemoController` tests | Done |
 
 ## Status legend
 

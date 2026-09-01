@@ -1,14 +1,24 @@
 ---
 code:
-  - src/asr_engine/asr_to_terminal.py
-  - src/asr_engine/terminal_typer.py
+  - examples/asr_to_terminal/asr_to_terminal.py
+  - examples/asr_to_terminal/terminal_typer.py
 tests:
-  - tests/test_asr_to_terminal.py
+  - tests/examples/test_asr_to_terminal.py
 ---
 
 # ASR to Terminal Specification
 
 **Status:** Implemented
+
+> **Server-only-package update (2026-09-01):** `asr-to-terminal` is now an
+> **example**, not part of the `asr_engine` package. `terminal_typer.py` and
+> `asr_to_terminal.py` move to `examples/asr_to_terminal/` (names unchanged) and
+> import `AsrResourceClient` from `examples/mcp_client/`. The `asr-to-terminal`
+> console script is dropped; it runs via `python -m
+> examples.asr_to_terminal.asr_to_terminal`. Behavior is unchanged. To be
+> implemented by
+> [plans/202609012100_server-only-package.md](../plans/202609012100_server-only-package.md),
+> which flips this spec's `code:` frontmatter to `examples/asr_to_terminal/*`.
 
 > **Dictation update (2026-09-01):** the always-on `segmentation_mode` config is
 > gone. To get an aggregating `asr://segment` stream (trigger-word / timeout),
@@ -114,7 +124,7 @@ from the closed segment's `transcript`, so the trigger word is never typed. In
 ## CLI
 
 ```
-asr-to-terminal [--server URL] [--display-server x11|wayland]
+python -m examples.asr_to_terminal.asr_to_terminal [--server URL] [--display-server x11|wayland]
 ```
 
 | Flag                | Default                              |
@@ -146,20 +156,20 @@ session or interfere with injected keystrokes.
 ## File layout
 
 ```
-src/asr_engine/
-    terminal_typer.py    # TerminalTyper
-    asr_to_terminal.py   # AsrToTerminal + main()
+examples/
+    asr_to_terminal/
+        __init__.py
+        terminal_typer.py    # TerminalTyper
+        asr_to_terminal.py   # AsrToTerminal + main()
 ```
 
 `AsrToTerminal` does no segmentation of its own — it consumes the server's
 `asr://segment` resource, which the engine's `Segmenter` produces (see
 [engine.md](engine.md)).
 
-Entry point registered in `pyproject.toml`:
-
-```toml
-asr-to-terminal = "asr_engine.asr_to_terminal:main"
-```
+No `pyproject.toml` entry point: this is an example, not built into the wheel, so
+it is run with `python -m examples.asr_to_terminal.asr_to_terminal` (same pattern
+as the Gradio demo). It imports `AsrResourceClient` from `examples/mcp_client/`.
 
 ---
 

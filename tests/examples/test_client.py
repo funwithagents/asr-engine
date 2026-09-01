@@ -10,7 +10,7 @@ from __future__ import annotations
 import sys
 from unittest.mock import AsyncMock, patch
 
-from asr_engine.asr_resource_client import _format_result, main
+from examples.mcp_client.asr_resource_client import _format_result, main
 
 # ---------------------------------------------------------------------------
 # _format_result — unit tests
@@ -51,7 +51,7 @@ class TestFormatResult:
 def test_main_default_server():
     """main() uses the default server URL when --server is not supplied."""
     with patch(
-        "asr_engine.asr_resource_client._run_client", new_callable=AsyncMock
+        "examples.mcp_client.asr_resource_client._run_client", new_callable=AsyncMock
     ) as mock_run:
         with patch.object(sys, "argv", ["asr-mcp-client"]):
             main()
@@ -63,7 +63,7 @@ def test_main_custom_server():
     """main() forwards the --server argument to _run_client."""
     custom_url = "http://192.168.1.10:9000/mcp"
     with patch(
-        "asr_engine.asr_resource_client._run_client", new_callable=AsyncMock
+        "examples.mcp_client.asr_resource_client._run_client", new_callable=AsyncMock
     ) as mock_run:
         with patch.object(sys, "argv", ["asr-mcp-client", "--server", custom_url]):
             main()
@@ -74,7 +74,7 @@ def test_main_custom_server():
 def test_main_keyboard_interrupt_prints_disconnected(capsys):
     """main() prints [INFO] Disconnected on KeyboardInterrupt."""
     with patch(
-        "asr_engine.asr_resource_client._run_client", new_callable=AsyncMock
+        "examples.mcp_client.asr_resource_client._run_client", new_callable=AsyncMock
     ) as mock_run:
         with patch.object(sys, "argv", ["asr-mcp-client"]):
             mock_run.side_effect = KeyboardInterrupt()

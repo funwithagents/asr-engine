@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 
-from asr_engine.resource_client import AsrResourceClient
+from examples.mcp_client.resource_client import AsrResourceClient
 
 _DEFAULT_SERVER = "http://127.0.0.1:8000/mcp"
 
@@ -50,3 +50,7 @@ def main() -> None:
         asyncio.run(_run_client(args.server))
     except KeyboardInterrupt:
         print("[INFO] Disconnected", flush=True)
+
+
+if __name__ == "__main__":
+    main()

@@ -19,7 +19,7 @@ from helpers import (
     stop_mcp_server,
 )
 
-from asr_engine.resource_client import AsrResourceClient
+from examples.mcp_client.resource_client import AsrResourceClient
 
 _EXPECTED = "the sky is blue"
 

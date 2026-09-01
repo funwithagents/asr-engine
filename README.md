@@ -197,13 +197,15 @@ Default trigger words: `submit`, `enter`, `validate`, `send`, `confirm`, `go`, `
 uv run asr-engine-mcp --config config.json
 
 # Monitor live transcription (push client)
-uv run asr-mcp-client --server http://127.0.0.1:8000/mcp
+uv run python -m examples.mcp_client.asr_resource_client --server http://127.0.0.1:8000/mcp
 
 # Type speech into the active terminal
-uv run asr-to-terminal --server http://127.0.0.1:8000/mcp
+uv run python -m examples.asr_to_terminal.asr_to_terminal --server http://127.0.0.1:8000/mcp
 ```
 
-The MCP endpoint is at `http://<host>:<port>/mcp`.
+The MCP endpoint is at `http://<host>:<port>/mcp`. `asr-engine-mcp` is the only
+installed console script; the client-side apps live under [examples/](examples/)
+(outside the wheel) and run via `python -m`, like the Gradio demo below.
 
 ---
 
@@ -337,8 +339,8 @@ This pattern suits scenarios where a client or agent wants live transcription fe
 
 **Available push clients:**
 
-- **`asr-mcp-client`** — a demo CLI that subscribes to `asr://utterance` and logs each result to stdout. Useful for testing and monitoring.
-- **`asr-to-terminal`** — subscribes to `asr://segment` and injects keystrokes into the active terminal window (see below).
+- **`examples/mcp_client`** — a demo CLI (`python -m examples.mcp_client.asr_resource_client`) that subscribes to `asr://utterance` and logs each result to stdout. Useful for testing and monitoring.
+- **`examples/asr_to_terminal`** — subscribes to `asr://segment` and injects keystrokes into the active terminal window (see below).
 - **Any MCP client** — connect to `http://<host>:<port>/mcp`, subscribe to a resource, and receive live transcription events.
 
 ### Pull — on-demand capture via the `listen` tool
@@ -378,7 +380,7 @@ payload: the client then reads the latest value. Fast consecutive updates may
 therefore be coalesced, so these resources are latest-value snapshots rather
 than a lossless event log.
 
-The `AsrResourceClient` class ([src/asr_engine/resource_client.py](src/asr_engine/resource_client.py)) implements this subscription pattern and can be reused as a building block for any client that needs to consume a live MCP resource.
+The `AsrResourceClient` class ([examples/mcp_client/resource_client.py](examples/mcp_client/resource_client.py)) implements this subscription pattern and can be reused as a building block for any client that needs to consume a live MCP resource.
 
 ---
 
@@ -396,9 +398,9 @@ Segmentation — including the mode (`trigger_word` / `timeout` / `utterance`), 
 This makes it possible to dictate text directly into any terminal application using your voice.
 
 ```bash
-uv run asr-to-terminal
-uv run asr-to-terminal --server http://192.168.1.10:8000/mcp
-uv run asr-to-terminal --display-server wayland
+uv run python -m examples.asr_to_terminal.asr_to_terminal
+uv run python -m examples.asr_to_terminal.asr_to_terminal --server http://192.168.1.10:8000/mcp
+uv run python -m examples.asr_to_terminal.asr_to_terminal --display-server wayland
 ```
 
 **System requirements:** `xdotool` (X11), or `ydotool` with a running

@@ -3,11 +3,19 @@ code:
   - examples/gradio_demo/controller.py
   - examples/gradio_demo/app.py
 tests:
+  - tests/examples/test_gradio_controller.py
 ---
 
 # Gradio Demo App
 
 **Status:** Implemented
+
+> **Controller-tests update (2026-09-01):** the demo's UI-agnostic
+> `DemoController` gains fast automated tests (it was previously untested by
+> design). See the revised "Testing" section. To be implemented by
+> [plans/202609012100_server-only-package.md](../plans/202609012100_server-only-package.md),
+> which adds `tests/examples/test_gradio_controller.py` and this spec's `tests:`
+> frontmatter entry.
 
 > **Dictation update (2026-09-01):** the always-on `segmentation_mode` is gone,
 > so the demo's live segmentation-mode selector is replaced by **dictation
@@ -282,16 +290,33 @@ covers only the package + sounds).
 
 ## Testing
 
-This is an **example**, not library code: it has **no automated tests** and is
-not collected by the fast tier (nothing under `examples/` is on `testpaths`).
-Verification is manual — run the command above with a real input device and a
-provider API key, then exercise start/stop/listen and switch segmentation mode.
+`app.py` (the Gradio wiring) has **no automated tests** — it's thin UI glue,
+verified manually by running the command above with a real input device and a
+provider API key, then exercising start/stop/listen and dictation.
 
-The `controller.py` / `app.py` split still stands on its own merit — it keeps all
-engine logic out of the Gradio callbacks and makes the demo readable — but the
-controller is not pinned by tests. The engine behavior the demo relies on (the
-`segmentation_mode` / `dictating` getters, `start_dictation` / `stop_dictation`,
-`listen`) is covered by the engine's own tests in `tests/test_engine.py`.
+`controller.py` **is** tested. The `controller.py` / `app.py` split exists
+precisely so the demo's logic is testable without Gradio, and
+`tests/examples/test_gradio_controller.py` (fast tier) pins it by driving
+`DemoController`'s public methods against a **fake in-process engine** — no
+Gradio import, no real audio device, no ASR backend. It asserts on `state()`
+snapshots (public API, per [testing.md](testing.md)), covering:
+
+- **Rebuild-on-config-change**: `set_device` / `set_module` mutate the pending
+  config and discard any built engine while stopped, and raise `RuntimeError`
+  (surfaced as a message) while running.
+- **`listen` cancellation**: `stop()` during the `listening` phase cancels the
+  listen task and returns the phase to `stopped` with the cancelled message.
+- **Param validation**: `set_segmentation_params` rejects non-positive timeouts
+  with a message and leaves prior params intact.
+- **Phase transitions**: `stopped` → `running` → `dictating` → `running`, and
+  the `can_start` / `can_stop` / `can_listen` / `can_dictate` / `config_enabled`
+  enablement derived from each phase.
+
+The engine behavior the demo relies on (the `segmentation_mode` / `dictating`
+getters, `start_dictation` / `stop_dictation`, `listen`) is separately covered by
+the engine's own tests in `tests/test_engine.py`; the controller tests use a fake
+engine so they stay fast and deterministic and pin the *controller's* logic, not
+the engine's.
 
 ## Open questions (deferred)
 

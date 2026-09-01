@@ -6,8 +6,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from asr_engine.asr_to_terminal import AsrToTerminal
-from asr_engine.terminal_typer import TerminalTyper
+from examples.asr_to_terminal.asr_to_terminal import AsrToTerminal
+from examples.asr_to_terminal.terminal_typer import TerminalTyper
 
 # ---------------------------------------------------------------------------
 # TerminalTyper — display server resolution
@@ -49,8 +49,11 @@ class TestTerminalTyperResolution:
 def _make_atr(typer_mock):
     """Build AsrToTerminal with a mocked TerminalTyper and AsrResourceClient."""
     with (
-        patch("asr_engine.asr_to_terminal.TerminalTyper", return_value=typer_mock),
-        patch("asr_engine.asr_to_terminal.AsrResourceClient"),
+        patch(
+            "examples.asr_to_terminal.asr_to_terminal.TerminalTyper",
+            return_value=typer_mock,
+        ),
+        patch("examples.asr_to_terminal.asr_to_terminal.AsrResourceClient"),
     ):
         atr = AsrToTerminal()
     return atr
@@ -128,8 +131,12 @@ async def test_subscribes_to_segment_resource():
     """AsrToTerminal wires its resource client to asr://segment."""
     typer = _typer_mock()
     with (
-        patch("asr_engine.asr_to_terminal.TerminalTyper", return_value=typer),
-        patch("asr_engine.asr_to_terminal.AsrResourceClient") as MockClient,
+        patch(
+            "examples.asr_to_terminal.asr_to_terminal.TerminalTyper", return_value=typer
+        ),
+        patch(
+            "examples.asr_to_terminal.asr_to_terminal.AsrResourceClient"
+        ) as MockClient,
     ):
         AsrToTerminal(server_url="http://x/mcp")
 
@@ -144,8 +151,13 @@ async def test_start_stop_delegate_to_client():
     client.start = AsyncMock()
     client.stop = AsyncMock()
     with (
-        patch("asr_engine.asr_to_terminal.TerminalTyper", return_value=typer),
-        patch("asr_engine.asr_to_terminal.AsrResourceClient", return_value=client),
+        patch(
+            "examples.asr_to_terminal.asr_to_terminal.TerminalTyper", return_value=typer
+        ),
+        patch(
+            "examples.asr_to_terminal.asr_to_terminal.AsrResourceClient",
+            return_value=client,
+        ),
     ):
         atr = AsrToTerminal()
         await atr.start()

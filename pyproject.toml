@@ -16,9 +16,9 @@ dependencies = [
 ]
 
 [project.scripts]
+# The only console script. Client-side apps live in examples/ (outside the
+# wheel) and run via `python -m examples.…` — see specs/project.md.
 asr-engine-mcp = "asr_engine.mcp_server_cli:main"
-asr-mcp-client = "asr_engine.asr_resource_client:main"
-asr-to-terminal = "asr_engine.asr_to_terminal:main"
 
 [build-system]
 requires = ["uv_build>=0.9.28,<0.10.0"]
@@ -44,7 +44,9 @@ pythonVersion = "3.11"
 # Only the fast, deterministic tier is collected by default; tests-e2e/ is opt-in
 # (run explicitly with `uv run pytest tests-e2e`).
 testpaths = ["tests"]
-pythonpath = ["tests-e2e"]
+# "." so both tiers can import the examples/ apps as a namespace package;
+# "tests-e2e" so e2e helpers import as top-level modules.
+pythonpath = [".", "tests-e2e"]
 asyncio_mode = "auto"
 timeout = 60
 filterwarnings = [

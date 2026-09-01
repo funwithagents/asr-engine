@@ -11,8 +11,8 @@ import argparse
 import asyncio
 import sys
 
-from asr_engine.resource_client import AsrResourceClient
-from asr_engine.terminal_typer import KeystrokeSink, TerminalTyper
+from examples.asr_to_terminal.terminal_typer import KeystrokeSink, TerminalTyper
+from examples.mcp_client.resource_client import AsrResourceClient
 
 _DEFAULT_SERVER = "http://127.0.0.1:8000/mcp"
 _SEGMENT_URI = "asr://segment"
@@ -109,3 +109,7 @@ def main() -> None:
         asyncio.run(_run(server_url=args.server, display_server=args.display_server))
     except KeyboardInterrupt:
         print("[INFO] Disconnected", file=sys.stderr)
+
+
+if __name__ == "__main__":
+    main()
