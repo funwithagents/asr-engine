@@ -9,10 +9,12 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import sys
+import logging
 
 from examples.asr_to_terminal.terminal_typer import KeystrokeSink, TerminalTyper
 from examples.mcp_client.resource_client import AsrResourceClient
+
+log = logging.getLogger(__name__)
 
 _DEFAULT_SERVER = "http://127.0.0.1:8000/mcp"
 _SEGMENT_URI = "asr://segment"
@@ -23,8 +25,9 @@ class AsrToTerminal:
 
     Progressively types the current segment transcript (overwriting the changed
     suffix on each update) and, when a segment closes (``is_final``), sends Enter
-    and starts fresh. No segmentation logic lives here — the server closes
-    segments per its ``engine.segmentation_mode`` config.
+    and starts fresh. No segmentation logic lives here — the server decides when
+    to close segments (its dictation / ``dictation_default_segmentation_mode``
+    config; see specs/configuration.md).
     """
 
     def __init__(
@@ -67,6 +70,9 @@ class AsrToTerminal:
             if is_final:
                 await self._typer.send_enter()
                 self._pending = ""
+                log.info("enter: %s (%s)", transcript, payload.get("end_reason"))
+            else:
+                log.info("segment: %s", transcript)
 
     async def start(self) -> None:
         await self._client.start()
@@ -81,7 +87,8 @@ async def _run(server_url: str, display_server: str | None) -> None:
         display_server=display_server,
     )
     await asr_to_terminal.start()
-    print(f"[INFO] Connected to {server_url}", file=sys.stderr)
+    # The subscriber logs the connection lifecycle (connected / subscribed /
+    # reconnected / lost); nothing to print here.
     try:
         await asyncio.sleep(float("inf"))
     finally:
@@ -105,10 +112,18 @@ def main() -> None:
     )
     args = parser.parse_args()
 
+    # This example is an application entry point, so it configures logging itself
+    # (deliberately not importing the library's private _logging.setup_logging).
+    # basicConfig writes to stderr, so diagnostics never pollute the typed window.
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
+
     try:
         asyncio.run(_run(server_url=args.server, display_server=args.display_server))
     except KeyboardInterrupt:
-        print("[INFO] Disconnected", file=sys.stderr)
+        log.info("Disconnected")
 
 
 if __name__ == "__main__":

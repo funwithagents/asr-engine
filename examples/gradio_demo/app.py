@@ -12,6 +12,7 @@ Run it from the repo root::
 from __future__ import annotations
 
 import argparse
+import logging
 
 import gradio as gr
 
@@ -255,6 +256,13 @@ def main() -> None:
         "--port", type=int, default=7860, help="Port to bind the UI to."
     )
     args = parser.parse_args()
+
+    # This example is an application entry point, so it configures logging itself
+    # (deliberately not importing the library's private _logging.setup_logging).
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
 
     config = load_config(args.config).engine if args.config else _default_config()
 

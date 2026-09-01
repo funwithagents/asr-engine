@@ -193,7 +193,7 @@ async def test_reconnects_on_error():
 
     subscriber = ResourceSubscriber("http://x", "r://u", _on_event, reconnect=True)
 
-    async def _flaky_connect():
+    async def _flaky_connect(reconnecting: bool = False):
         nonlocal call_count
         call_count += 1
         if call_count < 3:
@@ -230,7 +230,7 @@ async def test_no_reconnect_raises_on_error():
 
     subscriber = ResourceSubscriber("http://x", "r://u", _on_event, reconnect=False)
 
-    async def _failing_connect():
+    async def _failing_connect(reconnecting: bool = False):
         raise ConnectionError("boom")
 
     with patch.object(subscriber, "_connect", side_effect=_failing_connect):

@@ -54,9 +54,10 @@ class ResourceSubscriber:
             self._task = None
 
     async def _loop(self) -> None:
+        reconnecting = False
         while True:
             try:
-                await self._connect()
+                await self._connect(reconnecting)
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
@@ -67,9 +68,10 @@ class ResourceSubscriber:
                 if isinstance(exc, BaseExceptionGroup) and len(exc.exceptions) == 1:
                     cause = exc.exceptions[0]
                 log.warning("Connection lost, retrying in 1 s: %s", cause)
+                reconnecting = True
                 await asyncio.sleep(1)
 
-    async def _connect(self) -> None:
+    async def _connect(self, reconnecting: bool = False) -> None:
         """Single connection attempt: connect, subscribe, run until cancelled."""
         session_holder: list[ClientSession | None] = [None]
 
@@ -104,6 +106,11 @@ class ResourceSubscriber:
                 session_holder[0] = session
                 await session.initialize()
                 await session.subscribe_resource(AnyUrl(self._resource_uri))
+                log.info(
+                    "Reconnected to %s" if reconnecting else "Connected to %s",
+                    self._server_url,
+                )
+                log.info("Subscribed to %s", self._resource_uri)
                 try:
                     await asyncio.sleep(float("inf"))
                 finally:

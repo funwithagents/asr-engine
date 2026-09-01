@@ -94,17 +94,18 @@ Dictation mode (via `auto_start_dictation` / `dictation_default_segmentation_mod
 
 ---
 
-## Stderr logging
+## Logging
 
-All diagnostic output goes to stderr so it does not pollute the active terminal session or interfere with injected keystrokes.
+Diagnostics go through the standard `logging` library (module loggers, `log = logging.getLogger(__name__)`), never `print`. `basicConfig` writes to stderr by default, so diagnostics do not pollute the active terminal session or interfere with injected keystrokes. As an application entry point the CLI configures logging itself — its own `logging.basicConfig(...)` in `main()`, **not** the library's private `asr_engine._logging.setup_logging` (examples depend only on the public library), with the project-standard format (`%(asctime)s %(levelname)s %(name)s: %(message)s`).
 
-| Event                        | Log line                                    |
-|------------------------------|---------------------------------------------|
-| Connected to MCP server      | `[INFO] Connected to <url>`                 |
-| Segment update (open)        | `[SEGMENT] <transcript>`                    |
-| Segment closed → Enter       | `[ENTER] <transcript> (<end_reason>)`       |
-| Connection lost / retrying   | `[WARN] Connection lost, retrying…`         |
-| Disconnected (Ctrl-C)        | `[INFO] Disconnected`                       |
+| Event                        | Logger | Level | Message |
+|------------------------------|--------|-------|---------|
+| Connected / subscribed / reconnected | `ResourceSubscriber` | `INFO` | connection lifecycle (shared with the demo client) |
+| Segment update (open)        | `AsrToTerminal` | `INFO` | `segment: <transcript>` |
+| Segment closed → Enter       | `AsrToTerminal` | `INFO` | `enter: <transcript> (<end_reason>)` |
+| Connection lost / retrying   | `ResourceSubscriber` | `WARNING` | connection lost, retrying |
+| Keystroke tool failed        | `TerminalTyper` | `WARNING` | `<tool> exited <code>: <stderr>` |
+| Disconnected (Ctrl-C)        | `AsrToTerminal` | `INFO` | `Disconnected` |
 
 ---
 

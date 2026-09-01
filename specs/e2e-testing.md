@@ -35,7 +35,7 @@ FileAudioSource → asyncio.Queue → ASRModule (Deepgram API)
                                   collected results → assertion
 ```
 
-Built with the `build_engine(...)`/`build_file_engine(...)` helpers (in `helpers.py`), which wire an audio source to an `ASREngine` (sound feedback disabled). Parametrized over `MODULES`; three tests per module: a two-utterance streaming test (via `ScriptableAudioSource`) asserting interim+final utterances and interim+final segments, plus the `listen` primitive in both modes (trigger_word + timeout).
+Built with the `build_engine(...)`/`build_file_engine(...)` helpers (in `helpers.py`), which wire an audio source to an `ASREngine` (sound feedback disabled). Parametrized over `MODULES` (one row per module); each row runs the full engine-direct scenario set — a two-utterance streaming test (via `ScriptableAudioSource`) asserting interim+final utterances and interim+final segments, the `listen` primitive in both modes (trigger_word + timeout), the dictation flows (trigger_word and timeout aggregation, plus end-on-final-segment auto-end), and a different-input-format run at 16 kHz. See the per-scenario detail under Test Cases below.
 
 **Through MCP, single provider** (`test_mcp_resource.py`, `test_mcp_tools.py`, `test_asr_to_terminal.py`) — the same pipeline surfaced over the server:
 
@@ -98,11 +98,14 @@ Parametrized over the `MODULES` table in `helpers.py`. Each row carries the modu
 | `deepgram_v1` | `nova-3` | `3.0` |
 | `deepgram_v2` | `flux-general-en` | `3.0` |
 
-Four tests run for each row (all at the default 44.1 kHz MP3 input, except the last):
+Each row runs the engine-direct scenarios below (all at the default 44.1 kHz MP3 input, except the sample-rate-compat one):
 
 - `test_engine_streams` — `ScriptableAudioSource`, `utterance` mode. Plays the two 44.1 kHz mp3 fixtures split by `silence_s`; asserts an interim utterance, a final utterance with the right transcript, an interim (open) segment, and ≥2 closed segments (`end_reason == "utterance"`), the second containing `"validate"`.
 - `test_listen_trigger_word` — `engine.listen(mode="trigger_word")` on the validate mp3; asserts `end_reason == "trigger_word"`, transcript excludes the trigger, engine stopped.
 - `test_listen_timeout` — `engine.listen(mode="timeout")` on the "the sky is blue" mp3; asserts `end_reason == "end_of_speech_timeout"` and the full transcript.
+- `test_dictation_trigger_word` — `start_dictation(segmentation_mode="trigger_word", end_on_final_segment=False)` on the always-on engine, playing the validate mp3; asserts the stream aggregates and closes a `trigger_word` segment (trigger excluded), and that `stop_dictation` reverts `dictating`/`segmentation_mode` to `utterance`.
+- `test_dictation_timeout` — `start_dictation(segmentation_mode="timeout", end_on_final_segment=False)` on the "the sky is blue" mp3; asserts a segment closes with `end_reason == "end_of_speech_timeout"` and the full transcript.
+- `test_dictation_end_on_final_segment` — `start_dictation(segmentation_mode="timeout", end_on_final_segment=True)`; asserts the dictation self-ends on the first closed segment and reverts to `utterance`.
 - `test_sample_rate_compat_16000_wav` — same `listen(mode="timeout")` but on the **16 kHz WAV** with `engine.audio.sample_rate=16000`; asserts the engine's reconciled `audio_format` and the transcript, proving a different input format works.
 
 ### Single provider — module-agnostic stack
@@ -111,8 +114,8 @@ Built from `helpers.default_provider()` (`deepgram_v1`/`nova-3`); one run each, 
 
 | Test file | Covers | Port(s) |
 |-----------|--------|---------|
-| `test_mcp_resource.py` | `asr://utterance` resource yields a final transcript | `18001` |
-| `test_mcp_tools.py` | `listen` tool: trigger_word, timeout, streaming progress | `18003`–`18005` |
+| `test_mcp_resource.py` | `asr://utterance` yields a final transcript; `asr://segment` aggregates under `auto_start_dictation` | `18001`–`18002` |
+| `test_mcp_tools.py` | `listen` tool (trigger_word, timeout, streaming progress) and the dictation tools (control + guard errors) | `18003`–`18008` |
 | `test_asr_to_terminal.py` | asr-to-terminal bridge: typing, submit, timeout | `18101`–`18103` |
 
 All tests share the same fixtures (`sample_44100_theskyisblue.mp3` → `"the sky is blue"`, `sample_44100_theskyisbluevalidate.mp3` → `"the sky is blue validate"`) and the same normalized transcript comparison.

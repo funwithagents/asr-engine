@@ -7,6 +7,7 @@ test-only helper at ``tests-e2e/mcp_tool_client.py`` and is exercised live by
 
 from __future__ import annotations
 
+import logging
 import sys
 from unittest.mock import AsyncMock, patch
 
@@ -71,13 +72,13 @@ def test_main_custom_server():
     assert called_url == custom_url
 
 
-def test_main_keyboard_interrupt_prints_disconnected(capsys):
-    """main() prints [INFO] Disconnected on KeyboardInterrupt."""
+def test_main_keyboard_interrupt_logs_disconnected(caplog):
+    """main() logs Disconnected on KeyboardInterrupt."""
     with patch(
         "examples.mcp_client.asr_resource_client._run_client", new_callable=AsyncMock
     ) as mock_run:
         with patch.object(sys, "argv", ["asr-mcp-client"]):
             mock_run.side_effect = KeyboardInterrupt()
-            main()
-    out = capsys.readouterr().out
-    assert "[INFO] Disconnected" in out
+            with caplog.at_level(logging.INFO):
+                main()
+    assert "Disconnected" in caplog.text

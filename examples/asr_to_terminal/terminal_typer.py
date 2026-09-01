@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
-import sys
 from typing import Protocol
+
+log = logging.getLogger(__name__)
 
 
 class KeystrokeSink(Protocol):
@@ -75,4 +77,4 @@ class TerminalTyper:
         _, stderr = await proc.communicate()
         if proc.returncode != 0:
             msg = stderr.decode().strip() if stderr else "(no stderr)"
-            print(f"[WARN] {args[0]} exited {proc.returncode}: {msg}", file=sys.stderr)
+            log.warning("%s exited %d: %s", args[0], proc.returncode, msg)

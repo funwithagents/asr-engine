@@ -162,6 +162,10 @@ uv run python -m examples.gradio_demo.app --config config.json
 
 The examples directory is not built into the wheel (`[tool.uv_build].include` covers only the package + sounds).
 
+## Logging
+
+`controller.py` logs through a module logger (`log = logging.getLogger(__name__)`) — engine/device errors at `exception`, no `print`. As an application entry point, `app.py`'s `main()` configures logging itself via its own `logging.basicConfig(...)` (project-standard format), **not** the library's private `asr_engine._logging.setup_logging`, so the demo depends only on the public library — the same boundary the other example CLIs follow (see [project.md](project.md) "Logging").
+
 ## Testing
 
 `app.py` (the Gradio wiring) has **no automated tests** — it's thin UI glue, verified manually by running the command above with a real input device and a provider API key, then exercising start/stop/listen and dictation.

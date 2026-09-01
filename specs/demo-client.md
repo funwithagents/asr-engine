@@ -14,7 +14,7 @@ tests:
 
 ## Purpose
 
-A standalone example that connects to the MCP server via StreamableHTTP, subscribes to the `asr://utterance` resource, and logs each update to stdout. Used to validate the server end-to-end. It lives in `examples/mcp_client/`, outside the `asr_engine` package.
+A standalone example that connects to the MCP server via StreamableHTTP, subscribes to the `asr://utterance` resource, and logs each update. Used to validate the server end-to-end. It lives in `examples/mcp_client/`, outside the `asr_engine` package.
 
 ## Usage
 
@@ -28,26 +28,22 @@ Default server URL: `http://127.0.0.1:8000/mcp`
 
 1. Connect to the MCP server
 2. Subscribe to the `asr://utterance` resource
-3. For each resource update received, log a formatted line to stdout:
+3. For each resource update received, log a formatted line at `INFO` through the module logger (`logging.getLogger(__name__)`):
    - Interim: `[INTERIM] hello how are`
    - Final:   `[FINAL  ] Hello, how are you? (confidence: 0.98)`
-4. Also log connection events:
-   - `[INFO] Connected to MCP server at http://...`
-   - `[INFO] Subscribed to asr://utterance`
-   - `[WARN] Connection lost, retrying...`
-   - `[INFO] Reconnected`
-5. Run until interrupted with Ctrl+C, then disconnect cleanly
+4. Connection-lifecycle events are logged by the subscription library (`ResourceSubscriber`) through its own logger: connected, subscribed, reconnected (after a retry), and a `WARNING` when the connection is lost and a retry is scheduled.
+5. Run until interrupted with Ctrl+C, then log `Disconnected` and disconnect cleanly
 
-## Output Format
+## Logging
+
+The demo uses the standard `logging` library, not hand-formatted `print`s. As an application entry point it configures logging itself — its own `logging.basicConfig(...)` in `main()`, **not** the library's private `asr_engine._logging.setup_logging` (examples depend only on the public library). The format matches the rest of the project (`%(asctime)s %(levelname)s %(name)s: %(message)s`), so every line carries a timestamp, level, and logger name; `basicConfig` writes to stderr by default. Representative output:
 
 ```
-[INFO] Connected to MCP server at http://127.0.0.1:8000/mcp
-[INFO] Subscribed to asr://utterance
-[INTERIM] hello how
-[INTERIM] hello how are you
-[FINAL  ] Hello, how are you? (confidence: 0.98)
-[INTERIM] what time
-[FINAL  ] What time is it? (confidence: 0.95)
+2026-03-17 10:23:45,001 INFO examples.mcp_client.resource_subscriber: Connected to http://127.0.0.1:8000/mcp
+2026-03-17 10:23:45,002 INFO examples.mcp_client.resource_subscriber: Subscribed to asr://utterance
+2026-03-17 10:23:46,100 INFO examples.mcp_client.asr_resource_client: [INTERIM] hello how
+2026-03-17 10:23:46,400 INFO examples.mcp_client.asr_resource_client: [INTERIM] hello how are you
+2026-03-17 10:23:47,000 INFO examples.mcp_client.asr_resource_client: [FINAL  ] Hello, how are you? (confidence: 0.98)
 ```
 
 ## Implementation Notes
