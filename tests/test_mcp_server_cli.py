@@ -96,14 +96,19 @@ def test_cli_exits_on_invalid_json(tmp_path: Path, capsys) -> None:
 
 def test_cli_exits_on_unknown_asr_type(tmp_path: Path, capsys) -> None:
     """validate_asr_type now runs inside run_server; ValueError propagates to cli."""
+    from unittest.mock import AsyncMock
+
     from asr_engine import mcp_server_cli
 
     path = write_config(tmp_path, {"engine": {"module": {"type": "bogus"}}})
     sys.argv = ["asr-engine-mcp", "--config", path]
-    # run_server raises ValueError; asyncio.run re-raises it; cli catches it
+    # run_server raises ValueError; asyncio.run re-raises it; cli catches it.
+    # Patch run_server itself (not asyncio.run) so the real asyncio.run awaits
+    # the mock coroutine — patching asyncio.run would leave run_server's
+    # coroutine (built as the call argument) unawaited.
     with patch(
-        "asr_engine.mcp_server_cli.asyncio.run",
-        side_effect=ValueError("Unknown ASR type 'bogus'"),
+        "asr_engine.mcp_server_cli.run_server",
+        new=AsyncMock(side_effect=ValueError("Unknown ASR type 'bogus'")),
     ):
         with pytest.raises(SystemExit) as exc_info:
             mcp_server_cli.main()

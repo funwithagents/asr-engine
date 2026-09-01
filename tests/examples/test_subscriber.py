@@ -200,13 +200,17 @@ async def test_reconnects_on_error():
             raise ConnectionError("boom")
         await real_sleep(float("inf"))
 
-    # Replace the inter-retry sleep with a real yield (sleep(0)) so the event
-    # loop can advance without waiting a full second between retries.
+    async def _fast_sleep(_seconds: float) -> None:
+        # A real yield (sleep(0)) so the loop advances without a full second
+        # between retries — an async replacement, so no coroutine is left
+        # unawaited the way a sync lambda returning real_sleep(0) would.
+        await real_sleep(0)
+
     with (
         patch.object(subscriber, "_connect", side_effect=_flaky_connect),
         patch(
             "examples.mcp_client.resource_subscriber.asyncio.sleep",
-            side_effect=lambda _: real_sleep(0),
+            new=_fast_sleep,
         ),
     ):
         task = asyncio.create_task(subscriber._loop())
