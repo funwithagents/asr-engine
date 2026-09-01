@@ -297,6 +297,27 @@ def test_set_segmentation_mode_invalid_raises():
         engine.set_segmentation_mode("nonsense")
 
 
+def test_segmentation_mode_property_reflects_config_and_setter():
+    engine, _ = make_engine(segmentation_mode="utterance")
+    assert engine.segmentation_mode == "utterance"
+    engine.set_segmentation_mode("trigger_word")
+    assert engine.segmentation_mode == "trigger_word"
+
+
+@pytest.mark.asyncio
+async def test_segmentation_mode_property_restored_after_listen():
+    """listen() runs in a different mode but the property reports the always-on
+    mode again once it returns."""
+    engine = make_scripted_engine(
+        [SpeechUtterance("hi", True, None), SpeechUtterance("go", True, None)],
+        segmentation_mode="utterance",
+        trigger_words=["go"],
+    )
+    assert engine.segmentation_mode == "utterance"
+    await engine.listen(mode="trigger_word")
+    assert engine.segmentation_mode == "utterance"
+
+
 @pytest.mark.asyncio
 async def test_set_segmentation_mode_and_params_switch_behaviour():
     segments: list[SpeechSegment] = []

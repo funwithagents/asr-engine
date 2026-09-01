@@ -34,7 +34,7 @@ target-version = "py311"  # keep in sync with requires-python
 select = ["E4", "E7", "E9", "F", "I"]  # ruff defaults (E4/E7/E9/F) + isort import ordering
 
 [tool.pyright]
-include = ["src", "tests", "tests-e2e"]
+include = ["src", "tests", "tests-e2e", "examples"]
 venvPath = "."
 venv = ".venv"
 typeCheckingMode = "standard"
@@ -53,6 +53,12 @@ filterwarnings = [
     "ignore::DeprecationWarning:deepgram",
 ]
 
+[tool.uv]
+# pyright/Pylance type-check examples/ (which imports gradio), so the demo group
+# is synced by default — the dev venv always has gradio. gradio stays out of
+# [project.dependencies], so library consumers never pull it.
+default-groups = ["dev", "demo"]
+
 [dependency-groups]
 dev = [
     "pyright>=1.1.411",
@@ -61,4 +67,9 @@ dev = [
     "pytest-mock",
     "pytest-timeout",
     "ruff>=0.16.5",
+]
+# Optional: the examples/ Gradio demo (see specs/gradio-demo.md). Not a core
+# dependency — `import asr_engine` and the MCP server stay lean without it.
+demo = [
+    "gradio",
 ]

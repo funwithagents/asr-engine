@@ -201,6 +201,31 @@ The MCP endpoint is at `http://<host>:<port>/mcp`.
 
 ---
 
+## Gradio demo
+
+A browser UI that drives the engine **directly** (no MCP server, no agent) — pick
+an input device and ASR module, start/stop always-on capture, run a single-shot
+`listen`, switch segmentation mode, and watch utterances and segments stream in.
+It's an example under [examples/gradio_demo/](examples/gradio_demo/), not part of
+the library.
+
+```bash
+export DEEPGRAM_API_KEY="..."                 # default config: deepgram_v1 via this env var
+uv run python -m examples.gradio_demo.app     # then open http://127.0.0.1:7860
+```
+
+Optional flags:
+
+- `--config config.json` — build the engine from an existing config file's
+  `engine` block (its `server` block is ignored) instead of the built-in default.
+- `--host` / `--port` — bind address for the UI (default `127.0.0.1:7860`).
+
+Gradio ships in the `demo` dependency group, which is synced by default, so
+`uv sync` already installs it. It's kept out of the library's runtime
+dependencies, so `import asr_engine` and the MCP server stay lean.
+
+---
+
 ## Connecting an MCP client or AI agent
 
 Point your MCP client at `http://<host>:<port>/mcp`. For Claude Code or other agents that support MCP server configuration:

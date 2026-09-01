@@ -29,6 +29,7 @@ Implementation plans for ASR MCP — each plan turns a settled part of a spec (s
 | [202609011030_logging-library-boundary.md](202609011030_logging-library-boundary.md) | Library configures no logging (NullHandler, engine stops setting level); drop `engine.logging` config; add `--log-level` CLI flag as the sole server log-level control | Done |
 | [202609011400_configurable-audio-format.md](202609011400_configurable-audio-format.md) | Configurable end-to-end `AudioFormat` (rate/channels/encoding) from `engine.audio`; per-module declared support + import-time enforcement; engine reconciliation (error/fallback); μ-law transcode; engine owns audio-source selection | Done |
 | [202609011700_mp3-fixtures-and-e2e-format.md](202609011700_mp3-fixtures-and-e2e-format.md) | MP3/libsndfile file sources (`soundfile` dep); widen `deepgram_v2` to v1's format support (Flux verified at 44.1 kHz); e2e suite drives explicit `AudioFormat` (44.1 kHz mp3 default + 16 kHz wav compat test) | Done |
+| [202609011800_gradio-demo.md](202609011800_gradio-demo.md) | `examples/` Gradio demo: `DemoController` over an in-process `ASREngine`, device/module pickers (rebuild-on-change), start/stop/listen/segmentation-mode, live utterance+segment panels; `segmentation_mode` getter; optional `demo` dep group | Done |
 
 ## Status legend
 

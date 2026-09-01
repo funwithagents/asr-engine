@@ -191,6 +191,16 @@ class ASREngine:
         """The reconciled audio format the capture layer and module use."""
         return self._audio_format
 
+    @property
+    def segmentation_mode(self) -> str:
+        """The current segment mode (``utterance`` / ``trigger_word`` / ``timeout``).
+
+        Reflects construction and ``set_segmentation_mode``; since ``listen``
+        restores the prior mode in its ``finally``, a reader outside a ``listen``
+        call always sees the always-on mode. Complements ``status()``.
+        """
+        return self._segment_mode
+
     def status(self) -> dict:
         """Return current engine state."""
         return {

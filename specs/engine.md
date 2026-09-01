@@ -267,6 +267,20 @@ rebuilds the `Segmenter` under the current mode, discarding any in-progress
 segment. This is the *only* way to change trigger words / timeouts after
 construction — `set_segmentation_mode` and `listen` never touch them.
 
+### `segmentation_mode`
+
+```python
+@property
+def segmentation_mode(self) -> str: ...
+```
+
+Read-only accessor for the **current** segment mode (`"utterance"` /
+`"trigger_word"` / `"timeout"`). It reflects the mode set by construction and by
+`set_segmentation_mode`; because `listen` restores the prior mode in its
+`finally`, callers reading this outside a `listen` call always see the always-on
+mode. Complements `status()` (which reports only `running`/`connected`) so a
+direct consumer can display the active mode without shadowing engine state.
+
 ### Lifecycle
 
 - `async start()` — starts audio capture and the ASR module, and starts the
