@@ -101,7 +101,9 @@ The mapping is **many-to-many**: a file can be governed by several specs, so the
 
 Some tests call the real Deepgram API over the network. They live in `tests-e2e/`, a directory separate from `tests/`, so the fast dev loop (`uv run pytest tests/`) never needs network access or credentials. Run them explicitly (`uv run pytest tests-e2e`), and only when you actually want to verify against the live service. The file-based e2e pipeline design is specced in [specs/e2e-testing.md](specs/e2e-testing.md).
 
-**Credentials.** `tests-e2e/helpers.load_api_key()` reads the Deepgram key from the `DEEPGRAM_API_KEY` environment variable (named by the `API_KEY_ENV` constant in `helpers.py`) — no secret lives in the repo. When that variable is unset, `load_api_key()` **skips** the test rather than failing it.
+**Per-module vs single-provider.** The e2e suite splits along what varies per ASR module. `test_engine_modules.py` is **parametrized over every module** (the `MODULES` table in `helpers.py`) and verifies only the `ASRModule` contract through the engine — interim/final utterances, interim/final segments, `listen` in both modes. Everything downstream (`test_mcp_resource.py`, `test_mcp_tools.py`, `test_asr_to_terminal.py`) is module-agnostic and runs on a **single provider** chosen once in `helpers.default_provider()`. Tests are named for the behavior under test, not the module. To run just one backend, filter on its param id: `zsh -ic 'uv run pytest tests-e2e -k deepgram_v1'` (runs only that module's conformance tests, since the single-provider tests aren't module-named).
+
+**Credentials.** Tests never read the literal key. Each module config carries `api_key_env` — the *name* of the env var it authenticates with (Deepgram's is `DEEPGRAM_API_KEY`, the `DEEPGRAM_API_KEY_ENV` constant in `helpers.py`; other modules name their own, and a module needing no key names none) — and the module's own `resolve_api_key` reads it, so no secret lives in the repo. `helpers.require_api_key(module_config)` **skips** a test when the env var that config names is unset (without it, `resolve_api_key` would raise and fail the test rather than skip it); a config without `api_key_env` is never skipped.
 
 **The keys live in `~/.zshrc`**, but the shell tool runs a non-interactive `bash`/`zsh` that doesn't source it — a plain `uv run pytest tests-e2e` in that shell sees no keys and every case skips. Source it explicitly in an interactive `zsh` invocation:
 
@@ -160,3 +162,4 @@ All ASR modules receive audio as **16 kHz, 16-bit signed PCM, mono, ~100 ms chun
 2. Register it in `modules/__init__.py`: `REGISTRY["<name>"] = <ClassName>`.
 3. Document its config fields (the `engine.module` block accepts any fields beyond `type`).
 4. Update [specs/deepgram-module.md](specs/deepgram-module.md) or add a new spec, and its frontmatter `code:` list.
+5. Add a row to the `MODULES` table in `tests-e2e/helpers.py` (module type, model, and a `silence_s` matching how long the backend needs to finalize an utterance) so the new module gets e2e conformance coverage in `test_engine_modules.py`. Verify with `zsh -ic 'uv run pytest tests-e2e -k <name>'`.

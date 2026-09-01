@@ -13,26 +13,67 @@ import pytest
 
 log = logging.getLogger(__name__)
 
-# Environment variable holding the Deepgram API key for e2e tests. The key never
-# lives in the repo — only its variable name does, here.
-API_KEY_ENV = "DEEPGRAM_API_KEY"
+# Deepgram's key env var. This name is Deepgram-specific: other modules declare their
+# own via ``api_key_env`` in their ``MODULES`` row / provider config, and a module that
+# needs no key declares none. The key value never lives in the repo — only the variable
+# name does. Tests pass the name to modules via the ``api_key_env`` config field and let
+# ``resolve_api_key`` read the value; they never read the literal key themselves.
+DEEPGRAM_API_KEY_ENV = "DEEPGRAM_API_KEY"
 
 
-def load_api_key() -> str:
-    """Resolve the Deepgram API key for e2e tests from ``$DEEPGRAM_API_KEY``.
+def require_api_key(module_config: dict) -> None:
+    """Skip the calling test unless the key env var *this module config names* is set.
 
-    When that variable is unset the test is skipped rather than failed — e2e is
-    opt-in and needs credentials the shell may not have (the keys live in
-    ``~/.zshrc``; a non-interactive shell doesn't source it — run under an
-    interactive zsh: ``zsh -ic 'uv run pytest tests-e2e'``).
+    Reads ``module_config["api_key_env"]`` — the name of the env var the module will
+    authenticate with — so nothing here is tied to a specific provider. When that var
+    is unset the test skips (e2e is opt-in; the keys may live in ``~/.zshrc`` which a
+    non-interactive shell doesn't source — run under ``zsh -ic 'uv run pytest
+    tests-e2e'``). Without this guard an unset var would make ``resolve_api_key``
+    *raise* and fail the test instead of skipping it. A config with no ``api_key_env``
+    (a module needing no key) is never skipped.
     """
-    value = os.environ.get(API_KEY_ENV)
-    if not value:
+    env_name = module_config.get("api_key_env")
+    if env_name and not os.environ.get(env_name):
         pytest.skip(
-            f"e2e: environment variable '{API_KEY_ENV}' is not set — "
+            f"e2e: environment variable '{env_name}' is not set — "
             f"see AGENTS.md 'Live/e2e tests'"
         )
-    return value
+
+
+def default_provider() -> tuple[str, dict]:
+    """(module_type, module_config) for the single-provider e2e tests.
+
+    The single place the provider/model is chosen for every module-agnostic test
+    (MCP resource/tool, asr-to-terminal), so none of them hardcodes a backend.
+    Skips if the module's key env var is unset; carries ``api_key_env``, not a
+    literal key.
+    """
+    module_type = "deepgram_v1"
+    module_config = {"model": "nova-3", "api_key_env": DEEPGRAM_API_KEY_ENV}
+    require_api_key(module_config)
+    return module_type, module_config
+
+
+# Per-provider param table for the parametrized engine conformance tests
+# (``test_engine_modules.py``). Each entry carries the model, a per-provider
+# ``silence_s`` (the gap the backend needs to finalize an utterance — Flux/EndOfTurn
+# needs longer than nova-3/is_final), and ``api_key_env`` (the module's own key env var,
+# omitted for a module needing no key). Add a row here when adding a new ASR module so
+# it gets e2e conformance coverage.
+MODULES = [
+    pytest.param(
+        "deepgram_v1",
+        {"model": "nova-3", "api_key_env": DEEPGRAM_API_KEY_ENV},
+        3.0,
+        id="deepgram_v1",
+    ),
+    pytest.param(
+        "deepgram_v2",
+        {"model": "flux-general-en", "api_key_env": DEEPGRAM_API_KEY_ENV},
+        6.0,
+        id="deepgram_v2",
+    ),
+]
 
 
 def build_engine(

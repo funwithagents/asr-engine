@@ -54,7 +54,7 @@ Default server URL: `http://127.0.0.1:8000/mcp`
 
 - Implemented in `src/asr_engine/asr_resource_client.py` (CLI entry point)
 - `src/asr_engine/resource_client.py` — `AsrResourceClient`: resource subscription library class. Takes a `resource_uri` argument (default `asr://utterance`) so the same class can subscribe to `asr://segment` — `AsrToTerminal` uses it that way.
-- A single-call MCP **tool** client (`McpToolClient`) is **not** part of the package — it has no product consumer, so it lives as a test-only helper at `tests-e2e/mcp_tool_client.py` (used by `tests-e2e/test_mcp_tool_client.py`).
+- A single-call MCP **tool** client (`McpToolClient`) is **not** part of the package — it has no product consumer, so it lives as a test-only helper at `tests-e2e/mcp_tool_client.py` (used by `tests-e2e/test_mcp_tools.py`).
 - Uses the official MCP Python SDK client
 - No config file needed — server URL passed as CLI argument (with a sensible default)
 - Minimal dependencies: only `mcp` SDK + standard library

@@ -1,4 +1,9 @@
-"""End-to-end tests: McpToolClient — listen tool (trigger_word and timeout modes)."""
+"""End-to-end: McpToolClient — the listen tool (trigger_word and timeout modes).
+
+The tool adapter and progress-notification plumbing are module-agnostic, so these
+run on a single provider (see ``default_provider``); per-module backend behavior is
+covered in ``test_engine_modules.py``.
+"""
 
 from __future__ import annotations
 
@@ -7,7 +12,7 @@ import re
 from pathlib import Path
 
 import pytest
-from helpers import load_api_key, start_mcp_server, stop_mcp_server
+from helpers import default_provider, start_mcp_server, stop_mcp_server
 from mcp_tool_client import McpToolClient
 
 _FIXTURE_WAV = Path(__file__).parent / "fixtures" / "sample.wav"
@@ -19,13 +24,13 @@ def _normalize(text: str) -> str:
 
 
 @pytest.mark.asyncio
-async def test_e2e_listen_trigger_word() -> None:
+async def test_listen_trigger_word() -> None:
     """listen tool with trigger_word mode: ends on 'validate', transcript excludes trigger utterance."""
-    api_key = load_api_key()
+    module_type, module_config = default_provider()
     proc, config_path = await start_mcp_server(
         _FIXTURE_SUBMIT_WAV,
-        "deepgram_v1",
-        {"api_key": api_key, "model": "nova-3"},
+        module_type,
+        module_config,
         port=18003,
         engine_overrides={
             "auto_start": False,
@@ -49,13 +54,13 @@ async def test_e2e_listen_trigger_word() -> None:
 
 
 @pytest.mark.asyncio
-async def test_e2e_listen_streaming() -> None:
+async def test_listen_streaming() -> None:
     """listen tool streams progress notifications for each committed final."""
-    api_key = load_api_key()
+    module_type, module_config = default_provider()
     proc, config_path = await start_mcp_server(
         _FIXTURE_WAV,
-        "deepgram_v1",
-        {"api_key": api_key, "model": "nova-3"},
+        module_type,
+        module_config,
         port=18005,
         engine_overrides={
             "auto_start": False,
@@ -85,13 +90,13 @@ async def test_e2e_listen_streaming() -> None:
 
 
 @pytest.mark.asyncio
-async def test_e2e_listen_timeout() -> None:
+async def test_listen_timeout() -> None:
     """listen tool with timeout mode: ends after silence, returns full transcript."""
-    api_key = load_api_key()
+    module_type, module_config = default_provider()
     proc, config_path = await start_mcp_server(
         _FIXTURE_WAV,
-        "deepgram_v1",
-        {"api_key": api_key, "model": "nova-3"},
+        module_type,
+        module_config,
         port=18004,
         engine_overrides={
             "auto_start": False,

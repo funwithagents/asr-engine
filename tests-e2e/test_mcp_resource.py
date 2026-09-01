@@ -1,4 +1,9 @@
-"""End-to-end tests: FileAudioSource → ASREngine → MCP server → AsrResourceClient."""
+"""End-to-end: FileAudioSource → ASREngine → MCP server → AsrResourceClient.
+
+Verifies the resource path (asr://utterance) surfaces a final transcript. This is
+module-agnostic plumbing, so it runs on a single provider (see ``default_provider``);
+per-module backend behavior is covered in ``test_engine_modules.py``.
+"""
 
 from __future__ import annotations
 
@@ -7,7 +12,7 @@ import re
 from pathlib import Path
 
 import pytest
-from helpers import load_api_key, start_mcp_server, stop_mcp_server
+from helpers import default_provider, start_mcp_server, stop_mcp_server
 
 from asr_engine.resource_client import AsrResourceClient
 
@@ -19,14 +24,11 @@ def _normalize(text: str) -> str:
     return re.sub(r"[^a-z0-9 ]", "", text.lower()).strip()
 
 
-async def _run_e2e(
-    module_type: str,
-    module_config: dict,
-    port: int,
-    trailing_silence_s: float = 0.0,
-) -> None:
+@pytest.mark.asyncio
+async def test_resource_emits_final_transcript() -> None:
+    module_type, module_config = default_provider()
     proc, config_path = await start_mcp_server(
-        _FIXTURE_WAV, module_type, module_config, port, trailing_silence_s
+        _FIXTURE_WAV, module_type, module_config, port=18001, trailing_silence_s=3.0
     )
 
     final_event = asyncio.Event()
@@ -38,8 +40,7 @@ async def _run_e2e(
             last_final_transcript.append(payload["transcript"])
             final_event.set()
 
-    server_url = f"http://127.0.0.1:{port}/mcp"
-    client = AsrResourceClient(server_url, _on_event)
+    client = AsrResourceClient("http://127.0.0.1:18001/mcp", _on_event)
 
     try:
         await client.start()
@@ -51,25 +52,4 @@ async def _run_e2e(
     assert len(last_final_transcript) > 0, "No final result received"
     assert _normalize(last_final_transcript[0]) == _normalize(_EXPECTED), (
         f"Expected transcript {_EXPECTED!r}, got {last_final_transcript[0]!r}"
-    )
-
-
-@pytest.mark.asyncio
-async def test_e2e_deepgram_v1() -> None:
-    api_key = load_api_key()
-    await _run_e2e(
-        "deepgram_v1",
-        {"api_key": api_key, "model": "nova-3"},
-        port=18001,
-    )
-
-
-@pytest.mark.asyncio
-async def test_e2e_deepgram_v2() -> None:
-    api_key = load_api_key()
-    await _run_e2e(
-        "deepgram_v2",
-        {"api_key": api_key, "model": "flux-general-en"},
-        port=18002,
-        trailing_silence_s=6.0,
     )

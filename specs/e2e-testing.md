@@ -2,9 +2,9 @@
 code:
   - src/asr_engine/audio.py
 tests:
-  - tests-e2e/test_engine_e2e.py
-  - tests-e2e/test_asr_resource_client.py
-  - tests-e2e/test_mcp_tool_client.py
+  - tests-e2e/test_engine_modules.py
+  - tests-e2e/test_mcp_resource.py
+  - tests-e2e/test_mcp_tools.py
   - tests-e2e/test_asr_to_terminal.py
 ---
 
@@ -21,10 +21,28 @@ Deepgram API.
 
 ## Scope
 
-The tests cover the complete data path at two levels.
+The tests cover the complete data path at two levels, and split along a second axis —
+**what varies per ASR module vs what does not**:
 
-**Engine-direct** (`test_engine_e2e.py`) — the `ASREngine` on its own, the way a
-program that `import asr_engine` uses it, no MCP server:
+- **Per module** (parametrized): only what a real backend does differently — emit
+  interim then final utterances with the right transcript, and finalize on silence.
+  This is the `ASRModule` contract, observed through `ASREngine`. Adding a module =
+  adding one row to the `MODULES` table in `helpers.py`; run one backend with
+  `pytest -k <module>` (the param id is the module name).
+- **Single provider** (module-agnostic): everything downstream of
+  `SpeechUtterance`/`SpeechSegment` — the MCP resource/tool surface and the
+  asr-to-terminal bridge. These consume events regardless of which module produced
+  them, so running them against every module would only re-test the same adapter code
+  over the network. The `Segmenter`'s three modes are already covered deterministically
+  in the fast tier (`tests/test_segmenter.py`), so the e2e layer does not re-run that
+  matrix per module. The provider is chosen in one place — `helpers.default_provider()`.
+
+**Test naming:** functions are named for the behavior under test, never the module
+(the folder already says "e2e"; the module identity shows up only as a parametrize
+id). So `test_resource_emits_final_transcript`, not `test_e2e_deepgram_v1`.
+
+**Engine-direct, per module** (`test_engine_modules.py`) — the `ASREngine` on its own,
+the way a program that `import asr_engine` uses it, no MCP server:
 
 ```
 FileAudioSource → asyncio.Queue → ASRModule (Deepgram API)
@@ -34,11 +52,13 @@ FileAudioSource → asyncio.Queue → ASRModule (Deepgram API)
                                   collected results → assertion
 ```
 
-Built with the `build_file_engine(...)` helper (in `helpers.py`), which wires a
-`FileAudioSource` to an `ASREngine` (sound feedback disabled). Covers the always-on
-utterance/segment callback streams and the `listen` primitive (trigger_word + timeout).
+Built with the `build_engine(...)`/`build_file_engine(...)` helpers (in `helpers.py`),
+which wire an audio source to an `ASREngine` (sound feedback disabled). Parametrized
+over `MODULES`; three tests per module: a two-utterance streaming test (via
+`ScriptableAudioSource`) asserting interim+final utterances and interim+final segments,
+plus the `listen` primitive in both modes (trigger_word + timeout).
 
-**Through MCP** (`test_asr_resource_client.py`, `test_mcp_tool_client.py`,
+**Through MCP, single provider** (`test_mcp_resource.py`, `test_mcp_tools.py`,
 `test_asr_to_terminal.py`) — the same pipeline surfaced over the server:
 
 ```
@@ -101,9 +121,9 @@ at runtime when each utterance is spoken**, which is what a developer building o
 Because playback is driven by method calls rather than config, this source is for
 **in-process / direct-engine** tests (via `ASREngine(config, audio_source=...)` or
 the `build_engine` helper) — not the config-driven subprocess server path, which
-stays with `FileAudioSource`. The engine-direct scenario
-`test_e2e_scriptable_source_sequences_two_utterances` uses it to play two fixtures
-one after the other and assert a distinct final segment for each.
+stays with `FileAudioSource`. The per-module `test_engine_streams` scenario uses it to
+play two fixtures one after the other and assert interim+final utterances, an interim
+(open) segment, and a distinct closed final segment for each.
 
 ## Audio Fixture
 
@@ -120,25 +140,43 @@ online TTS tool and committed to the repository.
 
 ## Test Cases
 
-### `test_e2e_deepgram_v1`
+### Per module — `test_engine_modules.py`
 
-| Field | Value |
-|-------|-------|
-| Module | `deepgram_v1` |
-| Model | `nova-3` |
-| Port | `18001` |
-| Stop condition | first result with `is_final=True` |
+Parametrized over the `MODULES` table in `helpers.py`. Each row carries the module
+type, model, a per-module `silence_s` (the gap the backend needs to finalize an
+utterance — Flux/`EndOfTurn` needs longer than nova-3/`is_final`), and `api_key_env`:
 
-### `test_e2e_deepgram_v2`
+| Module | Model | `silence_s` |
+|--------|-------|-------------|
+| `deepgram_v1` | `nova-3` | `3.0` |
+| `deepgram_v2` | `flux-general-en` | `6.0` |
 
-| Field | Value |
-|-------|-------|
-| Module | `deepgram_v2` |
-| Model | `flux-general-en` |
-| Port | `18002` |
-| Stop condition | first result with `is_final=True` (`EndOfTurn` event) |
+Three tests run for each row:
 
-Both tests share the same fixture file and expected transcript.
+- `test_engine_streams` — `ScriptableAudioSource`, `utterance` mode. Plays two fixtures
+  split by `silence_s`; asserts an interim utterance, a final utterance with the right
+  transcript, an interim (open) segment, and ≥2 closed segments (`end_reason ==
+  "utterance"`), the second containing `"validate"`.
+- `test_listen_trigger_word` — `engine.listen(mode="trigger_word")` on
+  `sample_submit.wav`; asserts `end_reason == "trigger_word"`, transcript excludes the
+  trigger, engine stopped.
+- `test_listen_timeout` — `engine.listen(mode="timeout")` on `sample.wav`; asserts
+  `end_reason == "end_of_speech_timeout"` and the full transcript.
+
+### Single provider — module-agnostic stack
+
+Built from `helpers.default_provider()` (`deepgram_v1`/`nova-3`); one run each, since
+they exercise adapter/bridge code that is independent of the backend:
+
+| Test file | Covers | Port(s) |
+|-----------|--------|---------|
+| `test_mcp_resource.py` | `asr://utterance` resource yields a final transcript | `18001` |
+| `test_mcp_tools.py` | `listen` tool: trigger_word, timeout, streaming progress | `18003`–`18005` |
+| `test_asr_to_terminal.py` | asr-to-terminal bridge: typing, submit, timeout | `18101`–`18103` |
+
+All tests share the same fixtures (`sample.wav` → `"the sky is blue"`,
+`sample_submit.wav` → `"the sky is blue validate"`) and the same normalized
+transcript comparison.
 
 ## Assertion Strategy
 
@@ -153,19 +191,32 @@ This tolerates differences in punctuation and capitalisation across models.
 
 ## Infrastructure
 
-- **Server:** `create_mcp_server` + `uvicorn.Server` run as an `asyncio` background
-  task on a dedicated test port. The test waits for `server.started` before
-  proceeding.
-- **Client:** a minimal inline coroutine that subscribes to `asr://utterance`,
-  collects payloads on each `ResourceUpdatedNotification`, and resolves an
-  `asyncio.Event` when a final result arrives.
+- **Engine-direct tests** (`test_engine_modules.py`): no server. `helpers.build_engine`
+  / `build_file_engine` construct an `ASREngine` in-process around an audio source
+  (`ScriptableAudioSource` or `FileAudioSource`) and consume its utterance/segment
+  callbacks and `listen` directly.
+- **Through-MCP tests** (`test_mcp_resource.py`, `test_mcp_tools.py`,
+  `test_asr_to_terminal.py`): `helpers.start_mcp_server` spawns a real
+  `asr-engine-mcp` **subprocess** (`uv run asr-engine-mcp --config <temp>`) on a
+  dedicated port, writing a temp JSON config with `audio.audio_file`, the `module`
+  block, and any `engine` overrides. It waits until the TCP port accepts connections
+  (`_wait_for_port`); `stop_mcp_server` terminates the process and removes the temp
+  config.
+- **Clients:** `AsrResourceClient` (subscribes to `asr://utterance`) for the resource
+  path, `McpToolClient` (single tool call, optional progress callback) for the `listen`
+  tool, and `AsrToTerminal` with an injected in-memory `RecordingTyper` for the
+  terminal bridge.
 - **Timeout:** 30 seconds per test (covers real-time audio playback + API
   round-trip).
-- **API key:** `helpers.load_api_key()` reads the key from the
-  `DEEPGRAM_API_KEY` environment variable (its name is the `API_KEY_ENV`
-  constant in `helpers.py`) — no secret is committed. When that variable is unset
-  the helper **skips** the test (via `pytest.skip`) rather than failing, keeping
-  e2e opt-in. See AGENTS.md "Live/e2e tests".
+- **API key:** tests never read the literal key. Each module config carries
+  `api_key_env` — the *name* of the env var it authenticates with (Deepgram's is the
+  `DEEPGRAM_API_KEY_ENV` constant; other modules name their own, a keyless module names
+  none) — and the module's own `resolve_api_key` reads it, so no secret is committed.
+  `default_provider()` and the `MODULES` rows set `api_key_env`;
+  `helpers.require_api_key(module_config)` **skips** (via `pytest.skip`) when the env
+  var *that config names* is unset, keeping e2e opt-in — without it `resolve_api_key`
+  would raise and fail the test. A config without `api_key_env` is never skipped. See
+  AGENTS.md "Live/e2e tests".
 
 ## Non-Goals
 

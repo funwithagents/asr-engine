@@ -16,7 +16,7 @@ import re
 from pathlib import Path
 
 import pytest
-from helpers import load_api_key, start_mcp_server, stop_mcp_server
+from helpers import default_provider, start_mcp_server, stop_mcp_server
 
 from asr_engine.asr_to_terminal import AsrToTerminal
 
@@ -63,15 +63,15 @@ async def _wait_until(predicate, timeout: float = 30.0) -> None:
 
 
 @pytest.mark.asyncio
-async def test_e2e_terminal_typing() -> None:
+async def test_terminal_typing() -> None:
     """Feed sample.wav with an impossible trigger word: text is typed, never committed."""
-    api_key = load_api_key()
+    module_type, module_config = default_provider()
     port = 18101
 
     proc, config_path = await start_mcp_server(
         _FIXTURE_WAV,
-        "deepgram_v1",
-        {"api_key": api_key, "model": "nova-3"},
+        module_type,
+        module_config,
         port,
         # Impossible trigger word so the segment never closes → text only, no Enter.
         engine_overrides={
@@ -94,15 +94,15 @@ async def test_e2e_terminal_typing() -> None:
 
 
 @pytest.mark.asyncio
-async def test_e2e_terminal_submit() -> None:
+async def test_terminal_submit() -> None:
     """Feed sample_submit.wav; expect the segment to close and Enter to fire."""
-    api_key = load_api_key()
+    module_type, module_config = default_provider()
     port = 18102
 
     proc, config_path = await start_mcp_server(
         _FIXTURE_SUBMIT_WAV,
-        "deepgram_v1",
-        {"api_key": api_key, "model": "nova-3"},
+        module_type,
+        module_config,
         port,
         trailing_silence_s=2.0,
         engine_overrides={
@@ -126,15 +126,15 @@ async def test_e2e_terminal_submit() -> None:
 
 
 @pytest.mark.asyncio
-async def test_e2e_asr_to_terminal_timeout() -> None:
+async def test_asr_to_terminal_timeout() -> None:
     """Feed sample.wav in timeout mode; expect text typed then Enter after EOS timeout."""
-    api_key = load_api_key()
+    module_type, module_config = default_provider()
     port = 18103
 
     proc, config_path = await start_mcp_server(
         _FIXTURE_WAV,
-        "deepgram_v1",
-        {"api_key": api_key, "model": "nova-3"},
+        module_type,
+        module_config,
         port,
         trailing_silence_s=3.0,
         engine_overrides={
