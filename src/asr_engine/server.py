@@ -148,8 +148,12 @@ def create_mcp_server(engine: ASREngine) -> FastMCP:
     return mcp
 
 
-async def run_server(config: AppConfig) -> None:
-    """Create the ASR engine, the MCP server, and run uvicorn."""
+async def run_server(config: AppConfig, log_level: str = "INFO") -> None:
+    """Create the ASR engine, the MCP server, and run uvicorn.
+
+    ``log_level`` sets the level for uvicorn's own loggers; the entry point has
+    already configured the root/``asr_engine`` handlers via ``setup_logging``.
+    """
     engine_config = config.engine
     if engine_config.audio.audio_file:
         from asr_engine.audio import FileAudioSource  # noqa: PLC0415
@@ -170,6 +174,7 @@ async def run_server(config: AppConfig) -> None:
     # Suppress chatty low-level logs that belong at DEBUG, not INFO.
     # Must be passed as log_config so uvicorn doesn't overwrite them on startup.
     logging.getLogger("mcp").setLevel(logging.WARNING)
+    uvicorn_level = log_level.upper()
     log_config = {
         "version": 1,
         "disable_existing_loggers": False,
@@ -187,8 +192,12 @@ async def run_server(config: AppConfig) -> None:
             }
         },
         "loggers": {
-            "uvicorn": {"handlers": ["default"], "level": "INFO", "propagate": False},
-            "uvicorn.error": {"level": "INFO"},
+            "uvicorn": {
+                "handlers": ["default"],
+                "level": uvicorn_level,
+                "propagate": False,
+            },
+            "uvicorn.error": {"level": uvicorn_level},
             "uvicorn.access": {"level": "WARNING", "propagate": False},
         },
     }

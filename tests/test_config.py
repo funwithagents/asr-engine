@@ -50,7 +50,6 @@ def test_load_config_full(tmp_path: Path) -> None:
                     "end_of_speech_timeout_s": 2.0,
                 },
                 "sound_feedback": {"enabled": False, "output_device": "speakers"},
-                "logging": {"level": "DEBUG"},
                 "audio": {"device": "hw:0"},
                 "module": {"type": "deepgram", "api_key": "secret", "language": "fr"},
             },
@@ -68,7 +67,6 @@ def test_load_config_full(tmp_path: Path) -> None:
     assert cfg.engine.segmentation.end_of_speech_timeout_s == 2.0
     assert cfg.engine.sound_feedback.enabled is False
     assert cfg.engine.sound_feedback.output_device == "speakers"
-    assert cfg.engine.logging.level == "DEBUG"
     assert cfg.engine.audio.device == "hw:0"
     assert cfg.engine.module.type == "deepgram"
     assert cfg.engine.module.extra == {"api_key": "secret", "language": "fr"}
@@ -88,7 +86,6 @@ def test_load_config_defaults(tmp_path: Path) -> None:
     assert "submit" in cfg.engine.segmentation.trigger_words
     assert cfg.engine.sound_feedback.enabled is True
     assert cfg.engine.sound_feedback.output_device is None
-    assert cfg.engine.logging.level == "INFO"
     assert cfg.engine.audio.device is None
     assert cfg.engine.module.extra == {}
 
@@ -156,17 +153,6 @@ def test_load_config_invalid_listen_default_mode(tmp_path: Path) -> None:
     )
     with pytest.raises(ValueError, match="engine.listen_default_segmentation_mode"):
         load_config(path)
-
-
-def test_load_config_invalid_logging_level(tmp_path: Path) -> None:
-    path = write_config(tmp_path, _min({"logging": {"level": "LOUD"}}))
-    with pytest.raises(ValueError, match="engine.logging.level"):
-        load_config(path)
-
-
-def test_load_config_logging_level_case_insensitive(tmp_path: Path) -> None:
-    cfg = load_config(write_config(tmp_path, _min({"logging": {"level": "debug"}})))
-    assert cfg.engine.logging.level == "DEBUG"
 
 
 # ---------------------------------------------------------------------------

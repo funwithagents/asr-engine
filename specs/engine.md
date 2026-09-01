@@ -206,14 +206,16 @@ class ASREngine:
 The engine is constructed from a single `ASREngineConfig` (see
 [configuration.md](configuration.md)), which carries the audio, module,
 `auto_start`, `segmentation_mode`, `segmentation` params,
-`listen_default_segmentation_mode`, `sound_feedback`, and `logging` settings.
+`listen_default_segmentation_mode`, and `sound_feedback` settings.
 Both callbacks default to a no-op and are settable afterwards.
+
+The engine **never configures logging** — it does not set levels, add handlers,
+or call `basicConfig`. It only acquires a module logger like every other library
+module (`log = logging.getLogger(__name__)`); the application layer owns level
+and handler configuration (see [project.md](project.md)).
 
 At construction the engine:
 
-- Sets the level on the **`asr_engine` package logger** from `config.logging.level`
-  (level only — never `basicConfig`, never handler configuration; a direct
-  importer keeps full control of formatting and handlers).
 - Instantiates the ASR module from `config.module` (raising `ValueError` on an
   unknown `type`).
 - Builds its `Segmenter` from `config.segmentation_mode` and the

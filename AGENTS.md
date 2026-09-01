@@ -152,9 +152,9 @@ All ASR modules receive audio as **16 kHz, 16-bit signed PCM, mono, ~100 ms chun
 ### Logging
 
 - Every module that logs uses `log = logging.getLogger(__name__)` (variable name `log`, not `logger`).
-- **Library modules** (`src/asr_engine/`) never call `basicConfig` or configure handlers — they only get a logger and use it. `ASREngine` additionally sets the *level* of the `asr_engine` package logger from `config.logging.level` at construction (level only — still no handlers/`basicConfig`).
-- **Entry points and scripts** call `setup_logging()` from `asr_engine._logging` at startup to configure the root logger.
-- The MCP server (`server.py`) additionally passes a uvicorn-specific `log_config` dict to `uvicorn.Config` to control uvicorn's own loggers — separate from `setup_logging()`, don't change without good reason.
+- **Library modules** (`src/asr_engine/`) configure nothing — no `basicConfig`, no handlers, no levels. They only acquire a logger and use it. This includes `ASREngine`, which never touches global logging state. `asr_engine/__init__.py` attaches a `NullHandler` to the `asr_engine` logger so a bare `import asr_engine` that configures nothing drops records silently instead of hitting the last-resort handler.
+- **Entry points and scripts** (the application layer) own all configuration: they call `setup_logging()` from `asr_engine._logging` (which owns `basicConfig`) at startup. The `asr-engine-mcp` server takes a `--log-level` CLI flag (default `INFO`) as the sole level control — there is no config-file logging block.
+- The MCP server (`server.py`) additionally passes a uvicorn-specific `log_config` dict to `uvicorn.Config` to control uvicorn's own loggers — separate from `setup_logging()`, and given the resolved `--log-level`; don't change without good reason.
 
 ### Adding a new ASR module
 

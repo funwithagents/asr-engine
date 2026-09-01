@@ -6,6 +6,8 @@ the bundled MCP server): construct an :class:`ASREngine` from an
 and segment streams. See specs/engine.md and specs/e2e-testing.md.
 """
 
+import logging
+
 from asr_engine.audio import (
     AudioCapture,
     AudioSource,
@@ -15,7 +17,6 @@ from asr_engine.audio import (
 from asr_engine.config import (
     ASREngineConfig,
     AudioConfig,
-    LoggingConfig,
     ModuleConfig,
     SegmentationConfig,
     SoundFeedbackConfig,
@@ -24,6 +25,13 @@ from asr_engine.engine import ASREngine
 from asr_engine.modules.base import SpeechUtterance
 from asr_engine.segmenter import SpeechSegment
 from asr_engine.tools import AsrTools
+
+# Library convention: never configure logging (no handlers, no levels, no
+# basicConfig). Attach a NullHandler to the package logger so a program that
+# imports asr_engine and configures nothing drops records silently instead of
+# hitting the "last resort" handler. Applications/entry points own configuration
+# via asr_engine._logging.setup_logging().
+logging.getLogger("asr_engine").addHandler(logging.NullHandler())
 
 __all__ = [
     # Engine + tools
@@ -35,7 +43,6 @@ __all__ = [
     "ModuleConfig",
     "SegmentationConfig",
     "SoundFeedbackConfig",
-    "LoggingConfig",
     # Audio sources
     "AudioSource",
     "AudioCapture",

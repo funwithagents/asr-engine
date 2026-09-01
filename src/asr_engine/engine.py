@@ -44,10 +44,6 @@ class ASREngine:
         on_speech_segment: SegmentCallback | None = None,
         audio_source: AudioSource | None = None,
     ) -> None:
-        # Set the package logger level from config (level only — never basicConfig
-        # or handler configuration; a direct importer keeps control of those).
-        logging.getLogger("asr_engine").setLevel(config.logging.level)
-
         if config.module.type not in REGISTRY:
             available = ", ".join(sorted(REGISTRY)) or "(none)"
             raise ValueError(

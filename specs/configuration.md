@@ -53,9 +53,6 @@ library builds an `ASREngineConfig` from the `engine` block alone and never need
       "enabled": true,
       "output_device": null
     },
-    "logging": {
-      "level": "INFO"
-    },
     "audio": {
       "device": null,
       "audio_file": null,
@@ -91,7 +88,6 @@ scalar engine settings plus five nested sub-blocks.
 | `listen_default_segmentation_mode` | string | `"trigger_word"` | The segmentation mode `listen()` uses when its caller passes no explicit mode. Must be `"trigger_word"` or `"timeout"`. |
 | `segmentation` | object | see below | Segmentation parameters (trigger words + timeouts) shared by the always-on stream **and** `listen`. |
 | `sound_feedback` | object | see below | Start/stop audio cues, owned and played by the engine during `listen`. |
-| `logging` | object | see below | Engine logging level. |
 | `audio` | object | see below | Audio input / file-source settings. |
 | `module` | object | — | ASR backend selection and its module-specific fields. **Required.** |
 
@@ -114,11 +110,10 @@ The single source of segmentation parameters. Both the always-on segmenter and
 | `enabled` | boolean | `true` | Play start/stop audio cues during `listen`. `false` installs a no-op. |
 | `output_device` | string / integer / null | `null` | Output device name or index for cue playback. `null` = system default. |
 
-#### `engine.logging` sub-block
-
-| Field | Type | Default | Description |
-|---|---|---|---|
-| `level` | string | `"INFO"` | Level applied to the `asr_engine` package logger by the engine at construction (`"DEBUG"`, `"INFO"`, `"WARNING"`, …). The engine sets the level on its own package logger only — it never calls `basicConfig` or configures handlers. |
+> **No `engine.logging` block.** Logging is an application-layer concern: the
+> library configures nothing, and the `asr-engine-mcp` server's log level is set
+> by the `--log-level` CLI flag (default `INFO`), not by config. See
+> [project.md](project.md) and [mcp-server.md](mcp-server.md).
 
 #### `engine.audio` sub-block
 
@@ -187,7 +182,6 @@ envoyer, valider, confirmer, soumettre, entree, entrée
   - Module-specific required fields (e.g. `api_key` / `api_key_env`) are missing
   - `engine.segmentation_mode` is not one of `utterance` / `trigger_word` / `timeout`
   - `engine.listen_default_segmentation_mode` is not one of `trigger_word` / `timeout`
-  - `engine.logging.level` is not a recognised level name
 - The specified audio device is verified when audio capture first starts, and an
   unknown device raises a clear error there — at startup when `engine.auto_start`
   is `true`, or on the first `start`/`listen` call when it is `false`.

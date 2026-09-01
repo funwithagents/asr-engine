@@ -55,6 +55,22 @@ direct importer can call them as plain coroutines.
 - Host and port are read from the `server` block of the config file
 - Started via the `asr-engine-mcp` console script (`asr_engine.mcp_server_cli:main`)
 
+### CLI arguments
+
+`asr-engine-mcp` takes:
+
+| Flag | Default | Description |
+|---|---|---|
+| `--config PATH` | `config.json` | Path to the JSON config file. |
+| `--log-level LEVEL` | `INFO` | Logging level — one of the standard names (`DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`). Rejected by argparse if unrecognised. |
+
+`--log-level` is the **sole** logging control (there is no config-file logging
+block — see [configuration.md](configuration.md)). The entry point calls
+`setup_logging(level)` (application layer — this is where `basicConfig` lives)
+before starting, and passes the level into `run_server`, which also applies it to
+uvicorn's own loggers. Library code, including `ASREngine`, configures nothing
+(see [project.md](project.md)).
+
 ## Resources
 
 The server exposes two rolling resources, both `application/json` and both

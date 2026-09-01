@@ -26,6 +26,7 @@ Implementation plans for ASR MCP — each plan turns a settled part of a spec (s
 | [202608311400_api-key-env.md](202608311400_api-key-env.md) | `api_key_env` config option + `resolve_api_key` helper; committed `e2e.config.json` referencing an env var | Done |
 | [202608311612_asr-engine-refactor.md](202608311612_asr-engine-refactor.md) | Rename `asr_mcp` → `asr_engine`; self-configured `ASREngine` from `ASREngineConfig`; nested config (`server`+`engine`, `asr`→`module`, drop `listen` block); engine-owned sound feedback + logging level; transport-agnostic `AsrTools` layer; slimmed MCP server | Done |
 | [202609010939_e2e-per-provider-restructure.md](202609010939_e2e-per-provider-restructure.md) | Parametrize engine e2e conformance per provider (registry-driven); keep MCP resource/tool + asr-to-terminal single-provider; drop `e2e` from test names | Done |
+| [202609011030_logging-library-boundary.md](202609011030_logging-library-boundary.md) | Library configures no logging (NullHandler, engine stops setting level); drop `engine.logging` config; add `--log-level` CLI flag as the sole server log-level control | Done |
 
 ## Status legend
 

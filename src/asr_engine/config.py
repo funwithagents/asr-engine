@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import logging
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -59,11 +58,6 @@ class SoundFeedbackConfig:
 
 
 @dataclass
-class LoggingConfig:
-    level: str = "INFO"
-
-
-@dataclass
 class ASREngineConfig:
     """Everything an ``ASREngine`` needs — the whole ``engine`` config block."""
 
@@ -72,7 +66,6 @@ class ASREngineConfig:
     listen_default_segmentation_mode: str = "trigger_word"
     segmentation: SegmentationConfig = field(default_factory=SegmentationConfig)
     sound_feedback: SoundFeedbackConfig = field(default_factory=SoundFeedbackConfig)
-    logging: LoggingConfig = field(default_factory=LoggingConfig)
     audio: AudioConfig = field(default_factory=AudioConfig)
     module: ModuleConfig = field(default_factory=ModuleConfig)
 
@@ -111,20 +104,6 @@ def _parse_engine(engine_data: dict[str, Any]) -> ASREngineConfig:
         output_device=sf_data.get("output_device", None),
     )
 
-    log_data = engine_data.get("logging", {})
-    level = log_data.get("level", "INFO")
-    if (
-        not isinstance(level, str)
-        or level.upper() not in logging.getLevelNamesMapping()
-    ):
-        valid = ", ".join(
-            name for name in logging.getLevelNamesMapping() if name != "NOTSET"
-        )
-        raise ValueError(
-            f"Invalid engine.logging.level: '{level}'. Must be one of {valid}."
-        )
-    logging_config = LoggingConfig(level=level.upper())
-
     audio_data = engine_data.get("audio", {})
     audio = AudioConfig(
         device=audio_data.get("device", None),
@@ -145,7 +124,6 @@ def _parse_engine(engine_data: dict[str, Any]) -> ASREngineConfig:
         listen_default_segmentation_mode=listen_default,
         segmentation=segmentation,
         sound_feedback=sound_feedback,
-        logging=logging_config,
         audio=audio,
         module=module,
     )

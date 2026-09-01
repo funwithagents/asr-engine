@@ -120,16 +120,6 @@ def test_constructor_applies_segmentation_mode_from_config():
     assert engine._segment_mode == "trigger_word"
 
 
-def test_constructor_sets_package_logger_level():
-    import logging
-
-    with patch.dict("asr_engine.engine.REGISTRY", {"mock": MagicMock()}):
-        cfg = make_config()
-        cfg.logging.level = "WARNING"
-        ASREngine(cfg)
-    assert logging.getLogger("asr_engine").level == logging.WARNING
-
-
 # ---------------------------------------------------------------------------
 # status() / set_connected()
 # ---------------------------------------------------------------------------
