@@ -9,6 +9,13 @@ tests:
 
 **Status:** Implemented
 
+> **Dictation update (2026-09-01):** `AsrTools` gains `start_dictation` /
+> `stop_dictation` and the two default-mode setters
+> (`set_dictation_default_segmentation_mode`,
+> `set_listen_default_segmentation_mode`), thin pass-throughs to the engine so the
+> MCP server can expose them. Implemented by
+> [plans/202609012010_dictation-sessions.md](../plans/202609012010_dictation-sessions.md).
+
 > **New in the 2026-08-31 refactor**, implemented by
 > [plans/202608311612_asr-engine-refactor.md](../plans/202608311612_asr-engine-refactor.md).
 
@@ -44,6 +51,16 @@ class AsrTools:
         mode: str | None = None,
         on_progress: ProgressCallback | None = None,
     ) -> dict: ...  # {"transcript", "end_reason"}
+
+    async def start_dictation(
+        self,
+        end_on_final_segment: bool = True,
+        segmentation_mode: str | None = None,
+    ) -> dict: ...  # {"status": "dictating", "mode", "end_on_final_segment"}
+    async def stop_dictation(self) -> dict: ...  # {"status": "dictation_stopped"}
+    def is_dictation_running(self) -> dict: ...  # {"dictating", "segmentation_mode"}
+    def set_dictation_default_segmentation_mode(self, mode: str) -> dict: ...
+    def set_listen_default_segmentation_mode(self, mode: str) -> dict: ...
 ```
 
 `AsrTools` holds a reference to one `ASREngine`. It knows nothing about FastMCP,
@@ -79,6 +96,33 @@ used to live in the server:
 
 Sound cues are played by `engine.listen` itself; `AsrTools` does not touch sound
 feedback.
+
+### `start_dictation` / `stop_dictation`
+
+Thin pass-throughs to the engine's dictation primitives (see
+[engine.md](engine.md)), which own the state and the `ValueError`s (engine not
+running, already/not dictating, unknown mode):
+
+- `start_dictation(end_on_final_segment=True, segmentation_mode=None)` →
+  `await engine.start_dictation(...)`, returns
+  `{"status": "dictating", "mode": <resolved mode>, "end_on_final_segment": <bool>}`.
+- `stop_dictation()` → `await engine.stop_dictation()`, returns
+  `{"status": "dictation_stopped"}` (the engine stays running).
+- `is_dictation_running()` → `{"dictating": engine.dictating, "segmentation_mode":
+  engine.segmentation_mode}` — the dictation counterpart to `is_running`,
+  composing the engine's `dictating` property and `segmentation_mode` getter (the
+  active dictation/`listen` mode, else `utterance`). Never raises.
+
+Unlike `listen`, these are non-blocking: dictation runs on the always-on engine
+and its segments reach consumers through the normal `on_speech_segment` callback
+/ `asr://segment` resource, not through a return value.
+
+### `set_dictation_default_segmentation_mode` / `set_listen_default_segmentation_mode`
+
+Pass-throughs to the engine's setters of the same names; each returns the updated
+value, e.g. `{"dictation_default_segmentation_mode": "timeout"}` /
+`{"listen_default_segmentation_mode": "utterance"}`. They validate the mode (the
+engine raises `ValueError` on an unknown one) and do not change the current mode.
 
 ## MCP adapter
 

@@ -9,12 +9,21 @@ tests:
 
 **Status:** Implemented
 
+> **Dictation update (2026-09-01):** the always-on `segmentation_mode` is gone,
+> so the demo's live segmentation-mode selector is replaced by **dictation
+> controls** (a mode picker + an "end on final segment" toggle + Start/Stop
+> dictation) that call the engine's `start_dictation` / `stop_dictation` on the
+> running engine. The controller drops `set_segmentation_mode`, gains
+> `start_dictation` / `stop_dictation`, and its phase gains `"dictating"`. To be
+> implemented by
+> [plans/202609012010_dictation-sessions.md](../plans/202609012010_dictation-sessions.md).
+
 ## Purpose
 
 A small, standalone **example** that drives the `ASREngine` from a Gradio web UI,
 so a person can exercise the whole engine — pick an input device and ASR module,
-start/stop always-on capture, run a single-shot `listen`, switch segmentation
-mode, and watch utterances and segments stream in — without writing code or
+start/stop always-on capture, run a single-shot `listen`, start/stop a dictation
+session, and watch utterances and segments stream in — without writing code or
 touching the MCP server.
 
 It is a **direct-import consumer** of the library: it builds an `ASREngine` from
@@ -88,9 +97,14 @@ class DemoController:
     def stop(self) -> None                           # engine.stop(), or cancel an in-progress listen
     def listen(self, mode: str | None = None) -> None  # single-shot, background + cancelable
 
-    # --- segmentation (marshaled onto the loop thread) ---
-    def set_segmentation_mode(self, mode: str) -> None  # engine.set_segmentation_mode
-    def set_segmentation_params(                        # engine.set_segmentation_params
+    # --- dictation (marshaled onto the loop thread; engine must be running) ---
+    def start_dictation(                             # engine.start_dictation
+        self, mode: str | None = None, end_on_final_segment: bool = False,
+    ) -> None
+    def stop_dictation(self) -> None                 # engine.stop_dictation
+
+    # --- segmentation params (marshaled onto the loop thread) ---
+    def set_segmentation_params(                     # engine.set_segmentation_params
         self, trigger_words: str, initial_silence_timeout_s: float,
         end_of_speech_timeout_s: float,
     ) -> None
@@ -126,24 +140,36 @@ otherwise). It is **non-blocking**: it schedules `engine.listen(mode)` as a task
 on the loop thread and returns immediately, so the UI stays responsive. The
 controller enters the `listening` phase; when the capture completes, its closed
 `SpeechSegment` is stored as `last_listen` and the phase returns to `stopped`.
-`mode` defaults to the config's `listen_default_segmentation_mode`.
+`mode` is the value of the shared **Segmentation mode** dropdown (any of the
+three modes, `utterance` included); when the UI passes `None` the engine falls
+back to its `listen_default_segmentation_mode`.
 
 A listen can be **cancelled**: `stop()` cancels the listen task, which unwinds
 `engine.listen`'s own cleanup (it stops the engine and restores the prior mode);
 the phase then returns to `stopped` with a "Listen cancelled." message. This is
 why Stop is enabled during `listening` (see the enablement table).
 
-### Segmentation control
+### Dictation control
 
-`set_segmentation_mode(mode)` and `set_segmentation_params(trigger_words,
-initial_silence_timeout_s, end_of_speech_timeout_s)` both change the always-on
-segmentation live (they map to the engine methods of the same names, which are
-safe to call while running). `trigger_words` is a comma-separated string, split
-into a list; timeouts must be numbers greater than 0 (rejected with a message
-otherwise). Both persist to the pending config so a not-yet-built engine and the
-state snapshot reflect them.
+`start_dictation(mode, end_on_final_segment)` and `stop_dictation()` map to the
+engine methods of the same names and are only valid **while the engine is
+running** (phase `running` → `dictating`). `start_dictation` resolves `mode`
+against the config's `dictation_default_segmentation_mode` when `None`; the demo
+defaults `end_on_final_segment` to `False` so a dictation runs until Stop
+dictation (the natural "watch it aggregate" demo). Their `ValueError`s (not
+running, already/not dictating, unknown mode) are caught and shown as a message.
+When a dictation with `end_on_final_segment=True` self-ends, the phase returns to
+`running` — the controller reads `engine.dictating` in its snapshot so the UI
+follows the engine.
 
-**These engine setters schedule work on the engine's event loop, so the
+`set_segmentation_params(trigger_words, initial_silence_timeout_s,
+end_of_speech_timeout_s)` still changes the shared segmentation params live (it
+maps to the engine method of the same name, safe while running). `trigger_words`
+is a comma-separated string, split into a list; timeouts must be numbers greater
+than 0 (rejected with a message otherwise). It persists to the pending config so
+a not-yet-built engine and the state snapshot reflect it.
+
+**These engine methods schedule work on the engine's event loop, so the
 controller must invoke them on the loop thread** (via the same
 `run_coroutine_threadsafe` helper), not directly from the Gradio handler thread —
 calling them off-loop raises `RuntimeError: no current event loop`.
@@ -154,9 +180,9 @@ A plain snapshot the UI renders. Fields:
 
 | Field | Source |
 |---|---|
-| `phase: str` | `"stopped"` / `"running"` / `"listening"` — the primary status |
+| `phase: str` | `"stopped"` / `"running"` / `"dictating"` / `"listening"` — the primary status |
 | `connected: bool` | `engine.status()["connected"]` (False if no engine) |
-| `segmentation_mode: str` | `engine.segmentation_mode` (read-only property; see [engine.md](engine.md)) |
+| `segmentation_mode: str` | `engine.segmentation_mode` (read-only property; see [engine.md](engine.md)) — the dictation/listen mode while active, else `utterance` |
 | `trigger_words: str` | pending config's segmentation trigger words, comma-joined (for the textbox) |
 | `initial_silence_timeout_s`, `end_of_speech_timeout_s: float` | pending config's segmentation timeouts |
 | `device: str \| None`, `module_type: str` | current pending config |
@@ -164,34 +190,43 @@ A plain snapshot the UI renders. Fields:
 | `segment_log: list[str]` | **every** segment formatted (interim `[open]` + closed `[end_reason]`), most-recent last (bounded deque) |
 | `last_listen: str` | formatted result of the last `listen` |
 | `message: str` | last action/error message for the UI |
-| `can_start` / `can_stop` / `can_listen` / `config_enabled` / `can_set_mode: bool` | derived enablement (see table) |
+| `can_start` / `can_stop` / `can_listen` / `config_enabled` / `can_dictate: bool` | derived enablement (see table); `can_dictate` gates the dictation controls |
 
 The current segmentation mode is read from the engine's read-only
-`segmentation_mode` property (added for this work — see [engine.md](engine.md)),
-so the controller doesn't shadow engine state. When there is no live engine (not
-yet started after a config change), the snapshot reports the pending config's
-`segmentation_mode`.
+`segmentation_mode` property (see [engine.md](engine.md)), so the controller
+doesn't shadow engine state. When there is no live engine (not yet started after a
+config change), the snapshot reports `"utterance"` (the at-rest mode).
 
 ## UI (`app.py`)
 
-A single Gradio `Blocks` page:
+A single Gradio `Blocks` page, top to bottom:
 
 - **Config row** (disabled while running): input-device dropdown
   (`available_devices()`, defaulting to the **first** device rather than the
   system default), module dropdown (`available_modules()`).
-- **Control row**: Start, Stop, Listen buttons.
-- **Segmentation-mode row** (its own line): a mode selector (`utterance` /
-  `trigger_word` / `timeout`) that calls `set_segmentation_mode` live.
 - **Params row**: a trigger-words textbox (comma-separated), two timeout number
   inputs, and an "Apply params" button calling `set_segmentation_params`. The
   timer only toggles these inputs' *enablement* — it never rewrites their value,
   so it can't clobber what the user is typing; the current values seed them at
   build time.
-- **State row**: read-only fields for the engine **phase** (the primary status:
-  `stopped` / `running` / `listening`) and backend connection; plus a "Last
-  activity" line carrying the controller's message (result of the most recent
-  action or an error). The current segmentation mode isn't repeated here — the
-  mode selector already shows it.
+- **Engine row**: Start and Stop buttons (always-on capture).
+- **State row**: read-only fields for the engine **phase** (`stopped` /
+  `running` / `dictating` / `listening`) and backend connection. Because the mode
+  dropdown is a free input (not a mirror of engine state), the phase field shows
+  the **active** mode next to the phase while `dictating`/`listening` (e.g.
+  `dictating · trigger_word`), so the user still sees what is running.
+- **Segmentation + actions row** (two columns): on the **left**, a **Segmentation
+  mode** dropdown (`utterance` / `trigger_word` / `timeout`) beside an "end
+  dictation on first final segment" checkbox (two columns on one line); on the
+  **right**, Start-dictation /
+  Stop-dictation buttons on the first line and the Listen (single-shot) button on
+  the second. The dropdown is a free user choice that drives **both** `listen` (the
+  mode passed to `controller.listen`) and `start_dictation`; it stays editable in
+  every phase and the poll timer **never** overwrites its value (that would clobber
+  the selection — same rule as the params inputs). Start-dictation is enabled while
+  `running` and not yet dictating; Stop-dictation while `dictating`.
+- **Last activity**: a read-only line carrying the controller's message (result
+  of the most recent action or an error).
 - **Results**: two scrolling, read-only log panels — utterances and segments —
   each showing **every** event including interims (autoscrolled to the newest, so
   the last line is the latest), a **Clear** button beneath them
@@ -206,11 +241,18 @@ deque (latest N lines).
 
 ### Button / widget enablement
 
-| State | Start | Stop | Listen | Device / Module | Seg-mode / params |
-|---|---|---|---|---|---|
-| stopped | on | off | on | on | on |
-| running (always-on) | off | on | off | off | on |
-| listening (single-shot) | off | **on** (cancels listen) | off | off | off |
+| State | Start | Stop | Listen | Device / Module | Dictation | Params |
+|---|---|---|---|---|---|---|
+| stopped | on | off | on | on | off | on |
+| running (always-on) | off | on | off | off | **Start** on | on |
+| dictating | off | on | off | off | **Stop** on | on |
+| listening (single-shot) | off | **on** (cancels listen) | off | off | off | off |
+
+`can_dictate` is true in the `running` and `dictating` phases; within the
+dictation controls, Start-dictation is enabled while `running` and
+Stop-dictation while `dictating`. The **Segmentation mode** dropdown is **always
+editable** (it is a free input for Listen and Start-dictation, not gated by
+phase), and the params inputs are editable in every phase except `listening`.
 
 Enablement is derived from `ControllerState`; the controller is the single
 source of truth.
@@ -248,8 +290,8 @@ provider API key, then exercise start/stop/listen and switch segmentation mode.
 The `controller.py` / `app.py` split still stands on its own merit — it keeps all
 engine logic out of the Gradio callbacks and makes the demo readable — but the
 controller is not pinned by tests. The engine behavior the demo relies on (the
-`segmentation_mode` getter, `set_segmentation_mode`, `listen`) is covered by the
-engine's own tests in `tests/test_engine.py`.
+`segmentation_mode` / `dictating` getters, `start_dictation` / `stop_dictation`,
+`listen`) is covered by the engine's own tests in `tests/test_engine.py`.
 
 ## Open questions (deferred)
 

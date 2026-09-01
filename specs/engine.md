@@ -13,6 +13,19 @@ tests:
 
 **Status:** Implemented
 
+> **Dictation update (2026-09-01):** the always-on segmentation mode is fixed to
+> `utterance`; the configurable `segmentation_mode` is gone. Aggregation is done
+> through *dictation* sessions (`start_dictation`/`stop_dictation`) or `listen`,
+> both of which temporarily switch the mode and revert to `utterance` when they
+> end. `set_segmentation_mode` becomes the private `_set_segmentation_mode`,
+> called only by `listen` and the dictation methods; `listen` now also accepts
+> `utterance` mode. New setters `set_listen_default_segmentation_mode` and
+> `set_dictation_default_segmentation_mode`. A new `auto_start_dictation` config
+> flag lets a caller start the server directly in a persistent dictation (like
+> `auto_start`, it is a signal to the caller, not acted on by the engine). To be
+> implemented by
+> [plans/202609012010_dictation-sessions.md](../plans/202609012010_dictation-sessions.md).
+
 > **Refactor note (2026-08-31):** `ASREngine` becomes the self-contained heart of
 > the repo — constructed from a single `ASREngineConfig`, owning audio, module,
 > segmentation, sound feedback, and its own logging level, so it is usable
@@ -205,9 +218,17 @@ class ASREngine:
 
 The engine is constructed from a single `ASREngineConfig` (see
 [configuration.md](configuration.md)), which carries the audio, module,
-`auto_start`, `segmentation_mode`, `segmentation` params,
-`listen_default_segmentation_mode`, and `sound_feedback` settings.
-Both callbacks default to a no-op and are settable afterwards.
+`auto_start`, `auto_start_dictation`, `segmentation` params,
+`listen_default_segmentation_mode`, `dictation_default_segmentation_mode`, and
+`sound_feedback` settings. Both callbacks default to a no-op and are settable
+afterwards.
+
+The engine's segmentation mode always **begins as `utterance`** — there is no
+configurable always-on mode. Aggregation happens only inside a `listen` call or a
+dictation session, both of which set a mode and revert to `utterance` when they
+end. `config.dictation_default_segmentation_mode` and
+`config.listen_default_segmentation_mode` are stored as the defaults those two
+paths fall back to; neither changes the mode at construction.
 
 The engine **never configures logging** — it does not set levels, add handlers,
 or call `basicConfig`. It only acquires a module logger like every other library
@@ -225,8 +246,8 @@ At construction the engine:
   uses module defaults with a warning — see
   [asr-module-interface.md](asr-module-interface.md)). The resolved format is
   exposed as the read-only `audio_format` property.
-- Builds its `Segmenter` from `config.segmentation_mode` and the
-  `config.segmentation` params.
+- Builds its `Segmenter` in `utterance` mode from the `config.segmentation`
+  params.
 - Constructs a `SoundFeedback` (or a no-op stub when `sound_feedback.enabled` is
   `false`) from `config.sound_feedback`; the engine plays cues itself inside
   `listen` (see [sound-feedback.md](sound-feedback.md)).
@@ -236,19 +257,60 @@ At `start()` the engine selects its own audio source from config: an injected
 is set, else a live `AudioCapture` on `config.audio.device`. The capture layer
 and the module are both given the reconciled `audio_format`.
 
-`config.auto_start` is **not** acted on by the engine itself — it is a signal to
-the caller (the MCP server) about whether to call `start()` at startup.
+`config.auto_start` and `config.auto_start_dictation` are **not** acted on by the
+engine itself — they are signals to the caller (the MCP server). `auto_start`
+says whether to call `start()` at startup; `auto_start_dictation` says whether to
+follow that `start()` with `start_dictation(end_on_final_segment=False)`, so the
+always-on `asr://segment` stream aggregates continuously from startup in
+`dictation_default_segmentation_mode`. (The engine can't act on either itself:
+`listen()` reuses `start()`, so a `start()` that auto-entered dictation would
+clobber the mode `listen` just set.)
 
-### `set_segmentation_mode`
+### `_start_with_segmentation_mode` (private)
 
 ```python
-def set_segmentation_mode(self, mode: str) -> None: ...
+async def _start_with_segmentation_mode(self, segmentation_mode: str) -> None: ...
 ```
 
-Switches the segment **mode only** (`"utterance"` / `"trigger_word"` /
-`"timeout"`), keeping the current segmentation params. Rebuilds the internal
-`Segmenter`, discarding any in-progress segment. Raises `ValueError` on an
-unknown mode. Safe to call while the engine is running.
+The internal start primitive that both the public `start()` and `listen` call, so
+the segment mode is set **as part of** starting rather than as a separate step:
+
+- Public `start()` is exactly `await self._start_with_segmentation_mode("utterance")` — the always-on
+  stream is `utterance`.
+- `listen` is `await self._start_with_segmentation_mode(mode)` with its resolved mode.
+
+`_start_with_segmentation_mode` builds the `Segmenter` for `segmentation_mode` (raising `ValueError` on
+an unknown mode *before* any capture starts), then starts audio capture, the ASR
+module, and the segmenter, and marks the engine running. There is **no public
+`set_segmentation_mode`**: at rest the mode is `utterance`, and the only ways to
+run in another mode are `listen` (which passes it to `_start_with_segmentation_mode`) and a dictation
+session (which swaps it live via `_set_segmentation_mode` below).
+
+### `_set_segmentation_mode` (private)
+
+```python
+async def _set_segmentation_mode(self, mode: str) -> None: ...
+```
+
+The **live, in-run** mode swap, used only by `start_dictation` /
+`stop_dictation` to change the mode of an already-running engine (`_start_with_segmentation_mode` sets
+the mode at startup; `listen` never calls this). It switches the segment mode
+only, keeping the current segmentation params, and rebuilds the internal
+`Segmenter`, discarding any in-progress segment. Because the switch happens while
+the engine is running, it is **correctness-critical** that it:
+
+1. **Validates first** — build the candidate `Segmenter` (which raises
+   `ValueError` on an unknown mode) *before* mutating any stored state, so a bad
+   mode leaves the engine untouched.
+2. **Stops the old segmenter before swapping** — `await self._segmenter.stop()`
+   so a `timeout`-mode segmenter's timers can't fire through the engine callback
+   after the switch (otherwise a stale timeout segment could close after the mode
+   already changed — see `_analysis.md` item 1).
+3. Swaps in the candidate and `await`s its `start()`.
+
+Mode switches and dictation state transitions are serialized by a single engine
+lock so overlapping `listen` / dictation calls can't interleave (see
+`_analysis.md` item 2).
 
 ### `set_segmentation_params`
 
@@ -264,8 +326,9 @@ def set_segmentation_params(
 
 Updates the segmentation params (omitted params keep their current values) and
 rebuilds the `Segmenter` under the current mode, discarding any in-progress
-segment. This is the *only* way to change trigger words / timeouts after
-construction — `set_segmentation_mode` and `listen` never touch them.
+segment (stopping the old segmenter before swapping, like `_set_segmentation_mode`).
+This is the *only* way to change trigger words / timeouts after construction —
+dictation and `listen` never touch them.
 
 ### `segmentation_mode`
 
@@ -275,18 +338,94 @@ def segmentation_mode(self) -> str: ...
 ```
 
 Read-only accessor for the **current** segment mode (`"utterance"` /
-`"trigger_word"` / `"timeout"`). It reflects the mode set by construction and by
-`set_segmentation_mode`; because `listen` restores the prior mode in its
-`finally`, callers reading this outside a `listen` call always see the always-on
-mode. Complements `status()` (which reports only `running`/`connected`) so a
-direct consumer can display the active mode without shadowing engine state.
+`"trigger_word"` / `"timeout"`). It reads `utterance` at rest and reflects the
+active mode while a dictation session or a `listen` is in progress (both revert
+to `utterance` when they end). Complements `status()` (which reports only
+`running`/`connected`) so a direct consumer can display the active mode without
+shadowing engine state.
+
+### `dictating`
+
+```python
+@property
+def dictating(self) -> bool: ...
+```
+
+Read-only: whether a dictation session is currently active. `False` at rest and
+during a `listen`; `True` between `start_dictation` and the dictation ending
+(either `stop_dictation`, or the first final segment when
+`end_on_final_segment=True`).
+
+### Dictation
+
+A dictation session is a **non-blocking** override of the always-on segmentation
+mode on an already-running engine — the long-running counterpart to the one-shot
+`listen`. Unlike `listen`, it never starts or stops the engine and never replaces
+the public `on_speech_segment` callback: segments keep flowing to whatever
+consumers are attached (e.g. the `asr://segment` resource) throughout.
+
+```python
+async def start_dictation(
+    self,
+    end_on_final_segment: bool = True,
+    segmentation_mode: str | None = None,
+) -> None: ...
+
+
+async def stop_dictation(self) -> None: ...
+```
+
+`start_dictation`:
+
+1. Raise `ValueError("ASR is not running. Start it before calling start_dictation.")`
+   if the engine is not running.
+2. Raise `ValueError("Dictation is already in progress.")` if already dictating.
+3. Resolve the mode: `segmentation_mode` if given, else
+   `dictation_default_segmentation_mode`. `_set_segmentation_mode(mode)` (which
+   raises `ValueError` on an unknown mode).
+4. Record dictation state (`dictating=True`, remembering `end_on_final_segment`)
+   and return immediately. Segments continue to flow through `on_speech_segment`.
+
+While dictating, the engine watches the segment stream: if
+`end_on_final_segment` is `True`, the **first** closed segment
+(`is_final=True`, any `end_reason`) ends the dictation. The auto-end is scheduled
+*after* the public callback has fired for that final segment (so consumers still
+see it), and reverts the mode to `utterance`. This detection is internal to the
+engine's segment path — it does **not** hijack `on_speech_segment` the way
+`listen` does.
+
+`stop_dictation`:
+
+- Raise `ValueError("No dictation in progress.")` if not dictating.
+- Clear dictation state and `_set_segmentation_mode("utterance")`. The engine
+  keeps running.
+
+Both are serialized with `listen` and mode changes by the engine lock. A
+dictation and a `listen` can never overlap: `listen` requires the engine stopped,
+`start_dictation` requires it running.
+
+### `set_dictation_default_segmentation_mode` / `set_listen_default_segmentation_mode`
+
+```python
+def set_dictation_default_segmentation_mode(self, mode: str) -> None: ...
+def set_listen_default_segmentation_mode(self, mode: str) -> None: ...
+```
+
+Update the stored default mode that `start_dictation(segmentation_mode=None)` /
+`listen(mode=None)` fall back to. Each validates `mode` against
+`"utterance"` / `"trigger_word"` / `"timeout"` (raising `ValueError` otherwise)
+and does **not** change the engine's current mode — only the default a future
+session resolves against.
 
 ### Lifecycle
 
-- `async start()` — starts audio capture and the ASR module, and starts the
-  segmenter. On each ASR result the engine fires `on_speech_utterance` and feeds
-  the utterance to the segmenter (which fires `on_speech_segment`).
-- `async stop()` — stops the module, audio capture, and the segmenter's timers.
+- `async start()` — `await self._start_with_segmentation_mode("utterance")`: the always-on stream is
+  `utterance`. The caller applies `auto_start_dictation` by calling
+  `start_dictation` *after* `start()`.
+- `async stop()` — stops the module, audio capture, and the segmenter's timers,
+  clears any dictation state (a stopped engine is never dictating), and resets the
+  stored segment mode to `utterance` so the `segmentation_mode` getter reads
+  `utterance` at rest (the next `_start_with_segmentation_mode` sets the mode again anyway).
 - `status() -> dict` — `{"running": bool, "connected": bool}` (unchanged).
 
 ### `listen`
@@ -297,7 +436,7 @@ first closed segment. It is the engine primitive behind the `listen` MCP tool.
 ```python
 async def listen(
     self,
-    mode: str | None = None,  # "trigger_word" | "timeout"; None → config default
+    mode: str | None = None,  # "utterance" | "trigger_word" | "timeout"; None → default
     *,
     on_update: SegmentCallback | None = None,
 ) -> SpeechSegment: ...
@@ -305,20 +444,23 @@ async def listen(
 
 `listen` takes **only a mode** — it never changes the segmentation params, which
 stay exactly as configured (or as last set via `set_segmentation_params`). When
-`mode` is `None`, the engine's `listen_default_segmentation_mode` is used.
+`mode` is `None`, the engine's `listen_default_segmentation_mode` is used. All
+three modes are accepted, including `"utterance"` (in which `listen` returns after
+the first final utterance).
 
 Behaviour:
 
 1. Raise `ValueError` if the engine is already running.
 2. Resolve `mode` (falling back to `listen_default_segmentation_mode`).
-3. Save the current segment mode and `on_speech_segment` callback.
-4. `set_segmentation_mode(mode)` (mode only — params untouched); install an internal
+3. Save the current `on_speech_segment` callback, then install an internal
    `on_speech_segment` that forwards every update to `on_update` (if given) and
    resolves a future on the first **final** segment.
-5. Play the start sound cue, then `await start()`, await the future, then
-   `await stop()` and play the stop cue — always, even on error (try/finally).
-6. Restore the saved segment mode and callback.
-7. Return the closed `SpeechSegment`.
+4. Play the start sound cue, then `await self._start_with_segmentation_mode(mode)` (which sets the mode
+   as it starts — no separate mode step), await the future, then `await stop()`
+   and play the stop cue — always, even on error (try/finally).
+5. Restore the saved callback. (`stop()` already reset the stored mode to
+   `utterance`; `listen` never touches the segmentation params.)
+6. Return the closed `SpeechSegment`.
 
 Sound-feedback cues are played by the engine itself (see
 [sound-feedback.md](sound-feedback.md)); callers no longer wrap `listen` with
@@ -337,10 +479,19 @@ utterances/segments — no MCP server required.
 ### Always-on server
 
 `server.py` sets `on_speech_utterance` and `on_speech_segment` to publish the
-`asr://utterance` and `asr://segment` resources. The engine already applied its
-`segmentation_mode` from `ASREngineConfig` at construction, so the server no
-longer calls `set_segmentation_mode` at startup (see
+`asr://utterance` and `asr://segment` resources. The always-on stream is
+`utterance` mode; if `config.auto_start_dictation` is set, the server calls
+`start_dictation(end_on_final_segment=False)` right after `start()` so the
+`asr://segment` stream aggregates continuously (see
 [configuration.md](configuration.md) and [mcp-server.md](mcp-server.md)).
+
+### Dictation tools
+
+The `start_dictation` / `stop_dictation` tools (via the tools layer) let an MCP
+client switch the always-on stream into an aggregating mode without stopping the
+engine — the long-running counterpart to `listen`. `asr-to-terminal` does not
+call them itself; it relies on the server's `auto_start_dictation` (see
+[asr-to-terminal.md](asr-to-terminal.md)).
 
 ### `listen` tool
 

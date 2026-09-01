@@ -14,9 +14,9 @@ ASR Engine is a real-time Automatic Speech Recognition engine, usable directly b
 | [testing.md](testing.md) | Testing strategy: two-tier `tests/`/`tests-e2e/` split, functional-test philosophy | Implemented |
 | [overview.md](overview.md) | Goals, components, constraints, non-goals | Implemented |
 | [architecture.md](architecture.md) | System diagram, concurrency model, data flow | Implemented |
-| [engine.md](engine.md) | `ASREngine` (from `ASREngineConfig`) + `Segmenter`: callbacks, `set_segmentation_mode`/`set_segmentation_params`, `segmentation_mode` getter, `listen` | Implemented |
+| [engine.md](engine.md) | `ASREngine` (from `ASREngineConfig`) + `Segmenter`: callbacks, dictation (`start_dictation`/`stop_dictation`), `set_segmentation_params`, `segmentation_mode`/`dictating` getters, `listen` | Implemented |
 | [configuration.md](configuration.md) | Config file schema (`server` + nested `engine`/`ASREngineConfig`), fields, validation rules | Implemented |
-| [tools.md](tools.md) | Transport-agnostic `AsrTools` (`start`/`stop`/`is_running`/`listen`) over an `ASREngine` | Implemented |
+| [tools.md](tools.md) | Transport-agnostic `AsrTools` (`start`/`stop`/`is_running`/`listen`/dictation) over an `ASREngine` | Implemented |
 | [mcp-server.md](mcp-server.md) | Resources `asr://utterance` + `asr://segment`, MCP adapter over the tools layer, server lifecycle | Implemented |
 | [asr-module-interface.md](asr-module-interface.md) | ABC, audio format contract, registry, reconnection | Implemented |
 | [deepgram-module.md](deepgram-module.md) | WebSocket details, config fields, message mapping | Implemented |
@@ -24,7 +24,7 @@ ASR Engine is a real-time Automatic Speech Recognition engine, usable directly b
 | [e2e-testing.md](e2e-testing.md) | File-based e2e pipeline: audio source abstraction, fixture format, assertions | Implemented |
 | [asr-to-terminal.md](asr-to-terminal.md) | Progressive terminal injection via xdotool/ydotool, consuming the server's `asr://segment` resource | Implemented |
 | [sound-feedback.md](sound-feedback.md) | Bundled WAV cues at `listen` start/stop, owned by the engine; `engine.sound_feedback` config | Implemented |
-| [gradio-demo.md](gradio-demo.md) | Direct-import Gradio example: in-process `ASREngine`, device/module pickers, start/stop/listen/segmentation, live utterances + segments | Implemented |
+| [gradio-demo.md](gradio-demo.md) | Direct-import Gradio example: in-process `ASREngine`, device/module pickers, start/stop/listen/dictation, live utterances + segments | Implemented |
 
 Each spec also opens with a YAML **frontmatter** block declaring the `code:` and `tests:` files it governs — the spec → code/tests mapping the spec-drift checks use to scope what they compare. Keep it current when files move, and see [AGENTS.md](../AGENTS.md) ("Spec frontmatter") for the full convention.
 

@@ -10,6 +10,15 @@ tests:
 
 **Status:** Implemented
 
+> **Dictation update (2026-09-01):** the always-on `segmentation_mode` config is
+> gone. To get an aggregating `asr://segment` stream (trigger-word / timeout),
+> the **server** is now started in a persistent dictation via
+> `engine.auto_start_dictation=true` + `engine.dictation_default_segmentation_mode`.
+> `asr-to-terminal` itself is unchanged — it still just subscribes to
+> `asr://segment` and types each segment; it does **not** drive dictation or take
+> a segmentation-mode flag. Implemented by
+> [plans/202609012010_dictation-sessions.md](../plans/202609012010_dictation-sessions.md).
+
 ## Purpose
 
 `AsrToTerminal` bridges the ASR MCP server with the active terminal window: it
@@ -20,10 +29,16 @@ Segmentation is **no longer done by the client** — it is owned by the server's
 `ASREngine` and exposed as the `asr://segment` resource (see
 [engine.md](engine.md) and [mcp-server.md](mcp-server.md)). `AsrToTerminal`
 simply subscribes to `asr://segment`, types each `transcript` as it changes, and
-on a closed segment (`is_final=true`) sends Enter and starts fresh. The segment
-mode (`trigger_word` / `timeout` / `utterance`) and its trigger words / timeouts
-are configured **on the server** via the `engine` config block — not on the
-`asr-to-terminal` CLI.
+on a closed segment (`is_final=true`) sends Enter and starts fresh.
+
+When to close a segment (i.e. when Enter fires) is decided **on the server**, not
+here. Because the always-on stream is `utterance` mode by default, the useful
+"dictate freely, submit on a trigger word / after silence" behaviour comes from
+starting the server in a persistent dictation: set `engine.auto_start_dictation=true`
+and `engine.dictation_default_segmentation_mode` (`trigger_word` / `timeout`) plus
+the shared `engine.segmentation` trigger words / timeouts. Without that, a
+default (`utterance`) server makes `asr-to-terminal` press Enter after every final
+utterance. See [configuration.md](configuration.md).
 
 ---
 
@@ -107,9 +122,9 @@ asr-to-terminal [--server URL] [--display-server x11|wayland]
 | `--server`          | `http://127.0.0.1:8000/mcp`          |
 | `--display-server`  | auto-detect via `$XDG_SESSION_TYPE`  |
 
-Segment mode, trigger words and timeouts are set on the **server** (`engine`
-config block), not here — every client of the server shares the same
-segmentation.
+Dictation mode (via `auto_start_dictation` / `dictation_default_segmentation_mode`),
+trigger words and timeouts are set on the **server** (`engine` config block), not
+here — every client of the server shares the same segmentation.
 
 ---
 
@@ -165,7 +180,12 @@ that models a terminal input line: `type_text` appends, `backspace` trims,
 `send_enter` commits the line), so they run on any OS — **no `xterm`, `xdotool`,
 or X11 display required**. They still need a live Deepgram API key.
 
-| Test | Fixture | `segmentation_mode` | Assertion |
+Each server is configured with `auto_start_dictation=true` and the
+`dictation_default_segmentation_mode` in the table (plus the matching trigger
+words / timeouts), so the always-on `asr://segment` stream aggregates for the
+test.
+
+| Test | Fixture | dictation mode | Assertion |
 |---|---|---|---|
 | Text injection | `sample.wav` | `trigger_word` (impossible word) | `typer.line` contains `"the sky is blue"`; `typer.committed == []` (Enter never fired) |
 | Submit word | `sample_submit.wav` | `trigger_word` (`validate`) | `typer.committed` non-empty (Enter fired); trigger word not in the committed text |

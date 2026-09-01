@@ -42,8 +42,8 @@ def test_load_config_full(tmp_path: Path) -> None:
             "server": {"host": "0.0.0.0", "port": 9000},
             "engine": {
                 "auto_start": False,
-                "segmentation_mode": "timeout",
                 "listen_default_segmentation_mode": "timeout",
+                "dictation_default_segmentation_mode": "timeout",
                 "segmentation": {
                     "trigger_words": ["stop"],
                     "initial_silence_timeout_s": 7.0,
@@ -60,8 +60,9 @@ def test_load_config_full(tmp_path: Path) -> None:
     assert cfg.server.host == "0.0.0.0"
     assert cfg.server.port == 9000
     assert cfg.engine.auto_start is False
-    assert cfg.engine.segmentation_mode == "timeout"
+    assert cfg.engine.auto_start_dictation is False
     assert cfg.engine.listen_default_segmentation_mode == "timeout"
+    assert cfg.engine.dictation_default_segmentation_mode == "timeout"
     assert cfg.engine.segmentation.trigger_words == ["stop"]
     assert cfg.engine.segmentation.initial_silence_timeout_s == 7.0
     assert cfg.engine.segmentation.end_of_speech_timeout_s == 2.0
@@ -79,8 +80,9 @@ def test_load_config_defaults(tmp_path: Path) -> None:
     assert cfg.server.host == "127.0.0.1"
     assert cfg.server.port == 8000
     assert cfg.engine.auto_start is True
-    assert cfg.engine.segmentation_mode == "utterance"
+    assert cfg.engine.auto_start_dictation is False
     assert cfg.engine.listen_default_segmentation_mode == "trigger_word"
+    assert cfg.engine.dictation_default_segmentation_mode == "trigger_word"
     assert cfg.engine.segmentation.initial_silence_timeout_s == 10.0
     assert cfg.engine.segmentation.end_of_speech_timeout_s == 5.0
     assert "submit" in cfg.engine.segmentation.trigger_words
@@ -179,19 +181,42 @@ def test_load_config_missing_engine_block(tmp_path: Path) -> None:
         load_config(path)
 
 
-def test_load_config_invalid_segmentation_mode(tmp_path: Path) -> None:
-    path = write_config(tmp_path, _min({"segmentation_mode": "bad_mode"}))
-    with pytest.raises(ValueError, match="engine.segmentation_mode"):
+def test_load_config_invalid_dictation_default_mode(tmp_path: Path) -> None:
+    path = write_config(
+        tmp_path, _min({"dictation_default_segmentation_mode": "bad_mode"})
+    )
+    with pytest.raises(ValueError, match="engine.dictation_default_segmentation_mode"):
         load_config(path)
 
 
 def test_load_config_invalid_listen_default_mode(tmp_path: Path) -> None:
-    # "utterance" is not valid for listen.
     path = write_config(
-        tmp_path, _min({"listen_default_segmentation_mode": "utterance"})
+        tmp_path, _min({"listen_default_segmentation_mode": "bad_mode"})
     )
     with pytest.raises(ValueError, match="engine.listen_default_segmentation_mode"):
         load_config(path)
+
+
+def test_load_config_listen_default_allows_utterance(tmp_path: Path) -> None:
+    cfg = load_config(
+        write_config(tmp_path, _min({"listen_default_segmentation_mode": "utterance"}))
+    )
+    assert cfg.engine.listen_default_segmentation_mode == "utterance"
+
+
+def test_load_config_auto_start_dictation_requires_auto_start(tmp_path: Path) -> None:
+    path = write_config(
+        tmp_path, _min({"auto_start": False, "auto_start_dictation": True})
+    )
+    with pytest.raises(ValueError, match="auto_start_dictation requires auto_start"):
+        load_config(path)
+
+
+def test_load_config_auto_start_dictation_ok_with_auto_start(tmp_path: Path) -> None:
+    cfg = load_config(
+        write_config(tmp_path, _min({"auto_start": True, "auto_start_dictation": True}))
+    )
+    assert cfg.engine.auto_start_dictation is True
 
 
 # ---------------------------------------------------------------------------

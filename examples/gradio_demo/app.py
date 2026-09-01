@@ -53,18 +53,6 @@ def build_ui(controller: DemoController) -> gr.Blocks:
             )
 
         with gr.Row():
-            start_btn = gr.Button("Start", variant="primary")
-            stop_btn = gr.Button("Stop")
-            listen_btn = gr.Button("Listen (single-shot)")
-
-        with gr.Row():
-            mode_radio = gr.Radio(
-                choices=_SEG_MODES,
-                value=initial.segmentation_mode,
-                label="Segmentation mode",
-            )
-
-        with gr.Row():
             trigger_words_tb = gr.Textbox(
                 value=initial.trigger_words,
                 label="Trigger words (comma-separated)",
@@ -83,9 +71,13 @@ def build_ui(controller: DemoController) -> gr.Blocks:
             apply_params_btn = gr.Button("Apply params")
 
         with gr.Row():
+            start_btn = gr.Button("Start", variant="primary")
+            stop_btn = gr.Button("Stop")
+
+        with gr.Row():
             state_box = gr.Textbox(
                 label="Engine state",
-                info="stopped · running (always-on) · listening (single-shot)",
+                info="stopped · running · dictating · listening (single-shot)",
                 interactive=False,
             )
             connected_box = gr.Textbox(
@@ -93,6 +85,26 @@ def build_ui(controller: DemoController) -> gr.Blocks:
                 info="ASR provider socket state",
                 interactive=False,
             )
+
+        with gr.Row():
+            with gr.Row():
+                seg_mode_dd = gr.Dropdown(
+                    choices=_SEG_MODES,
+                    value=initial.segmentation_mode,
+                    label="Segmentation mode",
+                    info="used by both Listen and Start dictation",
+                )
+                end_on_final_cb = gr.Checkbox(
+                    value=False,
+                    label="End dictation on first final segment",
+                )
+            with gr.Column():
+                with gr.Row():
+                    start_dict_btn = gr.Button("Start dictation")
+                    stop_dict_btn = gr.Button("Stop dictation")
+                with gr.Row():
+                    listen_btn = gr.Button("Listen (single-shot)")
+
         message_box = gr.Textbox(
             label="Last activity",
             info="result of your most recent action",
@@ -116,10 +128,12 @@ def build_ui(controller: DemoController) -> gr.Blocks:
         outputs = [
             device_dd,
             module_dd,
-            mode_radio,
+            seg_mode_dd,
             start_btn,
             stop_btn,
             listen_btn,
+            start_dict_btn,
+            stop_dict_btn,
             state_box,
             connected_box,
             message_box,
@@ -143,8 +157,8 @@ def build_ui(controller: DemoController) -> gr.Blocks:
             controller.stop()
             return render()
 
-        def on_listen() -> list:
-            controller.listen()
+        def on_listen(mode: str) -> list:
+            controller.listen(mode)
             return render()
 
         def on_device(value: str | None) -> list:
@@ -155,8 +169,12 @@ def build_ui(controller: DemoController) -> gr.Blocks:
             controller.set_module(value)
             return render()
 
-        def on_mode(value: str) -> list:
-            controller.set_segmentation_mode(value)
+        def on_start_dictation(mode: str, end_on_final: bool) -> list:
+            controller.start_dictation(mode=mode, end_on_final_segment=end_on_final)
+            return render()
+
+        def on_stop_dictation() -> list:
+            controller.stop_dictation()
             return render()
 
         def on_apply_params(words: str, ist: float, eost: float) -> list:
@@ -169,10 +187,15 @@ def build_ui(controller: DemoController) -> gr.Blocks:
 
         start_btn.click(on_start, outputs=outputs)
         stop_btn.click(on_stop, outputs=outputs)
-        listen_btn.click(on_listen, outputs=outputs)
+        listen_btn.click(on_listen, inputs=seg_mode_dd, outputs=outputs)
         device_dd.change(on_device, inputs=device_dd, outputs=outputs)
         module_dd.change(on_module, inputs=module_dd, outputs=outputs)
-        mode_radio.change(on_mode, inputs=mode_radio, outputs=outputs)
+        start_dict_btn.click(
+            on_start_dictation,
+            inputs=[seg_mode_dd, end_on_final_cb],
+            outputs=outputs,
+        )
+        stop_dict_btn.click(on_stop_dictation, outputs=outputs)
         apply_params_btn.click(
             on_apply_params,
             inputs=[trigger_words_tb, initial_silence_num, eos_num],
@@ -187,14 +210,27 @@ def build_ui(controller: DemoController) -> gr.Blocks:
 
 def _render(state: ControllerState) -> list:
     """Map a ControllerState to gr.update()s for every output, in ``outputs`` order."""
+    # The segmentation-mode dropdown is a free user choice driving both Listen and
+    # Start-dictation, so it stays editable and its value is NEVER overwritten by
+    # the timer (that would clobber the user's selection). Params behave the same.
+    params_enabled = state.phase != "listening"
+    # Show the active mode alongside the phase while it differs from the resting
+    # utterance mode, so the user can see what dictation/listen is running.
+    phase_display = state.phase
+    if state.phase in ("dictating", "listening"):
+        phase_display = f"{state.phase} · {state.segmentation_mode}"
     return [
         gr.update(interactive=state.config_enabled),  # device_dd
         gr.update(interactive=state.config_enabled),  # module_dd
-        gr.update(interactive=state.can_set_mode, value=state.segmentation_mode),
+        gr.update(interactive=True),  # seg_mode_dd — always editable, value kept
         gr.update(interactive=state.can_start),  # start_btn
         gr.update(interactive=state.can_stop),  # stop_btn
         gr.update(interactive=state.can_listen),  # listen_btn
-        gr.update(value=state.phase),  # state_box
+        gr.update(
+            interactive=state.can_dictate and not state.dictating
+        ),  # start_dict_btn
+        gr.update(interactive=state.dictating),  # stop_dict_btn
+        gr.update(value=phase_display),  # state_box
         gr.update(value="yes" if state.connected else "no"),
         gr.update(value=state.message),
         gr.update(value="\n".join(state.utterance_log)),
@@ -202,10 +238,10 @@ def _render(state: ControllerState) -> list:
         gr.update(value=state.last_listen),
         # Param inputs: toggle enablement only — never overwrite the value, or the
         # timer would clobber what the user is typing.
-        gr.update(interactive=state.can_set_mode),  # trigger_words_tb
-        gr.update(interactive=state.can_set_mode),  # initial_silence_num
-        gr.update(interactive=state.can_set_mode),  # eos_num
-        gr.update(interactive=state.can_set_mode),  # apply_params_btn
+        gr.update(interactive=params_enabled),  # trigger_words_tb
+        gr.update(interactive=params_enabled),  # initial_silence_num
+        gr.update(interactive=params_enabled),  # eos_num
+        gr.update(interactive=params_enabled),  # apply_params_btn
     ]
 
 

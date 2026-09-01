@@ -5,7 +5,8 @@
   },
   "engine": {
     "auto_start": true,
-    "segmentation_mode": "utterance",
+    "auto_start_dictation": false,
+    "dictation_default_segmentation_mode": "trigger_word",
     "audio": {
       "device": null
     },

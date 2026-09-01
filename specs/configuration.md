@@ -9,6 +9,14 @@ tests:
 
 **Status:** Implemented
 
+> **Dictation update (2026-09-01):** the always-on `segmentation_mode` field is
+> **removed** — the always-on stream is fixed to `utterance` and aggregation is
+> done through explicit *dictation* sessions or `listen` (see [engine.md](engine.md)).
+> A `dictation_default_segmentation_mode` field is added, and both
+> `listen_default_segmentation_mode` and the new dictation default now accept
+> `utterance` too. Implemented by
+> [plans/202609012010_dictation-sessions.md](../plans/202609012010_dictation-sessions.md).
+
 > **Refactor note (2026-08-31):** the config schema is being restructured so the
 > engine is configured by a single nested `ASREngineConfig` (usable without the
 > MCP server), the ASR-backend block is renamed `asr` → `module`, sound feedback
@@ -41,8 +49,9 @@ library builds an `ASREngineConfig` from the `engine` block alone and never need
   },
   "engine": {
     "auto_start": true,
-    "segmentation_mode": "utterance",
+    "auto_start_dictation": false,
     "listen_default_segmentation_mode": "trigger_word",
+    "dictation_default_segmentation_mode": "trigger_word",
     "segmentation": {
       "trigger_words": ["submit", "enter", "validate", "send", "confirm", "go",
                         "envoyer", "valider", "confirmer", "soumettre", "entree", "entrée"],
@@ -88,18 +97,29 @@ scalar engine settings plus five nested sub-blocks.
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `auto_start` | boolean | `true` | If `true`, ASR starts automatically at server startup. If `false`, the engine is initialised but not started — use the `start` or `listen` tool to begin capture. |
-| `segmentation_mode` | string | `"utterance"` | How the always-on engine segments the stream: `"utterance"`, `"trigger_word"`, or `"timeout"`. Drives `asr://segment` and what `asr-to-terminal` consumes. |
-| `listen_default_segmentation_mode` | string | `"trigger_word"` | The segmentation mode `listen()` uses when its caller passes no explicit mode. Must be `"trigger_word"` or `"timeout"`. |
-| `segmentation` | object | see below | Segmentation parameters (trigger words + timeouts) shared by the always-on stream **and** `listen`. |
+| `auto_start_dictation` | boolean | `false` | If `true`, the server starts a persistent dictation session (mode = `dictation_default_segmentation_mode`, never self-ending) immediately after auto-starting, so the always-on `asr://segment` stream aggregates from startup. **Requires `auto_start=true`** (validated). |
+| `listen_default_segmentation_mode` | string | `"trigger_word"` | The segmentation mode `listen()` uses when its caller passes no explicit mode. One of `"utterance"`, `"trigger_word"`, or `"timeout"`. |
+| `dictation_default_segmentation_mode` | string | `"trigger_word"` | The segmentation mode `start_dictation()` uses when its caller passes no explicit mode. One of `"utterance"`, `"trigger_word"`, or `"timeout"`. |
+| `segmentation` | object | see below | Segmentation parameters (trigger words + timeouts) shared by the always-on stream, `listen`, **and** dictation. |
+
+> **No always-on `segmentation_mode`.** The always-on `asr://segment` stream is
+> `utterance` mode (one segment per final utterance) unless a *dictation* session
+> is active. To aggregate utterances (trigger-word or timeout), either set
+> `auto_start_dictation=true` so the server begins in a persistent dictation at
+> startup, or have a consumer call the `start_dictation` tool / use `listen` —
+> all of which switch the engine's segmentation mode and revert to `utterance`
+> when they end. This is what `asr-to-terminal` now relies on for continuous
+> aggregation (see [asr-to-terminal.md](asr-to-terminal.md)). See
+> [engine.md](engine.md).
 | `sound_feedback` | object | see below | Start/stop audio cues, owned and played by the engine during `listen`. |
 | `audio` | object | see below | Audio input / file-source settings. |
 | `module` | object | — | ASR backend selection and its module-specific fields. **Required.** |
 
 #### `engine.segmentation` sub-block
 
-The single source of segmentation parameters. Both the always-on segmenter and
-`listen` read these — `listen` only ever changes the *mode*, never these params
-(see [engine.md](engine.md)).
+The single source of segmentation parameters. The always-on segmenter, `listen`,
+and dictation all read these — `listen` and dictation only ever change the
+*mode*, never these params (see [engine.md](engine.md)).
 
 | Field | Type | Default | Description |
 |---|---|---|---|
@@ -154,7 +174,8 @@ submit, enter, validate, send, confirm, go,
 envoyer, valider, confirmer, soumettre, entree, entrée
 ```
 
-**`segmentation_mode` behaviour summary:**
+**Segmentation mode behaviour summary** (applies to `listen` and dictation; the
+always-on stream is fixed to `utterance`):
 
 | Mode | Segment closes when | Timeouts |
 |---|---|---|
@@ -162,9 +183,9 @@ envoyer, valider, confirmer, soumettre, entree, entrée
 | `trigger_word` | A final utterance contains a trigger word (case-insensitive substring match) | None |
 | `timeout` | Silence for `end_of_speech_timeout_s` after last event, or `initial_silence_timeout_s` with no speech at all | Both timers active |
 
-`utterance` mode is only meaningful for the always-on stream; `listen` uses
-`trigger_word` or `timeout` — hence the separate
-`listen_default_segmentation_mode` (which excludes `utterance`).
+All three modes are valid for `listen` and dictation. In `utterance` mode a
+`listen` returns after exactly one final utterance, and a dictation with
+`end_on_final_segment=true` ends after one — coherent, if degenerate.
 
 ## Example: Deepgram config
 
@@ -176,7 +197,6 @@ envoyer, valider, confirmer, soumettre, entree, entrée
   },
   "engine": {
     "auto_start": true,
-    "segmentation_mode": "utterance",
     "audio": { "device": null },
     "module": {
       "type": "deepgram_v1",
@@ -195,8 +215,9 @@ envoyer, valider, confirmer, soumettre, entree, entrée
   - The required field `engine.module.type` is absent
   - The specified `engine.module.type` is unknown
   - Module-specific required fields (e.g. `api_key` / `api_key_env`) are missing
-  - `engine.segmentation_mode` is not one of `utterance` / `trigger_word` / `timeout`
-  - `engine.listen_default_segmentation_mode` is not one of `trigger_word` / `timeout`
+  - `engine.listen_default_segmentation_mode` is not one of `utterance` / `trigger_word` / `timeout`
+  - `engine.dictation_default_segmentation_mode` is not one of `utterance` / `trigger_word` / `timeout`
+  - `engine.auto_start_dictation` is `true` while `engine.auto_start` is `false`
   - `engine.audio.encoding` is not one of `linear16` / `mulaw`
   - `engine.audio.on_unsupported_format` is not one of `error` / `fallback`
 - The configured audio format is reconciled against the selected module's

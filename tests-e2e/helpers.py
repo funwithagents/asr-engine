@@ -99,8 +99,8 @@ def build_engine(
     module_config: dict,
     *,
     audio_format: AudioFormat = FORMAT_MP3_44100,
-    segmentation_mode: str = "utterance",
     listen_default_segmentation_mode: str = "trigger_word",
+    dictation_default_segmentation_mode: str = "trigger_word",
     trigger_words: list[str] | None = None,
     initial_silence_timeout_s: float = 10.0,
     end_of_speech_timeout_s: float = 5.0,
@@ -132,8 +132,8 @@ def build_engine(
         seg.trigger_words = trigger_words
 
     config = ASREngineConfig(
-        segmentation_mode=segmentation_mode,
         listen_default_segmentation_mode=listen_default_segmentation_mode,
+        dictation_default_segmentation_mode=dictation_default_segmentation_mode,
         segmentation=seg,
         sound_feedback=SoundFeedbackConfig(enabled=False),
         audio=AudioConfig(
@@ -205,8 +205,8 @@ async def start_mcp_server(
     The ``engine.audio`` block is written with ``audio_format`` explicitly, so the
     real binary decodes *audio_file* (WAV or MP3) at the matching rate/encoding.
     ``engine_overrides`` is merged into the ``engine`` config block (e.g.
-    ``auto_start``, ``segmentation_mode``, ``segmentation``,
-    ``listen_default_segmentation_mode``, ``sound_feedback``).
+    ``auto_start``, ``auto_start_dictation``, ``dictation_default_segmentation_mode``,
+    ``segmentation``, ``listen_default_segmentation_mode``, ``sound_feedback``).
     """
     engine: dict = {
         "audio": {

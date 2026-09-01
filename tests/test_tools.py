@@ -24,9 +24,31 @@ class FakeEngine:
         self.stopped = False
         self.listen_mode: Any = "unset"
         self._listen_impl: ListenImpl | None = None
+        self.dictating = False
+        self.segmentation_mode = "utterance"
+        self.dictation_started_with: Any = None
+        self.dictation_default: Any = None
+        self.listen_default: Any = None
 
     def status(self) -> dict:
         return {"running": self._running, "connected": self._connected}
+
+    async def start_dictation(
+        self, end_on_final_segment: bool = True, segmentation_mode=None
+    ) -> None:
+        self.dictation_started_with = (end_on_final_segment, segmentation_mode)
+        self.dictating = True
+        self.segmentation_mode = segmentation_mode or "trigger_word"
+
+    async def stop_dictation(self) -> None:
+        self.dictating = False
+        self.segmentation_mode = "utterance"
+
+    def set_dictation_default_segmentation_mode(self, mode: str) -> None:
+        self.dictation_default = mode
+
+    def set_listen_default_segmentation_mode(self, mode: str) -> None:
+        self.listen_default = mode
 
     async def start(self) -> None:
         self.started = True
@@ -177,3 +199,62 @@ async def test_listen_rejects_concurrent_calls():
 
     release.set()
     assert (await first)["transcript"] == "done"
+
+
+# ---------------------------------------------------------------------------
+# dictation
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_start_dictation_returns_status_mode_and_flag():
+    engine = FakeEngine()
+    tools = _tools(engine)
+    result = await tools.start_dictation(
+        end_on_final_segment=False, segmentation_mode="timeout"
+    )
+    assert result == {
+        "status": "dictating",
+        "mode": "timeout",
+        "end_on_final_segment": False,
+    }
+    assert engine.dictation_started_with == (False, "timeout")
+    assert engine.dictating is True
+
+
+@pytest.mark.asyncio
+async def test_stop_dictation_returns_status():
+    engine = FakeEngine()
+    engine.dictating = True
+    tools = _tools(engine)
+    assert await tools.stop_dictation() == {"status": "dictation_stopped"}
+    assert engine.dictating is False
+
+
+def test_is_dictation_running_reports_state_and_mode():
+    engine = FakeEngine()
+    engine.dictating = True
+    engine.segmentation_mode = "trigger_word"
+    tools = _tools(engine)
+    assert tools.is_dictation_running() == {
+        "dictating": True,
+        "segmentation_mode": "trigger_word",
+    }
+
+
+def test_set_dictation_default_returns_and_applies_mode():
+    engine = FakeEngine()
+    tools = _tools(engine)
+    assert tools.set_dictation_default_segmentation_mode("timeout") == {
+        "dictation_default_segmentation_mode": "timeout"
+    }
+    assert engine.dictation_default == "timeout"
+
+
+def test_set_listen_default_returns_and_applies_mode():
+    engine = FakeEngine()
+    tools = _tools(engine)
+    assert tools.set_listen_default_segmentation_mode("utterance") == {
+        "listen_default_segmentation_mode": "utterance"
+    }
+    assert engine.listen_default == "utterance"

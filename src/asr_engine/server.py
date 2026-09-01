@@ -122,6 +122,36 @@ def create_mcp_server(engine: ASREngine) -> FastMCP:
 
         return await tools.listen(on_progress=_on_progress)
 
+    @mcp.tool()
+    async def start_dictation(
+        end_on_final_segment: bool = True, segmentation_mode: str | None = None
+    ) -> dict:
+        """Switch the always-on segment stream into an aggregating mode (non-blocking)."""
+        return await tools.start_dictation(
+            end_on_final_segment=end_on_final_segment,
+            segmentation_mode=segmentation_mode,
+        )
+
+    @mcp.tool()
+    async def stop_dictation() -> dict:
+        """End the active dictation and revert to utterance; the engine keeps running."""
+        return await tools.stop_dictation()
+
+    @mcp.tool()
+    def is_dictation_running() -> dict:
+        """Whether a dictation is active, plus the current segmentation mode."""
+        return tools.is_dictation_running()
+
+    @mcp.tool()
+    def set_dictation_default_segmentation_mode(mode: str) -> dict:
+        """Set the default mode start_dictation uses when called with no mode."""
+        return tools.set_dictation_default_segmentation_mode(mode)
+
+    @mcp.tool()
+    def set_listen_default_segmentation_mode(mode: str) -> dict:
+        """Set the default mode listen uses when called with no mode."""
+        return tools.set_listen_default_segmentation_mode(mode)
+
     # --- Engine callbacks → resources ---
 
     async def _on_speech_utterance(utterance: SpeechUtterance) -> None:
@@ -163,6 +193,10 @@ async def run_server(config: AppConfig, log_level: str = "INFO") -> None:
 
     if engine_config.auto_start:
         await engine.start()
+        # Optionally begin in a persistent, never-self-ending dictation so the
+        # always-on asr://segment stream aggregates from startup.
+        if engine_config.auto_start_dictation:
+            await engine.start_dictation(end_on_final_segment=False)
 
     # Suppress chatty low-level logs that belong at DEBUG, not INFO.
     # Must be passed as log_config so uvicorn doesn't overwrite them on startup.

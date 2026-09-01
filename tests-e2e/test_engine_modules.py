@@ -67,7 +67,6 @@ async def test_engine_streams(
         module_type,
         module_config,
         audio_format=FORMAT_MP3_44100,
-        segmentation_mode="utterance",
         on_speech_utterance=on_utt,
         on_speech_segment=on_seg,
     )
@@ -144,6 +143,131 @@ async def test_listen_timeout(
     assert segment.is_final is True
     assert segment.end_reason == "end_of_speech_timeout"
     assert "the sky is blue" in _normalize(segment.transcript)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("module_type, module_config, silence_s", MODULES)
+async def test_dictation_trigger_word(
+    module_type: str, module_config: dict, silence_s: float
+) -> None:
+    """start_dictation(trigger_word) aggregates the always-on stream; stop reverts."""
+    require_api_key(module_config)
+    segments: list[SpeechSegment] = []
+
+    async def on_seg(s: SpeechSegment) -> None:
+        segments.append(s)
+
+    source = ScriptableAudioSource(audio_format=FORMAT_MP3_44100)
+    engine = build_engine(
+        source,
+        module_type,
+        module_config,
+        audio_format=FORMAT_MP3_44100,
+        trigger_words=["validate"],
+        on_speech_segment=on_seg,
+    )
+    try:
+        await engine.start()
+        # Arm dictation *before* playing audio so there is no race with the
+        # one-shot file playback.
+        await engine.start_dictation(
+            end_on_final_segment=False, segmentation_mode="trigger_word"
+        )
+        assert engine.dictating is True
+        assert engine.segmentation_mode == "trigger_word"
+
+        await source.play(FIXTURE_BLUE_VALIDATE, trailing_silence_s=silence_s)
+        await _wait_until(
+            lambda: any(s.is_final and s.end_reason == "trigger_word" for s in segments)
+        )
+
+        await engine.stop_dictation()
+        assert engine.dictating is False
+        assert engine.segmentation_mode == "utterance"
+    finally:
+        await engine.stop()
+
+    closed = [s for s in segments if s.is_final and s.end_reason == "trigger_word"]
+    assert closed, "expected a trigger_word segment to close"
+    assert "validate" not in _normalize(closed[0].transcript)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("module_type, module_config, silence_s", MODULES)
+async def test_dictation_timeout(
+    module_type: str, module_config: dict, silence_s: float
+) -> None:
+    """start_dictation(timeout) closes on end-of-speech silence with the transcript."""
+    require_api_key(module_config)
+    segments: list[SpeechSegment] = []
+
+    async def on_seg(s: SpeechSegment) -> None:
+        segments.append(s)
+
+    source = ScriptableAudioSource(audio_format=FORMAT_MP3_44100)
+    engine = build_engine(
+        source,
+        module_type,
+        module_config,
+        audio_format=FORMAT_MP3_44100,
+        end_of_speech_timeout_s=2.0,
+        on_speech_segment=on_seg,
+    )
+    try:
+        await engine.start()
+        await engine.start_dictation(
+            end_on_final_segment=False, segmentation_mode="timeout"
+        )
+        await source.play(FIXTURE_BLUE, trailing_silence_s=silence_s)
+        await _wait_until(
+            lambda: any(
+                s.is_final and s.end_reason == "end_of_speech_timeout" for s in segments
+            )
+        )
+    finally:
+        await engine.stop()
+
+    closed = [
+        s for s in segments if s.is_final and s.end_reason == "end_of_speech_timeout"
+    ]
+    assert closed, "expected an end_of_speech_timeout segment"
+    assert "the sky is blue" in _normalize(closed[0].transcript)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("module_type, module_config, silence_s", MODULES)
+async def test_dictation_end_on_final_segment(
+    module_type: str, module_config: dict, silence_s: float
+) -> None:
+    """end_on_final_segment dictation self-ends on the first closed segment."""
+    require_api_key(module_config)
+    segments: list[SpeechSegment] = []
+
+    async def on_seg(s: SpeechSegment) -> None:
+        segments.append(s)
+
+    source = ScriptableAudioSource(audio_format=FORMAT_MP3_44100)
+    engine = build_engine(
+        source,
+        module_type,
+        module_config,
+        audio_format=FORMAT_MP3_44100,
+        end_of_speech_timeout_s=2.0,
+        on_speech_segment=on_seg,
+    )
+    try:
+        await engine.start()
+        await engine.start_dictation(
+            end_on_final_segment=True, segmentation_mode="timeout"
+        )
+        await source.play(FIXTURE_BLUE, trailing_silence_s=silence_s)
+        # The first closed segment ends the dictation and reverts to utterance.
+        await _wait_until(lambda: not engine.dictating)
+        assert engine.segmentation_mode == "utterance"
+    finally:
+        await engine.stop()
+
+    assert any(s.is_final for s in segments), "expected a closed segment"
 
 
 @pytest.mark.asyncio

@@ -95,7 +95,17 @@ async def test_tools_registered():
     mcp = create_mcp_server(engine)
     tools = await mcp.list_tools()
     names = {t.name for t in tools}
-    assert {"start", "stop", "is_running", "listen"} <= names
+    assert {
+        "start",
+        "stop",
+        "is_running",
+        "listen",
+        "start_dictation",
+        "stop_dictation",
+        "is_dictation_running",
+        "set_dictation_default_segmentation_mode",
+        "set_listen_default_segmentation_mode",
+    } <= names
 
 
 # ---------------------------------------------------------------------------
@@ -186,11 +196,11 @@ def test_create_mcp_server_wires_engine_callbacks():
 
 
 def test_create_mcp_server_leaves_engine_segment_mode():
-    """The engine owns its segment mode (from config); the server must not touch it."""
-    engine = make_engine(segmentation_mode="trigger_word")
-    assert engine._segment_mode == "trigger_word"
+    """The engine's at-rest mode is ``utterance``; the server must not change it."""
+    engine = make_engine()
+    assert engine._segment_mode == "utterance"
     create_mcp_server(engine)
-    assert engine._segment_mode == "trigger_word"
+    assert engine._segment_mode == "utterance"
 
 
 # ---------------------------------------------------------------------------
@@ -502,3 +512,34 @@ async def test_run_server_prints_banner(capsys) -> None:
     assert "0.0.0.0" in out
     assert "9090" in out
     assert "fake_banner" in out
+
+
+@pytest.mark.asyncio
+async def test_run_server_auto_start_dictation_starts_dictation() -> None:
+    import asr_engine.modules as mod
+
+    fake_module = MagicMock()
+    fake_module.start = AsyncMock(return_value=None)
+    fake_module.stop = AsyncMock(return_value=None)
+    fake_class = _capable_mock_class(fake_module)
+
+    config = AppConfig(
+        engine=_engine_config(
+            module_type="fake_dict", auto_start=True, auto_start_dictation=True
+        ),
+    )
+    original = dict(mod.REGISTRY)
+    mod.REGISTRY["fake_dict"] = fake_class  # type: ignore[assignment]  # MagicMock test double
+    try:
+        with (
+            patch("asr_engine.engine.AudioCapture") as MockCapture,
+            patch.object(ASREngine, "start_dictation", new_callable=AsyncMock) as sd,
+            patch("asr_engine.server.uvicorn.Server.serve", new_callable=AsyncMock),
+        ):
+            MockCapture.return_value.start.return_value = asyncio.Queue()
+            await run_server(config)
+    finally:
+        mod.REGISTRY.clear()
+        mod.REGISTRY.update(original)
+
+    sd.assert_awaited_once_with(end_on_final_segment=False)

@@ -25,7 +25,10 @@ from asr_engine.segmenter import SpeechSegment
 
 log = logging.getLogger(__name__)
 
+# Internal lifecycle phases the controller tracks directly.
 Phase = Literal["stopped", "running", "listening"]
+# What the UI displays: "dictating" is derived from engine.dictating while running.
+DisplayPhase = Literal["stopped", "running", "dictating", "listening"]
 
 _LOG_MAXLEN = 200
 _LIFECYCLE_TIMEOUT_S = 30.0
@@ -50,7 +53,7 @@ def format_segment(segment: SpeechSegment) -> str:
 class ControllerState:
     """Immutable snapshot the UI renders. Built by ``DemoController.state()``."""
 
-    phase: Phase
+    phase: DisplayPhase
     connected: bool
     segmentation_mode: str
     trigger_words: str  # comma-separated, for the UI textbox
@@ -63,12 +66,14 @@ class ControllerState:
     last_listen: str
     message: str
 
+    dictating: bool
+
     # Derived widget enablement (single source of truth for the UI).
     can_start: bool
     can_stop: bool
     can_listen: bool
     config_enabled: bool
-    can_set_mode: bool
+    can_dictate: bool
 
 
 class DemoController:
@@ -238,26 +243,48 @@ class DemoController:
             self._phase = "stopped"
             self._listen_task = None
 
-    # -- segmentation ------------------------------------------------------
+    # -- dictation ---------------------------------------------------------
 
-    def set_segmentation_mode(self, mode: str) -> None:
-        if self._phase == "listening":
-            self._set_message("Cannot change segmentation mode while listening.")
+    def start_dictation(
+        self, mode: str | None = None, end_on_final_segment: bool = False
+    ) -> None:
+        """Start a dictation session on the running engine (aggregating mode)."""
+        if self._phase != "running":
+            self._set_message("Start the engine before dictation.")
             return
         try:
-            # The engine's setter schedules work on its loop, so it must run on
-            # the loop thread — not the Gradio handler thread.
-            if self._engine is not None:
-                self._run(self._apply_mode(mode), timeout=_LIFECYCLE_TIMEOUT_S)
-            # Persist so a not-yet-built engine (and the state snapshot) use it.
-            self._config.segmentation_mode = mode
-            self._set_message(f"Segmentation mode: {mode}.")
+            self._run(
+                self._apply_start_dictation(mode, end_on_final_segment),
+                timeout=_LIFECYCLE_TIMEOUT_S,
+            )
+            self._set_message(f"Dictation started ({mode or 'default'}).")
         except ValueError as exc:
             self._set_message(str(exc))
 
-    async def _apply_mode(self, mode: str) -> None:
+    async def _apply_start_dictation(
+        self, mode: str | None, end_on_final_segment: bool
+    ) -> None:
         assert self._engine is not None
-        self._engine.set_segmentation_mode(mode)
+        await self._engine.start_dictation(
+            end_on_final_segment=end_on_final_segment, segmentation_mode=mode
+        )
+
+    def stop_dictation(self) -> None:
+        """End the active dictation; the engine keeps running."""
+        if self._engine is None or not self._engine.dictating:
+            self._set_message("No dictation in progress.")
+            return
+        try:
+            self._run(self._apply_stop_dictation(), timeout=_LIFECYCLE_TIMEOUT_S)
+            self._set_message("Dictation stopped.")
+        except ValueError as exc:
+            self._set_message(str(exc))
+
+    async def _apply_stop_dictation(self) -> None:
+        assert self._engine is not None
+        await self._engine.stop_dictation()
+
+    # -- segmentation params -----------------------------------------------
 
     def set_segmentation_params(
         self,
@@ -295,7 +322,7 @@ class DemoController:
 
     async def _apply_params(self, words: list[str], ist: float, eost: float) -> None:
         assert self._engine is not None
-        self._engine.set_segmentation_params(
+        await self._engine.set_segmentation_params(
             trigger_words=words,
             initial_silence_timeout_s=ist,
             end_of_speech_timeout_s=eost,
@@ -339,10 +366,11 @@ class DemoController:
     def _current_mode(self) -> str:
         if self._engine is not None:
             return self._engine.segmentation_mode
-        return self._config.segmentation_mode
+        return "utterance"  # the always-on mode at rest
 
     def state(self) -> ControllerState:
         connected = self._engine.status()["connected"] if self._engine else False
+        dictating = bool(self._engine and self._engine.dictating)
         with self._lock:
             last_listen = self._last_listen
             message = self._message
@@ -350,9 +378,12 @@ class DemoController:
             segment_log = list(self._segment_log)
         phase = self._phase
         stopped = phase == "stopped"
+        # A running engine with an active dictation displays as "dictating"; the
+        # engine flips dictating off on its own when an end-on-final session ends.
+        display_phase = "dictating" if (phase == "running" and dictating) else phase
         seg = self._config.segmentation
         return ControllerState(
-            phase=phase,
+            phase=display_phase,
             connected=connected,
             segmentation_mode=self._current_mode(),
             trigger_words=", ".join(seg.trigger_words),
@@ -364,9 +395,10 @@ class DemoController:
             segment_log=segment_log,
             last_listen=format_segment(last_listen) if last_listen else "",
             message=message,
+            dictating=dictating,
             can_start=stopped,
             can_stop=phase in ("running", "listening"),
             can_listen=stopped,
             config_enabled=stopped,
-            can_set_mode=phase != "listening",
+            can_dictate=phase == "running",
         )

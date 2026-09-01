@@ -27,8 +27,8 @@ def make_config(
     module_type: str = "mock",
     *,
     extra: dict | None = None,
-    segmentation_mode: str = "utterance",
     listen_default_segmentation_mode: str = "trigger_word",
+    dictation_default_segmentation_mode: str = "trigger_word",
     trigger_words: list[str] | None = None,
 ) -> ASREngineConfig:
     """Build an ASREngineConfig with sound feedback disabled (no real audio)."""
@@ -36,8 +36,8 @@ def make_config(
     if trigger_words is not None:
         seg.trigger_words = trigger_words
     return ASREngineConfig(
-        segmentation_mode=segmentation_mode,
         listen_default_segmentation_mode=listen_default_segmentation_mode,
+        dictation_default_segmentation_mode=dictation_default_segmentation_mode,
         segmentation=seg,
         sound_feedback=SoundFeedbackConfig(enabled=False),
         module=ModuleConfig(type=module_type, extra=extra or {}),
@@ -159,19 +159,12 @@ def test_known_asr_type_instantiates_module():
     assert engine._asr_module is mock_module
 
 
-def test_constructor_applies_segmentation_mode_from_config():
-    """The engine builds its segmenter from config, no set_segmentation_mode call."""
-    segments: list[SpeechSegment] = []
-
-    async def on_segment(seg):
-        segments.append(seg)
-
-    engine, _ = make_engine(
-        on_speech_segment=on_segment,
-        segmentation_mode="trigger_word",
-        trigger_words=["stop"],
-    )
-    assert engine._segment_mode == "trigger_word"
+def test_engine_starts_in_utterance_mode():
+    """The always-on mode is always ``utterance`` at construction (no config mode)."""
+    engine, _ = make_engine(trigger_words=["stop"])
+    assert engine._segment_mode == "utterance"
+    assert engine.segmentation_mode == "utterance"
+    assert engine.dictating is False
 
 
 # ---------------------------------------------------------------------------
@@ -287,30 +280,38 @@ async def test_handle_utterance_fires_utterance_and_segment_callbacks():
 
 
 # ---------------------------------------------------------------------------
-# set_segmentation_mode / set_segmentation_params
+# default-mode setters
 # ---------------------------------------------------------------------------
 
 
-def test_set_segmentation_mode_invalid_raises():
+def test_set_dictation_default_segmentation_mode_invalid_raises():
     engine, _ = make_engine()
     with pytest.raises(ValueError, match="Invalid segment mode"):
-        engine.set_segmentation_mode("nonsense")
+        engine.set_dictation_default_segmentation_mode("nonsense")
 
 
-def test_segmentation_mode_property_reflects_config_and_setter():
-    engine, _ = make_engine(segmentation_mode="utterance")
+def test_set_listen_default_segmentation_mode_invalid_raises():
+    engine, _ = make_engine()
+    with pytest.raises(ValueError, match="Invalid segment mode"):
+        engine.set_listen_default_segmentation_mode("nonsense")
+
+
+def test_default_mode_setters_update_the_stored_defaults():
+    engine, _ = make_engine()
+    engine.set_dictation_default_segmentation_mode("timeout")
+    engine.set_listen_default_segmentation_mode("utterance")
+    assert engine._dictation_default_segment_mode == "timeout"
+    assert engine._listen_default_segment_mode == "utterance"
+    # Setting a default never changes the current (at-rest) mode.
     assert engine.segmentation_mode == "utterance"
-    engine.set_segmentation_mode("trigger_word")
-    assert engine.segmentation_mode == "trigger_word"
 
 
 @pytest.mark.asyncio
 async def test_segmentation_mode_property_restored_after_listen():
-    """listen() runs in a different mode but the property reports the always-on
-    mode again once it returns."""
+    """listen() runs in a different mode but the property reports ``utterance``
+    again once it returns."""
     engine = make_scripted_engine(
         [SpeechUtterance("hi", True, None), SpeechUtterance("go", True, None)],
-        segmentation_mode="utterance",
         trigger_words=["go"],
     )
     assert engine.segmentation_mode == "utterance"
@@ -318,29 +319,106 @@ async def test_segmentation_mode_property_restored_after_listen():
     assert engine.segmentation_mode == "utterance"
 
 
+# ---------------------------------------------------------------------------
+# dictation
+# ---------------------------------------------------------------------------
+
+
 @pytest.mark.asyncio
-async def test_set_segmentation_mode_and_params_switch_behaviour():
+async def test_start_dictation_requires_running_engine():
+    engine, _ = make_engine()
+    with pytest.raises(ValueError, match="ASR is not running"):
+        await engine.start_dictation(segmentation_mode="trigger_word")
+
+
+@pytest.mark.asyncio
+async def test_start_dictation_rejects_second_session():
+    engine, _ = make_engine()
+    engine._running = True
+    await engine.start_dictation(segmentation_mode="trigger_word")
+    with pytest.raises(ValueError, match="already in progress"):
+        await engine.start_dictation(segmentation_mode="timeout")
+
+
+@pytest.mark.asyncio
+async def test_stop_dictation_requires_active_session():
+    engine, _ = make_engine()
+    with pytest.raises(ValueError, match="No dictation in progress"):
+        await engine.stop_dictation()
+
+
+@pytest.mark.asyncio
+async def test_dictation_switches_mode_and_reverts_on_stop():
     segments: list[SpeechSegment] = []
 
     async def on_segment(seg):
         segments.append(seg)
 
-    engine, _ = make_engine(on_speech_segment=on_segment)
-    engine.set_segmentation_params(trigger_words=["stop"])
-    engine.set_segmentation_mode("trigger_word")
+    engine, _ = make_engine(on_speech_segment=on_segment, trigger_words=["stop"])
+    engine._running = True
+    await engine.start_dictation(
+        end_on_final_segment=False, segmentation_mode="trigger_word"
+    )
+    assert engine.dictating is True
+    assert engine.segmentation_mode == "trigger_word"
 
-    # Two finals accumulate; neither closes the segment.
+    # Two finals accumulate under trigger_word mode; neither closes the segment.
     await engine._handle_utterance(SpeechUtterance("the sky", True, None))
     await engine._handle_utterance(SpeechUtterance("is blue", True, None))
     assert all(not s.is_final for s in segments)
-    assert segments[-1].transcript == "the sky is blue"
 
-    # Trigger word closes it, excluding the trigger utterance.
+    # Trigger word closes the segment, excluding the trigger utterance.
     await engine._handle_utterance(SpeechUtterance("stop", True, None))
     closed = [s for s in segments if s.is_final]
     assert len(closed) == 1
     assert closed[0].transcript == "the sky is blue"
     assert closed[0].end_reason == "trigger_word"
+
+    await engine.stop_dictation()
+    assert engine.dictating is False
+    assert engine.segmentation_mode == "utterance"
+
+
+@pytest.mark.asyncio
+async def test_dictation_default_mode_used_when_none():
+    engine, _ = make_engine(dictation_default_segmentation_mode="timeout")
+    engine._running = True
+    await engine.start_dictation(end_on_final_segment=False)
+    assert engine.segmentation_mode == "timeout"
+
+
+@pytest.mark.asyncio
+async def test_dictation_end_on_final_segment_auto_reverts():
+    """With end_on_final_segment, the first final segment ends the dictation."""
+    engine, _ = make_engine()
+    engine._running = True
+    # utterance mode: the first final utterance closes a segment.
+    await engine.start_dictation(
+        end_on_final_segment=True, segmentation_mode="utterance"
+    )
+    assert engine.dictating is True
+
+    await engine._handle_utterance(SpeechUtterance("hello", True, None))
+    # The auto-end runs as a scheduled task; let it complete.
+    for _ in range(5):
+        await asyncio.sleep(0)
+        if not engine.dictating:
+            break
+
+    assert engine.dictating is False
+    assert engine.segmentation_mode == "utterance"
+
+
+@pytest.mark.asyncio
+async def test_set_segmentation_mode_invalid_leaves_state_intact():
+    """A bad mode raises without mutating the current mode or segmenter."""
+    engine, _ = make_engine()
+    engine._running = True
+    before = engine._segmenter
+    with pytest.raises(ValueError, match="Invalid segment mode"):
+        await engine._set_segmentation_mode("nonsense")
+    assert engine.segmentation_mode == "utterance"
+    assert engine._segmenter is before
 
 
 # ---------------------------------------------------------------------------
@@ -390,15 +468,22 @@ async def test_listen_uses_default_mode_when_none():
 
 
 @pytest.mark.asyncio
-async def test_listen_restores_previous_mode():
+async def test_listen_reverts_to_utterance_mode():
     engine = make_scripted_engine(
         [SpeechUtterance("hi", True, None), SpeechUtterance("go", True, None)],
-        segmentation_mode="utterance",
         trigger_words=["go"],
     )
     assert engine._segment_mode == "utterance"
     await engine.listen(mode="trigger_word")
     assert engine._segment_mode == "utterance"
+
+
+@pytest.mark.asyncio
+async def test_set_segmentation_params_updates_trigger_words():
+    engine, _ = make_engine()
+    await engine.set_segmentation_params(trigger_words=["stop"])
+    assert engine._trigger_words == ["stop"]
+    assert engine._segmenter._trigger_words == ["stop"]
 
 
 @pytest.mark.asyncio

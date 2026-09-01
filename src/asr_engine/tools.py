@@ -69,3 +69,46 @@ class AsrTools:
 
             segment = await self._engine.listen(mode, on_update=_relay)
             return {"transcript": segment.transcript, "end_reason": segment.end_reason}
+
+    async def start_dictation(
+        self,
+        end_on_final_segment: bool = True,
+        segmentation_mode: str | None = None,
+    ) -> dict:
+        """Start a non-blocking dictation session on the running engine.
+
+        Pass-through to ``engine.start_dictation`` (which owns the state and the
+        ``ValueError``s). The aggregated segments arrive via ``on_speech_segment``
+        / the ``asr://segment`` resource, not this return value.
+        """
+        await self._engine.start_dictation(
+            end_on_final_segment=end_on_final_segment,
+            segmentation_mode=segmentation_mode,
+        )
+        return {
+            "status": "dictating",
+            "mode": self._engine.segmentation_mode,
+            "end_on_final_segment": end_on_final_segment,
+        }
+
+    async def stop_dictation(self) -> dict:
+        """End the active dictation; the engine keeps running."""
+        await self._engine.stop_dictation()
+        return {"status": "dictation_stopped"}
+
+    def is_dictation_running(self) -> dict:
+        """Whether a dictation is active, plus the current segmentation mode."""
+        return {
+            "dictating": self._engine.dictating,
+            "segmentation_mode": self._engine.segmentation_mode,
+        }
+
+    def set_dictation_default_segmentation_mode(self, mode: str) -> dict:
+        """Set the default mode ``start_dictation(None)`` falls back to."""
+        self._engine.set_dictation_default_segmentation_mode(mode)
+        return {"dictation_default_segmentation_mode": mode}
+
+    def set_listen_default_segmentation_mode(self, mode: str) -> dict:
+        """Set the default mode ``listen(None)`` falls back to."""
+        self._engine.set_listen_default_segmentation_mode(mode)
+        return {"listen_default_segmentation_mode": mode}

@@ -11,6 +11,13 @@ tests:
 
 **Status:** Implemented
 
+> **Dictation update (2026-09-01):** the server registers four new tools —
+> `start_dictation`, `stop_dictation`, `set_dictation_default_segmentation_mode`,
+> `set_listen_default_segmentation_mode` — and, when `engine.auto_start_dictation`
+> is set, calls `start_dictation(end_on_final_segment=False)` right after the
+> startup `start()`. Implemented by
+> [plans/202609012010_dictation-sessions.md](../plans/202609012010_dictation-sessions.md).
+
 > **Refactor note (2026-08-31):** the MCP server becomes a thin transport over a
 > transport-agnostic **tools layer** (`AsrTools`, see below), and `ASREngine`
 > now self-configures from `ASREngineConfig` — so `create_mcp_server` takes just
@@ -40,6 +47,15 @@ class AsrTools:
         mode: str | None = None,
         on_progress: ProgressCallback | None = None,
     ) -> dict:                            # {"transcript", "end_reason"}
+    async def start_dictation(
+        self,
+        end_on_final_segment: bool = True,
+        segmentation_mode: str | None = None,
+    ) -> dict:                            # {"status": "dictating", "mode", "end_on_final_segment"}
+    async def stop_dictation(self) -> dict:  # {"status": "dictation_stopped"}
+    def is_dictation_running(self) -> dict:  # {"dictating", "segmentation_mode"}
+    def set_dictation_default_segmentation_mode(self, mode: str) -> dict: ...
+    def set_listen_default_segmentation_mode(self, mode: str) -> dict: ...
 ```
 
 `AsrTools` owns the "a listen session is already in progress" lock and calls
@@ -315,6 +331,48 @@ Sound cues are played by `engine.listen` itself — the tool no longer wraps the
 call with cue playback. The returned `SpeechSegment` carries the committed
 finals (`transcript`) and the `end_reason` that closed it.
 
+### `start_dictation`
+
+Switches the always-on `asr://segment` stream into an aggregating mode **without
+stopping the engine** — the long-running counterpart to `listen`. Non-blocking:
+it returns immediately and the aggregated segments arrive via the `asr://segment`
+resource, not the return value.
+
+- **Input:** `end_on_final_segment` (boolean, default `true`) — end the dictation
+  automatically on the first closed segment; `segmentation_mode` (string or null,
+  default null → `engine.dictation_default_segmentation_mode`).
+- **Output:** `{ "status": "dictating", "mode": "trigger_word", "end_on_final_segment": true }`
+- **Errors:** `"ASR is not running. Start it before calling start_dictation."`;
+  `"Dictation is already in progress."`; unknown mode.
+
+### `stop_dictation`
+
+Ends the active dictation and reverts the stream to `utterance`; the engine keeps
+running.
+
+- **Input:** none
+- **Output:** `{ "status": "dictation_stopped" }`
+- **Error:** `"No dictation in progress."`
+
+### `is_dictation_running`
+
+The dictation counterpart to `is_running`: whether a dictation session is active
+and the current segmentation mode.
+
+- **Input:** none
+- **Output:** `{ "dictating": true, "segmentation_mode": "trigger_word" }`
+  (`segmentation_mode` is the active dictation/`listen` mode, else `utterance`)
+
+### `set_dictation_default_segmentation_mode` / `set_listen_default_segmentation_mode`
+
+Set the default mode `start_dictation` / `listen` fall back to when called with no
+explicit mode. They do not change the engine's current mode.
+
+- **Input:** `mode` (string — one of `utterance` / `trigger_word` / `timeout`)
+- **Output:** `{ "dictation_default_segmentation_mode": "timeout" }` /
+  `{ "listen_default_segmentation_mode": "utterance" }`
+- **Error:** unknown mode.
+
 ## Lifecycle
 
 ### With `engine.auto_start = true` (default)
@@ -322,8 +380,13 @@ finals (`transcript`) and the `end_reason` that closed it.
 1. Server starts and reads config
 2. Audio capture initializes and starts the input stream
 3. ASR module connects to the backend
-4. MCP HTTP server starts accepting connections
-5. On shutdown (SIGINT / SIGTERM): audio capture stops, ASR connection closes cleanly, HTTP server shuts down
+4. If `engine.auto_start_dictation` is `true`, the server calls
+   `start_dictation(end_on_final_segment=False)` so the always-on `asr://segment`
+   stream aggregates in `dictation_default_segmentation_mode` from startup
+   (`auto_start_dictation` requires `auto_start=true` — see
+   [configuration.md](configuration.md))
+5. MCP HTTP server starts accepting connections
+6. On shutdown (SIGINT / SIGTERM): audio capture stops, ASR connection closes cleanly, HTTP server shuts down
 
 ### With `engine.auto_start = false`
 

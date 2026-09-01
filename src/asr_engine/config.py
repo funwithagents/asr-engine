@@ -20,7 +20,6 @@ _DEFAULT_TRIGGER_WORDS: list[str] = [
 ]
 
 _SEGMENT_MODES = ("utterance", "trigger_word", "timeout")
-_LISTEN_MODES = ("trigger_word", "timeout")
 _ENCODINGS = ("linear16", "mulaw")
 _UNSUPPORTED_FORMAT_POLICIES = ("error", "fallback")
 
@@ -68,8 +67,9 @@ class ASREngineConfig:
     """Everything an ``ASREngine`` needs — the whole ``engine`` config block."""
 
     auto_start: bool = True
-    segmentation_mode: str = "utterance"
+    auto_start_dictation: bool = False
     listen_default_segmentation_mode: str = "trigger_word"
+    dictation_default_segmentation_mode: str = "trigger_word"
     segmentation: SegmentationConfig = field(default_factory=SegmentationConfig)
     sound_feedback: SoundFeedbackConfig = field(default_factory=SoundFeedbackConfig)
     audio: AudioConfig = field(default_factory=AudioConfig)
@@ -83,18 +83,27 @@ class AppConfig:
 
 
 def _parse_engine(engine_data: dict[str, Any]) -> ASREngineConfig:
-    segmentation_mode = engine_data.get("segmentation_mode", "utterance")
-    if segmentation_mode not in _SEGMENT_MODES:
+    auto_start = engine_data.get("auto_start", True)
+    auto_start_dictation = engine_data.get("auto_start_dictation", False)
+    if auto_start_dictation and not auto_start:
         raise ValueError(
-            f"Invalid engine.segmentation_mode: '{segmentation_mode}'. "
-            f"Must be one of {', '.join(_SEGMENT_MODES)}."
+            "Invalid engine config: auto_start_dictation requires auto_start=true."
         )
 
     listen_default = engine_data.get("listen_default_segmentation_mode", "trigger_word")
-    if listen_default not in _LISTEN_MODES:
+    if listen_default not in _SEGMENT_MODES:
         raise ValueError(
             f"Invalid engine.listen_default_segmentation_mode: '{listen_default}'. "
-            f"Must be one of {', '.join(_LISTEN_MODES)}."
+            f"Must be one of {', '.join(_SEGMENT_MODES)}."
+        )
+
+    dictation_default = engine_data.get(
+        "dictation_default_segmentation_mode", "trigger_word"
+    )
+    if dictation_default not in _SEGMENT_MODES:
+        raise ValueError(
+            f"Invalid engine.dictation_default_segmentation_mode: "
+            f"'{dictation_default}'. Must be one of {', '.join(_SEGMENT_MODES)}."
         )
 
     seg_data = engine_data.get("segmentation", {})
@@ -141,9 +150,10 @@ def _parse_engine(engine_data: dict[str, Any]) -> ASREngineConfig:
     module = ModuleConfig(type=module_type, extra=extra)
 
     return ASREngineConfig(
-        auto_start=engine_data.get("auto_start", True),
-        segmentation_mode=segmentation_mode,
+        auto_start=auto_start,
+        auto_start_dictation=auto_start_dictation,
         listen_default_segmentation_mode=listen_default,
+        dictation_default_segmentation_mode=dictation_default,
         segmentation=segmentation,
         sound_feedback=sound_feedback,
         audio=audio,

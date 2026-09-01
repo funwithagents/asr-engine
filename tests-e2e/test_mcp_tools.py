@@ -25,6 +25,20 @@ def _normalize(text: str) -> str:
     return re.sub(r"[^a-z0-9 ]", "", text.lower()).strip()
 
 
+def _error_messages(exc: BaseException) -> list[str]:
+    """Flatten an exception (or anyio ExceptionGroup) into its message strings.
+
+    McpToolClient raises a tool's error inside a task group, so it escapes wrapped
+    in a (possibly nested) ExceptionGroup — flatten to assert on the message.
+    """
+    if isinstance(exc, BaseExceptionGroup):
+        out: list[str] = []
+        for sub in exc.exceptions:
+            out.extend(_error_messages(sub))
+        return out
+    return [str(exc)]
+
+
 @pytest.mark.asyncio
 async def test_listen_trigger_word() -> None:
     """listen tool with trigger_word mode: ends on 'validate', transcript excludes trigger utterance."""
@@ -118,3 +132,100 @@ async def test_listen_timeout() -> None:
 
     assert result["end_reason"] == "end_of_speech_timeout"
     assert _normalize(result["transcript"]) == _normalize("the sky is blue")
+
+
+@pytest.mark.asyncio
+async def test_dictation_tool_control() -> None:
+    """is_dictation_running / start_dictation / stop_dictation control plane."""
+    module_type, module_config = default_provider()
+    proc, config_path = await start_mcp_server(
+        FIXTURE_BLUE,
+        module_type,
+        module_config,
+        port=18006,
+        engine_overrides={
+            "auto_start": True,
+            "auto_start_dictation": False,
+            # Long timeouts so a timeout-mode dictation stays open during the test.
+            "segmentation": {
+                "end_of_speech_timeout_s": 60.0,
+                "initial_silence_timeout_s": 60.0,
+            },
+        },
+    )
+    try:
+        client = McpToolClient("http://127.0.0.1:18006/mcp")
+
+        assert await client.call_tool("is_dictation_running") == {
+            "dictating": False,
+            "segmentation_mode": "utterance",
+        }
+
+        started = await client.call_tool(
+            "start_dictation",
+            {"end_on_final_segment": False, "segmentation_mode": "timeout"},
+        )
+        assert started == {
+            "status": "dictating",
+            "mode": "timeout",
+            "end_on_final_segment": False,
+        }
+        assert await client.call_tool("is_dictation_running") == {
+            "dictating": True,
+            "segmentation_mode": "timeout",
+        }
+
+        assert await client.call_tool("stop_dictation") == {
+            "status": "dictation_stopped"
+        }
+        assert await client.call_tool("is_dictation_running") == {
+            "dictating": False,
+            "segmentation_mode": "utterance",
+        }
+    finally:
+        await stop_mcp_server(proc, config_path)
+
+
+@pytest.mark.asyncio
+async def test_dictation_guard_errors() -> None:
+    """start_dictation errors: already-in-progress, and engine-not-running."""
+    module_type, module_config = default_provider()
+
+    # (1) Second start_dictation while one is active raises.
+    proc, config_path = await start_mcp_server(
+        FIXTURE_BLUE,
+        module_type,
+        module_config,
+        port=18007,
+        engine_overrides={"auto_start": True, "auto_start_dictation": False},
+    )
+    try:
+        client = McpToolClient("http://127.0.0.1:18007/mcp")
+        # trigger_word with no matching word → the session stays open.
+        await client.call_tool(
+            "start_dictation",
+            {"end_on_final_segment": False, "segmentation_mode": "trigger_word"},
+        )
+        with pytest.raises(BaseException) as exc_info:  # noqa: PT011,B017 — grouped below
+            await client.call_tool("start_dictation", {"end_on_final_segment": False})
+        assert any("already in progress" in m for m in _error_messages(exc_info.value))
+    finally:
+        await stop_mcp_server(proc, config_path)
+
+    # (2) start_dictation while the engine is not running raises.
+    proc, config_path = await start_mcp_server(
+        FIXTURE_BLUE,
+        module_type,
+        module_config,
+        port=18008,
+        engine_overrides={"auto_start": False},
+    )
+    try:
+        client = McpToolClient("http://127.0.0.1:18008/mcp")
+        with pytest.raises(BaseException) as exc_info:  # noqa: PT011,B017 — grouped below
+            await client.call_tool(
+                "start_dictation", {"segmentation_mode": "trigger_word"}
+            )
+        assert any("ASR is not running" in m for m in _error_messages(exc_info.value))
+    finally:
+        await stop_mcp_server(proc, config_path)

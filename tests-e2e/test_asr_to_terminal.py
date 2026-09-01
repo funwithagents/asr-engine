@@ -1,7 +1,8 @@
 """End-to-end tests: FileAudioSource → ASREngine → MCP server → AsrToTerminal.
 
-Segmentation is owned by the server (engine.segmentation_mode config); AsrToTerminal
-just consumes the asr://segment resource. See specs/engine.md.
+Segmentation is owned by the server: it is started in a persistent dictation via
+engine.auto_start_dictation + engine.dictation_default_segmentation_mode, and
+AsrToTerminal just consumes the asr://segment resource. See specs/asr-to-terminal.md.
 
 These tests drive the full live pipeline (real MCP server subprocess + live
 Deepgram) but inject an in-memory ``RecordingTyper`` instead of doing real OS
@@ -77,7 +78,8 @@ async def test_terminal_typing() -> None:
         port,
         # Impossible trigger word so the segment never closes → text only, no Enter.
         engine_overrides={
-            "segmentation_mode": "trigger_word",
+            "auto_start_dictation": True,
+            "dictation_default_segmentation_mode": "trigger_word",
             "segmentation": {"trigger_words": ["__no_submit__"]},
         },
     )
@@ -108,7 +110,8 @@ async def test_terminal_submit() -> None:
         port,
         trailing_silence_s=2.0,
         engine_overrides={
-            "segmentation_mode": "trigger_word",
+            "auto_start_dictation": True,
+            "dictation_default_segmentation_mode": "trigger_word",
             "segmentation": {"trigger_words": ["validate"]},
         },
     )
@@ -140,7 +143,8 @@ async def test_asr_to_terminal_timeout() -> None:
         port,
         trailing_silence_s=3.0,
         engine_overrides={
-            "segmentation_mode": "timeout",
+            "auto_start_dictation": True,
+            "dictation_default_segmentation_mode": "timeout",
             "segmentation": {
                 "end_of_speech_timeout_s": 2.0,
                 "initial_silence_timeout_s": 15.0,

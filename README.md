@@ -35,6 +35,10 @@ await engine.start()
 | `stop` | Stop audio capture and ASR streaming |
 | `is_running` | Return `{ "running": bool, "connected": bool }` |
 | `listen` | Blocking single-shot capture — returns `{ "transcript": str, "end_reason": str }` |
+| `start_dictation` | Non-blocking: switch the always-on stream into an aggregating mode (`end_on_final_segment`, `segmentation_mode`). Segments arrive via `asr://segment` |
+| `stop_dictation` | End the active dictation; revert the stream to `utterance` (engine keeps running) |
+| `is_dictation_running` | Return `{ "dictating": bool, "segmentation_mode": str }` |
+| `set_dictation_default_segmentation_mode` / `set_listen_default_segmentation_mode` | Set the default mode `start_dictation` / `listen` fall back to |
 
 ### Resources
 
@@ -51,7 +55,7 @@ Two rolling resources, both `application/json` and both subscribable:
 }
 ```
 
-**`asr://segment`** — the latest *segment*, an aggregation of utterances per the engine's `segmentation_mode`. `is_final` is `false` while the segment grows and `true` (with an `end_reason`) when it closes:
+**`asr://segment`** — the latest *segment*, an aggregation of utterances. The always-on stream is `utterance` mode (one segment per final utterance) unless a dictation session (or `listen`) is active. `is_final` is `false` while the segment grows and `true` (with an `end_reason`) when it closes:
 
 ```json
 {
@@ -102,8 +106,9 @@ export DEEPGRAM_API_KEY="..."
   },
   "engine": {
     "auto_start": true,
-    "segmentation_mode": "utterance",
+    "auto_start_dictation": false,
     "listen_default_segmentation_mode": "trigger_word",
+    "dictation_default_segmentation_mode": "trigger_word",
     "segmentation": {
       "trigger_words": ["submit", "validate", "send"],
       "initial_silence_timeout_s": 10.0,
@@ -137,9 +142,10 @@ The top level has just two blocks: `server` (an MCP-only concern) and `engine` �
 | Field | Default | Description |
 |---|---|---|
 | `auto_start` | `true` | Start ASR at server launch. Set to `false` to use the `listen` tool instead. |
-| `segmentation_mode` | `"utterance"` | Always-on stream mode: `"utterance"`, `"trigger_word"`, or `"timeout"` |
-| `listen_default_segmentation_mode` | `"trigger_word"` | Mode `listen()` uses when its caller passes none: `"trigger_word"` or `"timeout"` |
-| `segmentation` | see below | Trigger words + timeouts, shared by the always-on stream and `listen` |
+| `auto_start_dictation` | `false` | Begin in a persistent dictation at startup so `asr://segment` aggregates from the start (mode = `dictation_default_segmentation_mode`). Requires `auto_start=true`. |
+| `listen_default_segmentation_mode` | `"trigger_word"` | Mode `listen()` uses when its caller passes none: `"utterance"`, `"trigger_word"`, or `"timeout"` |
+| `dictation_default_segmentation_mode` | `"trigger_word"` | Mode `start_dictation()` uses when its caller passes none: `"utterance"`, `"trigger_word"`, or `"timeout"` |
+| `segmentation` | see below | Trigger words + timeouts, shared by the always-on stream, `listen`, and dictation |
 | `sound_feedback` | see below | Start/stop audio cues, played by the engine during `listen` |
 | `logging` | `{ "level": "INFO" }` | Level applied to the `asr_engine` package logger at construction |
 | `audio` | see below | Audio input / file-source settings |
@@ -205,7 +211,7 @@ The MCP endpoint is at `http://<host>:<port>/mcp`.
 
 A browser UI that drives the engine **directly** (no MCP server, no agent) — pick
 an input device and ASR module, start/stop always-on capture, run a single-shot
-`listen`, switch segmentation mode, and watch utterances and segments stream in.
+`listen`, start/stop a dictation session, and watch utterances and segments stream in.
 It's an example under [examples/gradio_demo/](examples/gradio_demo/), not part of
 the library.
 
@@ -290,7 +296,7 @@ The live MCP resource `asr://utterance` is updated on **every** result (interim 
 
 ### Utterances and segments
 
-The engine emits two streams. An **utterance** is a single ASR result (interim or final); a **segment** is an aggregation of utterances closed by a condition. The engine's `Segmenter` owns all segmentation — the `listen` tool and `asr-to-terminal` consume segments rather than re-implementing the logic. Three segment modes are available (set via `engine.segmentation_mode`, or `engine.listen_default_segmentation_mode` for the `listen` tool):
+The engine emits two streams. An **utterance** is a single ASR result (interim or final); a **segment** is an aggregation of utterances closed by a condition. The engine's `Segmenter` owns all segmentation — the `listen` tool and `asr-to-terminal` consume segments rather than re-implementing the logic. The always-on stream is `utterance` mode; a **dictation** session (`start_dictation`, or `auto_start_dictation` at startup) or `listen` switches it into one of the three modes below and reverts to `utterance` when it ends:
 
 **`utterance` mode**
 
