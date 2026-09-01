@@ -5,9 +5,11 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
+
+from asr_engine import mcp_server_cli
 
 
 def write_config(tmp_path: Path, data: dict) -> str:
@@ -18,10 +20,6 @@ def write_config(tmp_path: Path, data: dict) -> str:
 
 def test_cli_runs_server(tmp_path: Path) -> None:
     """mcp_server_cli.main() calls asyncio.run(run_server(config)) with the loaded config."""
-    from unittest.mock import AsyncMock
-
-    from asr_engine import mcp_server_cli
-
     path = write_config(
         tmp_path, {"engine": {"module": {"type": "deepgram_v1", "api_key": "x"}}}
     )
@@ -40,10 +38,6 @@ def test_cli_runs_server(tmp_path: Path) -> None:
 
 def test_cli_passes_log_level(tmp_path: Path) -> None:
     """--log-level is configured and forwarded to run_server."""
-    from unittest.mock import AsyncMock
-
-    from asr_engine import mcp_server_cli
-
     path = write_config(
         tmp_path, {"engine": {"module": {"type": "deepgram_v1", "api_key": "x"}}}
     )
@@ -62,8 +56,6 @@ def test_cli_passes_log_level(tmp_path: Path) -> None:
 
 def test_cli_rejects_invalid_log_level(tmp_path: Path) -> None:
     """An unknown --log-level is rejected by argparse (exit code 2)."""
-    from asr_engine import mcp_server_cli
-
     path = write_config(
         tmp_path, {"engine": {"module": {"type": "deepgram_v1", "api_key": "x"}}}
     )
@@ -74,8 +66,6 @@ def test_cli_rejects_invalid_log_level(tmp_path: Path) -> None:
 
 
 def test_cli_exits_on_missing_file(tmp_path: Path, capsys) -> None:
-    from asr_engine import mcp_server_cli
-
     sys.argv = ["asr-engine-mcp", "--config", str(tmp_path / "nope.json")]
     with pytest.raises(SystemExit) as exc_info:
         mcp_server_cli.main()
@@ -84,8 +74,6 @@ def test_cli_exits_on_missing_file(tmp_path: Path, capsys) -> None:
 
 
 def test_cli_exits_on_invalid_json(tmp_path: Path, capsys) -> None:
-    from asr_engine import mcp_server_cli
-
     p = tmp_path / "bad.json"
     p.write_text("{not valid")
     sys.argv = ["asr-engine-mcp", "--config", str(p)]
@@ -96,10 +84,6 @@ def test_cli_exits_on_invalid_json(tmp_path: Path, capsys) -> None:
 
 def test_cli_exits_on_unknown_asr_type(tmp_path: Path, capsys) -> None:
     """validate_asr_type now runs inside run_server; ValueError propagates to cli."""
-    from unittest.mock import AsyncMock
-
-    from asr_engine import mcp_server_cli
-
     path = write_config(tmp_path, {"engine": {"module": {"type": "bogus"}}})
     sys.argv = ["asr-engine-mcp", "--config", path]
     # run_server raises ValueError; asyncio.run re-raises it; cli catches it.
