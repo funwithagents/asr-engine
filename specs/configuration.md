@@ -56,7 +56,11 @@ library builds an `ASREngineConfig` from the `engine` block alone and never need
     "audio": {
       "device": null,
       "audio_file": null,
-      "trailing_silence_s": 0.0
+      "trailing_silence_s": 0.0,
+      "sample_rate": 16000,
+      "channels": 1,
+      "encoding": "linear16",
+      "on_unsupported_format": "error"
     },
     "module": {
       "type": "<module_type>",
@@ -120,8 +124,19 @@ The single source of segmentation parameters. Both the always-on segmenter and
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `device` | string / null | `null` | Audio input device name or index. `null` = system default. |
-| `audio_file` | string / null | `null` | Path to a WAV file (16 kHz, mono, s16) to stream **instead of** the live input device, fed through a `FileAudioSource` at real-time pace. Primarily a testing hook — see [e2e-testing.md](e2e-testing.md). |
+| `audio_file` | string / null | `null` | Path to an audio file (WAV, MP3, … — anything `libsndfile`/`soundfile` decodes) to stream **instead of** the live input device, fed through a `FileAudioSource` at real-time pace. The file's own rate/channels must match `sample_rate`/`channels` (files are validated, not resampled). Primarily a testing hook — see [e2e-testing.md](e2e-testing.md). |
 | `trailing_silence_s` | float | `0.0` | (`audio_file` only) Seconds of silence appended after the file ends, so the ASR backend receives the tail-silence it needs to emit a final result. Ignored for live capture. |
+| `sample_rate` | integer | `16000` | Desired end-to-end sample rate delivered to the ASR module. Reconciled against the module's declared support (see [asr-module-interface.md](asr-module-interface.md)). |
+| `channels` | integer | `1` | Desired channel count. Reconciled like `sample_rate`; modules generally declare mono-only. |
+| `encoding` | string | `"linear16"` | Wire encoding delivered to the module: `"linear16"` (s16 PCM) or `"mulaw"` (G.711 μ-law, transcoded in-pipeline from the captured s16). Reconciled like `sample_rate`. |
+| `on_unsupported_format` | string | `"error"` | Policy when a configured dimension isn't in the module's supported set: `"error"` fails fast at engine construction with a message listing supported values; `"fallback"` uses the module's declared default for that dimension and logs a warning. |
+
+The three format fields (`sample_rate`/`channels`/`encoding`) form the desired
+`AudioFormat`. Live capture opens its stream at that rate/channels (PortAudio
+does any device conversion) and transcodes to the encoding; `mulaw` silence is
+`0xFF`, not zero bytes, so silence is transcoded rather than assumed. WAV file
+sources are validated against the configured rate/channels (they are **not**
+resampled) and re-encoded to `mulaw` when asked.
 
 > **Removed:** `audio.output_device` — the playback device now lives at
 > `engine.sound_feedback.output_device`.
@@ -182,6 +197,14 @@ envoyer, valider, confirmer, soumettre, entree, entrée
   - Module-specific required fields (e.g. `api_key` / `api_key_env`) are missing
   - `engine.segmentation_mode` is not one of `utterance` / `trigger_word` / `timeout`
   - `engine.listen_default_segmentation_mode` is not one of `trigger_word` / `timeout`
+  - `engine.audio.encoding` is not one of `linear16` / `mulaw`
+  - `engine.audio.on_unsupported_format` is not one of `error` / `fallback`
+- The configured audio format is reconciled against the selected module's
+  declared support at engine construction (startup). Under the default
+  `on_unsupported_format="error"`, an unsupported `sample_rate` / `channels` /
+  `encoding` raises a clear `ValueError` listing the module's supported values;
+  under `"fallback"` it logs a warning and uses the module's default for that
+  dimension.
 - The specified audio device is verified when audio capture first starts, and an
   unknown device raises a clear error there — at startup when `engine.auto_start`
   is `true`, or on the first `start`/`listen` call when it is `false`.

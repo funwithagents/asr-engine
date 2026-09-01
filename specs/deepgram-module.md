@@ -73,8 +73,9 @@ when both are set (see [API key resolution](#api-key-resolution)).
 
 - **URL:** `wss://api.deepgram.com/v1/listen`
 - **Auth:** `Authorization: Token <api_key>` header
-- **Query params:** `model`, `encoding=linear16`, `sample_rate=16000`, `channels=1`, `language`, `punctuate`, `interim_results`
+- **Query params:** `model`, `encoding`, `sample_rate`, `channels`, `language`, `punctuate`, `interim_results` — `encoding`/`sample_rate`/`channels` come from the reconciled `AudioFormat` passed to `start()`, not hardcoded.
 - **SDK:** `async with client.listen.v1.connect(...) as conn:`
+- **Declared audio-format support:** `SUPPORTED_SAMPLE_RATES = {8000, 16000, 24000, 44100, 48000}`, `SUPPORTED_CHANNELS = {1}`, `SUPPORTED_ENCODINGS = {"linear16", "mulaw"}`; defaults 16000 / 1 / `linear16` (see [asr-module-interface.md](asr-module-interface.md)).
 
 ### Message Handling
 
@@ -116,7 +117,7 @@ Supports only Flux-family models (`flux-general-en`, etc.). Not suitable for non
 | `api_key_env` | string | one of¹ | — | Name of an env var holding the key |
 | `model` | string | no | `"flux-general-en"` | Deepgram Flux model name |
 | `eot_threshold` | float | no | `0.7` | End-of-turn confidence threshold (0.5–0.9) |
-| `eot_timeout_ms` | int | no | `5000` | Silence timeout before forced turn-end (ms) |
+| `eot_timeout_ms` | int | no | `2000` | Silence timeout before forced turn-end (ms) |
 
 ¹ Provide at least one of `api_key` / `api_key_env`; `api_key` takes precedence
 when both are set (see [API key resolution](#api-key-resolution)).
@@ -129,7 +130,7 @@ when both are set (see [API key resolution](#api-key-resolution)).
   "api_key": "YOUR_DEEPGRAM_API_KEY",
   "model": "flux-general-en",
   "eot_threshold": 0.7,
-  "eot_timeout_ms": 5000
+  "eot_timeout_ms": 2000
 }
 ```
 
@@ -137,7 +138,8 @@ when both are set (see [API key resolution](#api-key-resolution)).
 
 - **URL:** `wss://api.deepgram.com/v2/listen`
 - **Auth:** `Authorization: Token <api_key>` header
-- **Query params:** `model`, `encoding=linear16`, `sample_rate=16000`, `eot_threshold`, `eot_timeout_ms`
+- **Query params:** `model`, `encoding`, `sample_rate`, `eot_threshold`, `eot_timeout_ms` — `encoding`/`sample_rate` come from the reconciled `AudioFormat` passed to `start()`.
+- **Declared audio-format support:** same as `deepgram_v1` — `SUPPORTED_SAMPLE_RATES = {8000, 16000, 24000, 44100, 48000}`, `SUPPORTED_CHANNELS = {1}`, `SUPPORTED_ENCODINGS = {"linear16", "mulaw"}`; defaults 16000 / 1 / `linear16`. Flux takes the same raw `encoding`/`sample_rate` parameters as v1 (verified live at 44.1 kHz — see [Encoding](https://developers.deepgram.com/docs/encoding)).
 - **SDK:** `async with client.listen.v2.connect(...) as conn:`
 
 ### Message Handling

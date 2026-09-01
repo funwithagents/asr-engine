@@ -7,8 +7,14 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from asr_engine.audio import AudioFormat
 from asr_engine.modules import REGISTRY, load_module
-from asr_engine.modules.base import ASRModule, SpeechUtterance, resolve_api_key
+from asr_engine.modules.base import (
+    ASRModule,
+    SpeechUtterance,
+    reconcile_audio_format,
+    resolve_api_key,
+)
 
 # ---------------------------------------------------------------------------
 # SpeechUtterance dataclass
@@ -85,7 +91,16 @@ def test_asr_module_cannot_be_instantiated() -> None:
 
 def test_asr_module_concrete_subclass_stores_config() -> None:
     class FakeModule(ASRModule):
-        async def start(self, audio_queue, on_utterance, on_connected=None):
+        SUPPORTED_SAMPLE_RATES = None
+        SUPPORTED_CHANNELS = None
+        SUPPORTED_ENCODINGS = None
+        DEFAULT_SAMPLE_RATE = 16000
+        DEFAULT_CHANNELS = 1
+        DEFAULT_ENCODING = "linear16"
+
+        async def start(
+            self, audio_queue, on_utterance, on_connected=None, *, audio_format=None
+        ):
             pass
 
         async def stop(self):
@@ -99,12 +114,21 @@ def test_asr_module_concrete_subclass_stores_config() -> None:
 @pytest.mark.asyncio
 async def test_asr_module_start_stop_called() -> None:
     class TrackingModule(ASRModule):
+        SUPPORTED_SAMPLE_RATES = None
+        SUPPORTED_CHANNELS = None
+        SUPPORTED_ENCODINGS = None
+        DEFAULT_SAMPLE_RATE = 16000
+        DEFAULT_CHANNELS = 1
+        DEFAULT_ENCODING = "linear16"
+
         def __init__(self, config):
             super().__init__(config)
             self.started = False
             self.stopped = False
 
-        async def start(self, audio_queue, on_utterance, on_connected=None):
+        async def start(
+            self, audio_queue, on_utterance, on_connected=None, *, audio_format=None
+        ):
             self.started = True
 
         async def stop(self):
@@ -126,7 +150,16 @@ async def test_asr_module_start_stop_called() -> None:
 
 def _make_fake_class() -> type[ASRModule]:
     class FakeModule(ASRModule):
-        async def start(self, audio_queue, on_utterance, on_connected=None):
+        SUPPORTED_SAMPLE_RATES = None
+        SUPPORTED_CHANNELS = None
+        SUPPORTED_ENCODINGS = None
+        DEFAULT_SAMPLE_RATE = 16000
+        DEFAULT_CHANNELS = 1
+        DEFAULT_ENCODING = "linear16"
+
+        async def start(
+            self, audio_queue, on_utterance, on_connected=None, *, audio_format=None
+        ):
             pass
 
         async def stop(self):
@@ -176,3 +209,111 @@ def test_load_module_error_message_lists_available(monkeypatch) -> None:
 
     with pytest.raises(ValueError, match="real_module"):
         load_module({"type": "nope"})
+
+
+# ---------------------------------------------------------------------------
+# Audio-format capability declaration (__init_subclass__ enforcement)
+# ---------------------------------------------------------------------------
+
+
+def test_concrete_module_missing_capability_attrs_raises() -> None:
+    """A concrete module that omits a capability attribute fails to define."""
+    with pytest.raises(TypeError, match="SUPPORTED_SAMPLE_RATES"):
+
+        class NoCaps(ASRModule):
+            async def start(
+                self, audio_queue, on_utterance, on_connected=None, *, audio_format=None
+            ):
+                pass
+
+            async def stop(self):
+                pass
+
+
+def test_default_outside_supported_set_raises() -> None:
+    """A DEFAULT_* not present in its SUPPORTED_* set fails to define."""
+    with pytest.raises(TypeError, match="DEFAULT_SAMPLE_RATE"):
+
+        class BadDefault(ASRModule):
+            SUPPORTED_SAMPLE_RATES = frozenset({16000})
+            SUPPORTED_CHANNELS = None
+            SUPPORTED_ENCODINGS = None
+            DEFAULT_SAMPLE_RATE = 48000  # not in SUPPORTED_SAMPLE_RATES
+            DEFAULT_CHANNELS = 1
+            DEFAULT_ENCODING = "linear16"
+
+            async def start(
+                self, audio_queue, on_utterance, on_connected=None, *, audio_format=None
+            ):
+                pass
+
+            async def stop(self):
+                pass
+
+
+def test_abstract_intermediate_base_is_exempt() -> None:
+    """An intermediate subclass that stays abstract need not declare capabilities."""
+
+    class AbstractMiddle(ASRModule):  # no start/stop override → still abstract
+        pass
+
+    # Concrete subclass must still declare (and can); no error here for the middle.
+    class Concrete(AbstractMiddle):
+        SUPPORTED_SAMPLE_RATES = None
+        SUPPORTED_CHANNELS = None
+        SUPPORTED_ENCODINGS = None
+        DEFAULT_SAMPLE_RATE = 16000
+        DEFAULT_CHANNELS = 1
+        DEFAULT_ENCODING = "linear16"
+
+        async def start(
+            self, audio_queue, on_utterance, on_connected=None, *, audio_format=None
+        ):
+            pass
+
+        async def stop(self):
+            pass
+
+    assert Concrete(config={}).config == {}
+
+
+# ---------------------------------------------------------------------------
+# reconcile_audio_format
+# ---------------------------------------------------------------------------
+
+
+class _PickyModule(ASRModule):
+    """Supports only 16 k / mono / linear16 — for reconcile tests."""
+
+    SUPPORTED_SAMPLE_RATES = frozenset({16000, 48000})
+    SUPPORTED_CHANNELS = frozenset({1})
+    SUPPORTED_ENCODINGS = frozenset({"linear16", "mulaw"})
+    DEFAULT_SAMPLE_RATE = 16000
+    DEFAULT_CHANNELS = 1
+    DEFAULT_ENCODING = "linear16"
+
+    async def start(
+        self, audio_queue, on_utterance, on_connected=None, *, audio_format=None
+    ):
+        pass
+
+    async def stop(self):
+        pass
+
+
+def test_reconcile_keeps_supported_format_unchanged() -> None:
+    desired = AudioFormat(sample_rate=48000, channels=1, encoding="mulaw")
+    assert reconcile_audio_format(desired, _PickyModule) == desired
+
+
+def test_reconcile_errors_on_unsupported_by_default() -> None:
+    desired = AudioFormat(sample_rate=44100)  # not in {16000, 48000}
+    with pytest.raises(ValueError, match="sample_rate=44100"):
+        reconcile_audio_format(desired, _PickyModule)
+
+
+def test_reconcile_fallback_uses_module_default_and_keeps_supported_dims() -> None:
+    desired = AudioFormat(sample_rate=44100, channels=1, encoding="mulaw")
+    resolved = reconcile_audio_format(desired, _PickyModule, on_unsupported="fallback")
+    # Unsupported rate falls back to the module default; supported dims are kept.
+    assert resolved == AudioFormat(sample_rate=16000, channels=1, encoding="mulaw")

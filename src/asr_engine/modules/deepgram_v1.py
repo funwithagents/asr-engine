@@ -7,6 +7,7 @@ from deepgram import AsyncDeepgramClient
 from deepgram.core.events import EventType
 from deepgram.listen.v1.types.listen_v1results import ListenV1Results
 
+from asr_engine.audio import DEFAULT_AUDIO_FORMAT, AudioFormat
 from asr_engine.modules.base import (
     ASRModule,
     ConnectedCallback,
@@ -32,6 +33,13 @@ class DeepgramV1Module(ASRModule):
     Use deepgram_v2 for Flux / built-in turn detection.
     """
 
+    SUPPORTED_SAMPLE_RATES = frozenset({8000, 16000, 24000, 44100, 48000})
+    SUPPORTED_CHANNELS = frozenset({1})
+    SUPPORTED_ENCODINGS = frozenset({"linear16", "mulaw"})
+    DEFAULT_SAMPLE_RATE = 16000
+    DEFAULT_CHANNELS = 1
+    DEFAULT_ENCODING = "linear16"
+
     def __init__(self, config: dict) -> None:
         super().__init__(config)
         self._api_key: str = resolve_api_key(config, "deepgram_v1")
@@ -47,6 +55,8 @@ class DeepgramV1Module(ASRModule):
         audio_queue: asyncio.Queue[bytes],
         on_utterance: UtteranceCallback,
         on_connected: ConnectedCallback | None = None,
+        *,
+        audio_format: AudioFormat = DEFAULT_AUDIO_FORMAT,
     ) -> None:
         self._stop_event.clear()
         client = AsyncDeepgramClient(api_key=self._api_key)
@@ -56,9 +66,9 @@ class DeepgramV1Module(ASRModule):
             try:
                 async with client.listen.v1.connect(
                     model=self._model,
-                    encoding="linear16",
-                    sample_rate="16000",
-                    channels="1",
+                    encoding=audio_format.encoding,
+                    sample_rate=str(audio_format.sample_rate),
+                    channels=str(audio_format.channels),
                     language=self._language,
                     punctuate=str(self._punctuate).lower(),
                     interim_results=str(self._interim_results).lower(),

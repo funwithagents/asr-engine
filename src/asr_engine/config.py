@@ -21,6 +21,8 @@ _DEFAULT_TRIGGER_WORDS: list[str] = [
 
 _SEGMENT_MODES = ("utterance", "trigger_word", "timeout")
 _LISTEN_MODES = ("trigger_word", "timeout")
+_ENCODINGS = ("linear16", "mulaw")
+_UNSUPPORTED_FORMAT_POLICIES = ("error", "fallback")
 
 
 @dataclass
@@ -34,6 +36,10 @@ class AudioConfig:
     device: str | None = None
     audio_file: str | None = None
     trailing_silence_s: float = 0.0
+    sample_rate: int = 16000
+    channels: int = 1
+    encoding: str = "linear16"
+    on_unsupported_format: str = "error"
 
 
 @dataclass
@@ -105,10 +111,26 @@ def _parse_engine(engine_data: dict[str, Any]) -> ASREngineConfig:
     )
 
     audio_data = engine_data.get("audio", {})
+    encoding = audio_data.get("encoding", "linear16")
+    if encoding not in _ENCODINGS:
+        raise ValueError(
+            f"Invalid engine.audio.encoding: '{encoding}'. "
+            f"Must be one of {', '.join(_ENCODINGS)}."
+        )
+    on_unsupported = audio_data.get("on_unsupported_format", "error")
+    if on_unsupported not in _UNSUPPORTED_FORMAT_POLICIES:
+        raise ValueError(
+            f"Invalid engine.audio.on_unsupported_format: '{on_unsupported}'. "
+            f"Must be one of {', '.join(_UNSUPPORTED_FORMAT_POLICIES)}."
+        )
     audio = AudioConfig(
         device=audio_data.get("device", None),
         audio_file=audio_data.get("audio_file", None),
         trailing_silence_s=audio_data.get("trailing_silence_s", 0.0),
+        sample_rate=audio_data.get("sample_rate", 16000),
+        channels=audio_data.get("channels", 1),
+        encoding=encoding,
+        on_unsupported_format=on_unsupported,
     )
 
     module_data = engine_data.get("module", {})

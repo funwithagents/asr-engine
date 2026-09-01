@@ -83,7 +83,7 @@ def test_init_defaults() -> None:
     m = DeepgramV2Module(config={"api_key": "sk-test"})
     assert m._model == "flux-general-en"
     assert m._eot_threshold == 0.7
-    assert m._eot_timeout_ms == 5000
+    assert m._eot_timeout_ms == 2000
 
 
 def test_init_custom_values() -> None:

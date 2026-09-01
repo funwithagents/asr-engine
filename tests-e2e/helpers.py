@@ -11,7 +11,24 @@ from pathlib import Path
 
 import pytest
 
+from asr_engine import AudioFormat
+
 log = logging.getLogger(__name__)
+
+# Shared audio fixtures (see fixtures/README.md for the naming convention). The
+# default e2e input is the 44.1 kHz mono MP3s; the 16 kHz WAV drives the
+# sample-rate-compatibility tests. Because file sources are validated, not
+# resampled, each fixture is paired with the AudioFormat it must be played at.
+FIXTURES_DIR = Path(__file__).parent / "fixtures"
+
+FORMAT_MP3_44100 = AudioFormat(sample_rate=44100)
+FORMAT_WAV_16000 = AudioFormat(sample_rate=16000)
+
+FIXTURE_BLUE = FIXTURES_DIR / "sample_44100_theskyisblue.mp3"  # "the sky is blue"
+FIXTURE_BLUE_VALIDATE = (  # "the sky is blue validate" (trigger word)
+    FIXTURES_DIR / "sample_44100_theskyisbluevalidate.mp3"
+)
+FIXTURE_BLUE_WAV_16000 = FIXTURES_DIR / "sample_16000_theskyisblue.wav"
 
 # Deepgram's key env var. This name is Deepgram-specific: other modules declare their
 # own via ``api_key_env`` in their ``MODULES`` row / provider config, and a module that
@@ -70,7 +87,7 @@ MODULES = [
     pytest.param(
         "deepgram_v2",
         {"model": "flux-general-en", "api_key_env": DEEPGRAM_API_KEY_ENV},
-        6.0,
+        3.0,
         id="deepgram_v2",
     ),
 ]
@@ -81,6 +98,7 @@ def build_engine(
     module_type: str,
     module_config: dict,
     *,
+    audio_format: AudioFormat = FORMAT_MP3_44100,
     segmentation_mode: str = "utterance",
     listen_default_segmentation_mode: str = "trigger_word",
     trigger_words: list[str] | None = None,
@@ -94,9 +112,12 @@ def build_engine(
     Sound feedback is disabled. ``audio_source`` is any object matching the
     ``AudioSource`` protocol — e.g. a ``FileAudioSource`` (see
     ``build_file_engine``) or a ``ScriptableAudioSource`` for hand-sequenced audio.
+    ``audio_format`` is set explicitly on the engine config so it matches the
+    source's own format (the two must agree — files aren't resampled).
     """
     from asr_engine.config import (
         ASREngineConfig,
+        AudioConfig,
         ModuleConfig,
         SegmentationConfig,
         SoundFeedbackConfig,
@@ -115,6 +136,11 @@ def build_engine(
         listen_default_segmentation_mode=listen_default_segmentation_mode,
         segmentation=seg,
         sound_feedback=SoundFeedbackConfig(enabled=False),
+        audio=AudioConfig(
+            sample_rate=audio_format.sample_rate,
+            channels=audio_format.channels,
+            encoding=audio_format.encoding,
+        ),
         module=ModuleConfig(type=module_type, extra=module_config),
     )
     return ASREngine(
@@ -130,17 +156,25 @@ def build_file_engine(
     module_type: str,
     module_config: dict,
     *,
+    audio_format: AudioFormat = FORMAT_MP3_44100,
     trailing_silence_s: float = 0.0,
     **kwargs,
 ):
     """Build an ASREngine that reads *audio_file* through a FileAudioSource.
 
-    Thin wrapper over ``build_engine`` — see it for the accepted keyword args.
+    Thin wrapper over ``build_engine`` — see it for the accepted keyword args. The
+    ``FileAudioSource`` and the engine config are given the same ``audio_format``.
     """
     from asr_engine.audio import FileAudioSource
 
-    source = FileAudioSource(str(audio_file), trailing_silence_s=trailing_silence_s)
-    return build_engine(source, module_type, module_config, **kwargs)
+    source = FileAudioSource(
+        str(audio_file),
+        audio_format=audio_format,
+        trailing_silence_s=trailing_silence_s,
+    )
+    return build_engine(
+        source, module_type, module_config, audio_format=audio_format, **kwargs
+    )
 
 
 async def _wait_for_port(host: str, port: int, timeout: float = 10.0) -> None:
@@ -164,9 +198,12 @@ async def start_mcp_server(
     port: int,
     trailing_silence_s: float = 0.0,
     engine_overrides: dict | None = None,
+    audio_format: AudioFormat = FORMAT_MP3_44100,
 ) -> tuple[asyncio.subprocess.Process, str]:
     """Start an asr-engine-mcp subprocess.  Returns (process, tmp_config_path).
 
+    The ``engine.audio`` block is written with ``audio_format`` explicitly, so the
+    real binary decodes *audio_file* (WAV or MP3) at the matching rate/encoding.
     ``engine_overrides`` is merged into the ``engine`` config block (e.g.
     ``auto_start``, ``segmentation_mode``, ``segmentation``,
     ``listen_default_segmentation_mode``, ``sound_feedback``).
@@ -175,6 +212,9 @@ async def start_mcp_server(
         "audio": {
             "audio_file": str(audio_file),
             "trailing_silence_s": trailing_silence_s,
+            "sample_rate": audio_format.sample_rate,
+            "channels": audio_format.channels,
+            "encoding": audio_format.encoding,
         },
         "module": {"type": module_type, **module_config},
     }

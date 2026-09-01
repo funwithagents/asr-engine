@@ -9,7 +9,9 @@ and segment streams. See specs/engine.md and specs/e2e-testing.md.
 import logging
 
 from asr_engine.audio import (
+    DEFAULT_AUDIO_FORMAT,
     AudioCapture,
+    AudioFormat,
     AudioSource,
     FileAudioSource,
     ScriptableAudioSource,
@@ -43,9 +45,11 @@ __all__ = [
     "ModuleConfig",
     "SegmentationConfig",
     "SoundFeedbackConfig",
-    # Audio sources
+    # Audio sources + format
     "AudioSource",
     "AudioCapture",
+    "AudioFormat",
+    "DEFAULT_AUDIO_FORMAT",
     "FileAudioSource",
     "ScriptableAudioSource",
     # Data types

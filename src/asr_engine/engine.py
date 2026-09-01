@@ -3,10 +3,19 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from asr_engine.audio import AudioCapture, AudioSource
+from asr_engine.audio import (
+    AudioCapture,
+    AudioFormat,
+    AudioSource,
+    FileAudioSource,
+)
 from asr_engine.config import ASREngineConfig
 from asr_engine.modules import REGISTRY
-from asr_engine.modules.base import SpeechUtterance, UtteranceCallback
+from asr_engine.modules.base import (
+    SpeechUtterance,
+    UtteranceCallback,
+    reconcile_audio_format,
+)
 from asr_engine.segmenter import SegmentCallback, Segmenter, SpeechSegment
 from asr_engine.sound_feedback import NoOpSoundFeedback, SoundFeedback
 
@@ -52,7 +61,22 @@ class ASREngine:
 
         self._config = config
         self._audio_config = config.audio
-        self._asr_module = REGISTRY[config.module.type](config=config.module.extra)
+        self._module_cls = REGISTRY[config.module.type]
+        self._asr_module = self._module_cls(config=config.module.extra)
+
+        # Reconcile the configured audio format against what the module supports.
+        # Fails fast here (construction/startup) on an unsupported format under
+        # the default "error" policy; "fallback" logs and uses module defaults.
+        desired_format = AudioFormat(
+            sample_rate=config.audio.sample_rate,
+            channels=config.audio.channels,
+            encoding=config.audio.encoding,
+        )
+        self._audio_format = reconcile_audio_format(
+            desired_format,
+            self._module_cls,
+            on_unsupported=config.audio.on_unsupported_format,
+        )
         self.on_speech_utterance: UtteranceCallback = (
             on_speech_utterance or _noop_utterance
         )
@@ -125,14 +149,25 @@ class ASREngine:
         """Start audio capture, the ASR module, and the segmenter."""
         if self._audio_source is not None:
             self._audio_capture = self._audio_source
+        elif self._audio_config.audio_file:
+            self._audio_capture = FileAudioSource(
+                self._audio_config.audio_file,
+                audio_format=self._audio_format,
+                trailing_silence_s=self._audio_config.trailing_silence_s,
+            )
         else:
             loop = asyncio.get_running_loop()
-            self._audio_capture = AudioCapture(self._audio_config.device, loop)
+            self._audio_capture = AudioCapture(
+                self._audio_config.device, loop, audio_format=self._audio_format
+            )
         audio_queue = self._audio_capture.start()
         await self._segmenter.start()
         self._task = asyncio.create_task(
             self._asr_module.start(
-                audio_queue, self._handle_utterance, self.set_connected
+                audio_queue,
+                self._handle_utterance,
+                self.set_connected,
+                audio_format=self._audio_format,
             )
         )
         self._running = True
@@ -150,6 +185,11 @@ class ASREngine:
             except asyncio.CancelledError:
                 pass
         self._running = False
+
+    @property
+    def audio_format(self) -> AudioFormat:
+        """The reconciled audio format the capture layer and module use."""
+        return self._audio_format
 
     def status(self) -> dict:
         """Return current engine state."""

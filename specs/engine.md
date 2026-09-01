@@ -218,11 +218,23 @@ At construction the engine:
 
 - Instantiates the ASR module from `config.module` (raising `ValueError` on an
   unknown `type`).
+- **Reconciles the audio format:** builds the desired `AudioFormat` from
+  `config.audio` (`sample_rate`/`channels`/`encoding`) and resolves it against the
+  module class's declared support via `reconcile_audio_format(...)`, using
+  `config.audio.on_unsupported_format` (`"error"` fails fast here; `"fallback"`
+  uses module defaults with a warning — see
+  [asr-module-interface.md](asr-module-interface.md)). The resolved format is
+  exposed as the read-only `audio_format` property.
 - Builds its `Segmenter` from `config.segmentation_mode` and the
   `config.segmentation` params.
 - Constructs a `SoundFeedback` (or a no-op stub when `sound_feedback.enabled` is
   `false`) from `config.sound_feedback`; the engine plays cues itself inside
   `listen` (see [sound-feedback.md](sound-feedback.md)).
+
+At `start()` the engine selects its own audio source from config: an injected
+`audio_source` if given, else a `FileAudioSource` when `config.audio.audio_file`
+is set, else a live `AudioCapture` on `config.audio.device`. The capture layer
+and the module are both given the reconciled `audio_format`.
 
 `config.auto_start` is **not** acted on by the engine itself — it is a signal to
 the caller (the MCP server) about whether to call `start()` at startup.

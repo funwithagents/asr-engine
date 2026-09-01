@@ -38,6 +38,14 @@ ConnectedCallback = Callable[[bool], None]
 
 
 class ASRModule(ABC):
+    # Declared audio-format capabilities (see "Audio Format Contract" below).
+    SUPPORTED_SAMPLE_RATES: ClassVar[frozenset[int] | None]  # None = any
+    SUPPORTED_CHANNELS: ClassVar[frozenset[int] | None]
+    SUPPORTED_ENCODINGS: ClassVar[frozenset[str] | None]
+    DEFAULT_SAMPLE_RATE: ClassVar[int]
+    DEFAULT_CHANNELS: ClassVar[int]
+    DEFAULT_ENCODING: ClassVar[str]
+
     def __init__(self, config: dict) -> None:
         self.config = config
 
@@ -47,15 +55,19 @@ class ASRModule(ABC):
         audio_queue: asyncio.Queue[bytes],
         on_utterance: UtteranceCallback,
         on_connected: ConnectedCallback | None = None,
+        *,
+        audio_format: AudioFormat = DEFAULT_AUDIO_FORMAT,
     ) -> None:
         """
         Start the ASR module.
 
-        - audio_queue: async queue of raw PCM audio chunks (16-bit, mono, 16kHz)
+        - audio_queue: async queue of raw audio chunks in `audio_format`
         - on_utterance: async callback invoked for each interim or final utterance
         - on_connected: optional callback invoked with the backend connection
           state (True on connect, False on disconnect). Drives the `connected`
           field of the `is_running` tool.
+        - audio_format: the reconciled `AudioFormat` (rate/channels/encoding) of
+          the chunks on `audio_queue`; the module reports it to its backend.
 
         This method should run indefinitely until stop() is called.
         It is responsible for reconnecting to the backend on connection loss.
@@ -73,13 +85,44 @@ class ASRModule(ABC):
 
 ## Audio Format Contract
 
-All ASR modules receive audio in the following format:
-- **Encoding:** Raw PCM (signed 16-bit little-endian)
-- **Sample rate:** 16,000 Hz
-- **Channels:** 1 (mono)
-- **Chunk size:** ~100ms of audio (1,600 samples = 3,200 bytes per chunk)
+The audio format is **configurable end-to-end** and carried by an `AudioFormat`
+value object (`asr_engine.audio`):
 
-Audio capture is responsible for resampling to this format before placing chunks on the queue.
+```python
+@dataclass(frozen=True)
+class AudioFormat:
+    sample_rate: int = 16000
+    channels: int = 1
+    encoding: str = "linear16"  # "linear16" (s16 PCM) | "mulaw" (G.711)
+```
+
+The **default** `AudioFormat` (16 kHz, mono, `linear16`, ~100 ms / 3,200-byte
+chunks) is what every module receives unless `engine.audio` overrides it. Chunk
+sizing derives from the format (`frames_per_chunk ≈ sample_rate × 0.1`).
+
+**Modules declare what they support.** Every concrete module declares six
+class attributes — `SUPPORTED_SAMPLE_RATES` / `SUPPORTED_CHANNELS` /
+`SUPPORTED_ENCODINGS` (each a `frozenset`, or `None` meaning "any") and
+`DEFAULT_SAMPLE_RATE` / `DEFAULT_CHANNELS` / `DEFAULT_ENCODING`. Declaration is
+**required and enforced at import time**: `ASRModule.__init_subclass__` raises
+`TypeError` if a concrete subclass omits any attribute, or declares a `DEFAULT_*`
+outside its (non-`None`) `SUPPORTED_*` set. Abstract intermediate bases are
+exempt.
+
+**The engine reconciles** the configured `AudioFormat` against the selected
+module's declared support via `reconcile_audio_format(desired, module_cls, *,
+on_unsupported)` at construction. Per dimension: a supported value is kept; an
+unsupported one either raises (`on_unsupported="error"`, the default) or falls
+back to the module's default with a warning (`"fallback"`). The resolved format
+is handed to both the capture layer and `start(..., audio_format=...)`.
+
+**Who converts.** Live capture opens its stream at the resolved rate/channels
+(PortAudio performs any device conversion) and transcodes the captured s16 to the
+target encoding (`linear16` is a no-op; `mulaw` uses a numpy G.711 encoder —
+`audioop` is not used, as it is removed in Python 3.13+). File sources (any
+container/codec `libsndfile`/`soundfile` decodes — WAV, MP3, …) are decoded to
+s16, validated against the resolved rate/channels (**not** resampled) and
+re-encoded to `mulaw` when required.
 
 ## Module Registration
 

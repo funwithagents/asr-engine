@@ -9,6 +9,7 @@ import pytest
 
 from asr_engine.config import (
     ASREngineConfig,
+    AudioConfig,
     ModuleConfig,
     SegmentationConfig,
     SoundFeedbackConfig,
@@ -43,12 +44,25 @@ def make_config(
     )
 
 
+def _mock_module_class(instance):
+    """A MagicMock standing in for an ASRModule *class*, carrying the format
+    capabilities the engine reads at construction (``None`` = accepts anything)."""
+    cls = MagicMock(return_value=instance)
+    cls.SUPPORTED_SAMPLE_RATES = None
+    cls.SUPPORTED_CHANNELS = None
+    cls.SUPPORTED_ENCODINGS = None
+    cls.DEFAULT_SAMPLE_RATE = 16000
+    cls.DEFAULT_CHANNELS = 1
+    cls.DEFAULT_ENCODING = "linear16"
+    return cls
+
+
 def make_engine(on_speech_utterance=None, on_speech_segment=None, **cfg_kwargs):
     """Return an ASREngine backed by a mock ASRModule, patching REGISTRY."""
     module = MagicMock()
     module.start = AsyncMock(return_value=None)
     module.stop = AsyncMock(return_value=None)
-    mock_class = MagicMock(return_value=module)
+    mock_class = _mock_module_class(module)
     with patch.dict("asr_engine.engine.REGISTRY", {"mock": mock_class}):
         engine = ASREngine(
             make_config(**cfg_kwargs),
@@ -65,7 +79,9 @@ class _ScriptedModule:
         self._utterances = utterances
         self._stopped = asyncio.Event()
 
-    async def start(self, audio_queue, on_utterance, on_connected=None):
+    async def start(
+        self, audio_queue, on_utterance, on_connected=None, *, audio_format=None
+    ):
         for u in self._utterances:
             await on_utterance(u)
         await self._stopped.wait()
@@ -79,9 +95,7 @@ def make_scripted_engine(utterances: list[SpeechUtterance], **cfg_kwargs):
     module = _ScriptedModule(utterances)
     audio_source = MagicMock()
     audio_source.start.return_value = asyncio.Queue()
-    with patch.dict(
-        "asr_engine.engine.REGISTRY", {"mock": MagicMock(return_value=module)}
-    ):
+    with patch.dict("asr_engine.engine.REGISTRY", {"mock": _mock_module_class(module)}):
         engine = ASREngine(make_config(**cfg_kwargs), audio_source=audio_source)
     return engine
 
@@ -96,9 +110,49 @@ def test_unknown_asr_type_raises():
         ASREngine(make_config(module_type="no_such_module"))
 
 
+def _restricted_module_class(instance, *, rates, encodings=frozenset({"linear16"})):
+    """A mock ASRModule class with restricted format support, for reconcile tests."""
+    cls = _mock_module_class(instance)
+    cls.SUPPORTED_SAMPLE_RATES = rates
+    cls.SUPPORTED_ENCODINGS = encodings
+    cls.SUPPORTED_CHANNELS = frozenset({1})
+    return cls
+
+
+def _config_with_audio(**audio_kwargs) -> ASREngineConfig:
+    return ASREngineConfig(
+        sound_feedback=SoundFeedbackConfig(enabled=False),
+        audio=AudioConfig(**audio_kwargs),
+        module=ModuleConfig(type="mock", extra={}),
+    )
+
+
+def test_engine_reconciles_and_exposes_supported_format():
+    cls = _restricted_module_class(MagicMock(), rates=frozenset({16000, 48000}))
+    with patch.dict("asr_engine.engine.REGISTRY", {"mock": cls}):
+        engine = ASREngine(_config_with_audio(sample_rate=48000))
+    assert engine.audio_format.sample_rate == 48000
+
+
+def test_engine_construction_errors_on_unsupported_format():
+    cls = _restricted_module_class(MagicMock(), rates=frozenset({16000}))
+    with patch.dict("asr_engine.engine.REGISTRY", {"mock": cls}):
+        with pytest.raises(ValueError, match="sample_rate=44100"):
+            ASREngine(_config_with_audio(sample_rate=44100))
+
+
+def test_engine_fallback_policy_uses_module_default():
+    cls = _restricted_module_class(MagicMock(), rates=frozenset({16000}))
+    with patch.dict("asr_engine.engine.REGISTRY", {"mock": cls}):
+        engine = ASREngine(
+            _config_with_audio(sample_rate=44100, on_unsupported_format="fallback")
+        )
+    assert engine.audio_format.sample_rate == 16000
+
+
 def test_known_asr_type_instantiates_module():
     mock_module = MagicMock()
-    mock_class = MagicMock(return_value=mock_module)
+    mock_class = _mock_module_class(mock_module)
     with patch.dict("asr_engine.engine.REGISTRY", {"fake": mock_class}):
         engine = ASREngine(make_config(module_type="fake", extra={"key": "val"}))
     mock_class.assert_called_once_with(config={"key": "val"})
@@ -157,7 +211,10 @@ async def test_start_sets_running():
         assert engine.status()["running"] is True
         instance.start.assert_called_once()
         module.start.assert_called_once_with(
-            fake_queue, engine._handle_utterance, engine.set_connected
+            fake_queue,
+            engine._handle_utterance,
+            engine.set_connected,
+            audio_format=engine.audio_format,
         )
         await engine.stop()
 
@@ -185,7 +242,7 @@ async def test_stop_cancels_task():
     engine, _ = make_engine()
     fake_queue: asyncio.Queue[bytes] = asyncio.Queue()
 
-    async def hang(audio_queue, on_utterance, on_connected=None):
+    async def hang(audio_queue, on_utterance, on_connected=None, *, audio_format=None):
         await asyncio.sleep(9999)
 
     engine._asr_module.start = hang

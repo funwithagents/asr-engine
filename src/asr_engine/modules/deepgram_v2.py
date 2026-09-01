@@ -7,6 +7,7 @@ from deepgram import AsyncDeepgramClient
 from deepgram.core.events import EventType
 from deepgram.listen.v2.types.listen_v2turn_info import ListenV2TurnInfo
 
+from asr_engine.audio import DEFAULT_AUDIO_FORMAT, AudioFormat
 from asr_engine.modules.base import (
     ASRModule,
     ConnectedCallback,
@@ -28,12 +29,21 @@ class DeepgramV2Module(ASRModule):
     Not suitable for non-English or for models outside the Flux family.
     """
 
+    # Same format support as deepgram_v1 — Flux accepts the raw encoding +
+    # sample_rate parameters the same way (see specs/deepgram-module.md).
+    SUPPORTED_SAMPLE_RATES = frozenset({8000, 16000, 24000, 44100, 48000})
+    SUPPORTED_CHANNELS = frozenset({1})
+    SUPPORTED_ENCODINGS = frozenset({"linear16", "mulaw"})
+    DEFAULT_SAMPLE_RATE = 16000
+    DEFAULT_CHANNELS = 1
+    DEFAULT_ENCODING = "linear16"
+
     def __init__(self, config: dict) -> None:
         super().__init__(config)
         self._api_key: str = resolve_api_key(config, "deepgram_v2")
         self._model: str = config.get("model", "flux-general-en")
         self._eot_threshold: float = config.get("eot_threshold", 0.7)
-        self._eot_timeout_ms: int = config.get("eot_timeout_ms", 5000)
+        self._eot_timeout_ms: int = config.get("eot_timeout_ms", 2000)
 
         self._stop_event = asyncio.Event()
 
@@ -42,6 +52,8 @@ class DeepgramV2Module(ASRModule):
         audio_queue: asyncio.Queue[bytes],
         on_utterance: UtteranceCallback,
         on_connected: ConnectedCallback | None = None,
+        *,
+        audio_format: AudioFormat = DEFAULT_AUDIO_FORMAT,
     ) -> None:
         self._stop_event.clear()
         client = AsyncDeepgramClient(api_key=self._api_key)
@@ -51,8 +63,8 @@ class DeepgramV2Module(ASRModule):
             try:
                 async with client.listen.v2.connect(
                     model=self._model,
-                    encoding="linear16",
-                    sample_rate="16000",
+                    encoding=audio_format.encoding,
+                    sample_rate=str(audio_format.sample_rate),
                     eot_threshold=str(self._eot_threshold),
                     eot_timeout_ms=str(self._eot_timeout_ms),
                 ) as conn:

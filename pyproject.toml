@@ -12,6 +12,7 @@ dependencies = [
     "sounddevice",
     "numpy",
     "deepgram-sdk",
+    "soundfile",
 ]
 
 [project.scripts]

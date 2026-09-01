@@ -13,15 +13,17 @@ from __future__ import annotations
 
 import asyncio
 import re
-from pathlib import Path
 
 import pytest
-from helpers import default_provider, start_mcp_server, stop_mcp_server
+from helpers import (
+    FIXTURE_BLUE,
+    FIXTURE_BLUE_VALIDATE,
+    default_provider,
+    start_mcp_server,
+    stop_mcp_server,
+)
 
 from asr_engine.asr_to_terminal import AsrToTerminal
-
-_FIXTURE_WAV = Path(__file__).parent / "fixtures" / "sample.wav"
-_FIXTURE_SUBMIT_WAV = Path(__file__).parent / "fixtures" / "sample_submit.wav"
 
 
 class RecordingTyper:
@@ -64,12 +66,12 @@ async def _wait_until(predicate, timeout: float = 30.0) -> None:
 
 @pytest.mark.asyncio
 async def test_terminal_typing() -> None:
-    """Feed sample.wav with an impossible trigger word: text is typed, never committed."""
+    """Feed the mp3 with an impossible trigger word: text is typed, never committed."""
     module_type, module_config = default_provider()
     port = 18101
 
     proc, config_path = await start_mcp_server(
-        _FIXTURE_WAV,
+        FIXTURE_BLUE,
         module_type,
         module_config,
         port,
@@ -95,12 +97,12 @@ async def test_terminal_typing() -> None:
 
 @pytest.mark.asyncio
 async def test_terminal_submit() -> None:
-    """Feed sample_submit.wav; expect the segment to close and Enter to fire."""
+    """Feed the validate mp3; expect the segment to close and Enter to fire."""
     module_type, module_config = default_provider()
     port = 18102
 
     proc, config_path = await start_mcp_server(
-        _FIXTURE_SUBMIT_WAV,
+        FIXTURE_BLUE_VALIDATE,
         module_type,
         module_config,
         port,
@@ -127,12 +129,12 @@ async def test_terminal_submit() -> None:
 
 @pytest.mark.asyncio
 async def test_asr_to_terminal_timeout() -> None:
-    """Feed sample.wav in timeout mode; expect text typed then Enter after EOS timeout."""
+    """Feed the mp3 in timeout mode; expect text typed then Enter after EOS timeout."""
     module_type, module_config = default_provider()
     port = 18103
 
     proc, config_path = await start_mcp_server(
-        _FIXTURE_WAV,
+        FIXTURE_BLUE,
         module_type,
         module_config,
         port,

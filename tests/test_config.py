@@ -87,7 +87,46 @@ def test_load_config_defaults(tmp_path: Path) -> None:
     assert cfg.engine.sound_feedback.enabled is True
     assert cfg.engine.sound_feedback.output_device is None
     assert cfg.engine.audio.device is None
+    assert cfg.engine.audio.sample_rate == 16000
+    assert cfg.engine.audio.channels == 1
+    assert cfg.engine.audio.encoding == "linear16"
+    assert cfg.engine.audio.on_unsupported_format == "error"
     assert cfg.engine.module.extra == {}
+
+
+def test_load_config_audio_format_fields(tmp_path: Path) -> None:
+    cfg = load_config(
+        write_config(
+            tmp_path,
+            _min(
+                {
+                    "audio": {
+                        "sample_rate": 48000,
+                        "channels": 1,
+                        "encoding": "mulaw",
+                        "on_unsupported_format": "fallback",
+                    }
+                }
+            ),
+        )
+    )
+    assert cfg.engine.audio.sample_rate == 48000
+    assert cfg.engine.audio.encoding == "mulaw"
+    assert cfg.engine.audio.on_unsupported_format == "fallback"
+
+
+def test_load_config_rejects_unknown_encoding(tmp_path: Path) -> None:
+    path = write_config(tmp_path, _min({"audio": {"encoding": "opus"}}))
+    with pytest.raises(ValueError, match="encoding"):
+        load_config(path)
+
+
+def test_load_config_rejects_unknown_unsupported_policy(tmp_path: Path) -> None:
+    path = write_config(
+        tmp_path, _min({"audio": {"on_unsupported_format": "resample"}})
+    )
+    with pytest.raises(ValueError, match="on_unsupported_format"):
+        load_config(path)
 
 
 def test_load_config_partial_server_defaults(tmp_path: Path) -> None:

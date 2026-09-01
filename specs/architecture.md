@@ -78,9 +78,11 @@ The server runs as a single Python process with an `asyncio` event loop:
 
 ## Data Flow
 
-1. Audio thread captures PCM audio chunks from the selected input device
+1. Audio thread captures PCM audio chunks from the selected input device at the
+   engine's reconciled `AudioFormat` (rate/channels via PortAudio; encoding via an
+   in-pipeline transcode — see [asr-module-interface.md](asr-module-interface.md))
 2. Chunks are placed into a shared `asyncio.Queue`
-3. The ASR module reads chunks and streams them to the ASR backend (e.g. Deepgram WebSocket)
+3. The ASR module reads chunks and streams them to the ASR backend (e.g. Deepgram WebSocket), reporting that same `AudioFormat`
 4. The backend returns transcription events (interim / final) as `SpeechUtterance`s
 5. The ASR engine emits each utterance and, via its `Segmenter`, aggregates
    utterances into `SpeechSegment`s according to the current segment mode

@@ -9,14 +9,12 @@ from __future__ import annotations
 
 import asyncio
 import re
-from pathlib import Path
 
 import pytest
-from helpers import default_provider, start_mcp_server, stop_mcp_server
+from helpers import FIXTURE_BLUE, default_provider, start_mcp_server, stop_mcp_server
 
 from asr_engine.resource_client import AsrResourceClient
 
-_FIXTURE_WAV = Path(__file__).parent / "fixtures" / "sample.wav"
 _EXPECTED = "the sky is blue"
 
 
@@ -28,7 +26,7 @@ def _normalize(text: str) -> str:
 async def test_resource_emits_final_transcript() -> None:
     module_type, module_config = default_provider()
     proc, config_path = await start_mcp_server(
-        _FIXTURE_WAV, module_type, module_config, port=18001, trailing_silence_s=3.0
+        FIXTURE_BLUE, module_type, module_config, port=18001, trailing_silence_s=3.0
     )
 
     final_event = asyncio.Event()

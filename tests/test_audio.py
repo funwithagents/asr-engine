@@ -16,7 +16,10 @@ from asr_engine.audio import (
     DTYPE,
     SAMPLE_RATE,
     AudioCapture,
+    AudioFormat,
+    FileAudioSource,
     ScriptableAudioSource,
+    linear16_to_mulaw,
 )
 
 # ---------------------------------------------------------------------------
@@ -27,6 +30,74 @@ from asr_engine.audio import (
 def _make_device_list(*names: str):
     """Build a fake sounddevice device-info list with all devices as input-capable."""
     return [{"name": n, "max_input_channels": 1} for n in names]
+
+
+def _reference_mulaw(sample: int) -> int:
+    """Scalar CCITT G.711 μ-law encoder, independent of the numpy vectorized one."""
+    bias = 0x84
+    clip = 32635
+    sign = 0x80 if sample < 0 else 0x00
+    sample = min(abs(sample), clip) + bias
+    exponent = 7
+    mask = 0x4000
+    while exponent > 0 and not (sample & mask):
+        exponent -= 1
+        mask >>= 1
+    mantissa = (sample >> (exponent + 3)) & 0x0F
+    return ~(sign | (exponent << 4) | mantissa) & 0xFF
+
+
+# ---------------------------------------------------------------------------
+# AudioFormat
+# ---------------------------------------------------------------------------
+
+
+class TestAudioFormat:
+    def test_defaults_match_the_16k_mono_s16_contract(self):
+        fmt = AudioFormat()
+        assert (fmt.sample_rate, fmt.channels, fmt.encoding) == (16000, 1, "linear16")
+        assert fmt.bytes_per_sample == 2
+        assert fmt.frames_per_chunk == CHUNK_SAMPLES
+        assert fmt.chunk_bytes == CHUNK_SAMPLES * 2
+        assert fmt.chunk_duration_s == pytest.approx(0.1)
+
+    def test_chunk_math_scales_with_rate_and_encoding(self):
+        fmt = AudioFormat(sample_rate=48000, channels=1, encoding="mulaw")
+        assert fmt.frames_per_chunk == 4800  # ~100 ms at 48 kHz
+        assert fmt.bytes_per_sample == 1  # μ-law packs one byte per sample
+        assert fmt.chunk_bytes == 4800
+        assert fmt.chunk_duration_s == pytest.approx(0.1)
+
+    def test_rejects_unknown_encoding(self):
+        with pytest.raises(ValueError, match="encoding"):
+            AudioFormat(encoding="opus")
+
+    def test_rejects_nonpositive_rate(self):
+        with pytest.raises(ValueError, match="sample_rate"):
+            AudioFormat(sample_rate=0)
+
+
+# ---------------------------------------------------------------------------
+# linear16_to_mulaw
+# ---------------------------------------------------------------------------
+
+
+class TestLinear16ToMulaw:
+    def test_silence_encodes_to_0xff(self):
+        """μ-law silence is 0xFF, not 0x00 — the reason silence is transcoded."""
+        out = linear16_to_mulaw(b"\x00\x00" * 10)
+        assert out == b"\xff" * 10
+
+    def test_matches_scalar_reference_across_range(self):
+        samples = [-32768, -20000, -1, 0, 1, 100, 5000, 20000, 32767]
+        pcm = np.array(samples, dtype="<i2").tobytes()
+        got = linear16_to_mulaw(pcm)
+        expected = bytes(_reference_mulaw(s) for s in samples)
+        assert got == expected
+
+    def test_output_is_one_byte_per_sample(self):
+        pcm = np.zeros(50, dtype="<i2").tobytes()  # 50 samples, 100 bytes
+        assert len(linear16_to_mulaw(pcm)) == 50
 
 
 # ---------------------------------------------------------------------------
@@ -355,3 +426,79 @@ class TestScriptableAudioSource:
                 await source.play(wrong)
         finally:
             source.stop()
+
+    @pytest.mark.asyncio
+    async def test_play_validates_against_configured_format(
+        self, tmp_path: Path
+    ) -> None:
+        """A file at the default 16 kHz is rejected when the source wants 48 kHz."""
+        wav = _write_wav(tmp_path / "16k.wav", [b"\x00" * (CHUNK_SAMPLES * 2)])
+        source = ScriptableAudioSource(
+            audio_format=AudioFormat(sample_rate=48000), real_time=False
+        )
+        source.start()
+        try:
+            with pytest.raises(ValueError, match="sample rate"):
+                await source.play(wav)
+        finally:
+            source.stop()
+
+
+# ---------------------------------------------------------------------------
+# FileAudioSource — format handling
+# ---------------------------------------------------------------------------
+
+
+def _write_pcm_wav(path: Path, pcm: bytes, sample_rate: int) -> Path:
+    with wave.open(str(path), "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(sample_rate)
+        wf.writeframes(pcm)
+    return path
+
+
+async def _collect_file_chunks(
+    path: Path, fmt: AudioFormat, *, timeout: float = 0.5
+) -> list[bytes]:
+    """Drain every chunk a FileAudioSource emits for *path* under *fmt*."""
+    source = FileAudioSource(path, audio_format=fmt)
+    q = source.start()
+    chunks: list[bytes] = []
+    try:
+        while True:
+            chunks.append(await asyncio.wait_for(q.get(), timeout=timeout))
+    except asyncio.TimeoutError:
+        pass
+    finally:
+        source.stop()
+    return chunks
+
+
+class TestFileAudioSourceFormat:
+    @pytest.mark.asyncio
+    async def test_streams_chunks_sized_for_a_non_default_rate(
+        self, tmp_path: Path
+    ) -> None:
+        fmt = AudioFormat(sample_rate=48000)
+        frames = fmt.frames_per_chunk  # 4800 at 48 kHz
+        pcm = (np.arange(frames * 2, dtype="<i2") % 100 + 1).tobytes()
+        wav = _write_pcm_wav(tmp_path / "48k.wav", pcm, 48000)
+
+        chunks = await _collect_file_chunks(wav, fmt)
+
+        assert [len(c) for c in chunks] == [frames * 2, frames * 2]
+
+    @pytest.mark.asyncio
+    async def test_transcodes_file_audio_to_mulaw(self, tmp_path: Path) -> None:
+        fmt = AudioFormat(sample_rate=16000, encoding="mulaw")
+        frames = fmt.frames_per_chunk
+        wav = _write_pcm_wav(
+            tmp_path / "sil.wav", np.zeros(frames, dtype="<i2").tobytes(), 16000
+        )
+
+        chunks = await _collect_file_chunks(wav, fmt)
+
+        # One chunk, μ-law: one byte per sample (half of s16) and silence is 0xFF.
+        assert len(chunks) == 1
+        assert chunks[0] == b"\xff" * frames

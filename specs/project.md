@@ -32,7 +32,7 @@ Structure and tooling for the ASR engine project itself: Python version, depende
 
 - **Python version:** 3.11+ minimum.
 - **Package layout:** `src/` layout — `src/asr_engine/...` — not flat, to avoid accidentally importing an uninstalled package from the repo root. One module per core concept; the pluggable ASR backends live in the `src/asr_engine/modules/` subpackage, and bundled audio cues in `src/asr_engine/sounds/`.
-- **Dependency/venv management:** `uv`. Dev tooling lives in the `dev` dependency group (`uv sync --dev`), not in runtime `dependencies`. Runtime deps: `mcp[cli]`, `sounddevice`, `numpy`, `deepgram-sdk`.
+- **Dependency/venv management:** `uv`. Dev tooling lives in the `dev` dependency group (`uv sync --dev`), not in runtime `dependencies`. Runtime deps: `mcp[cli]`, `sounddevice`, `numpy`, `deepgram-sdk`, `soundfile` (libsndfile — decodes file audio sources, incl. MP3, without ffmpeg).
 - **Build backend:** `uv_build`, packaging the bundled WAV cues via `[tool.uv_build] include = ["src/asr_engine/sounds/*.wav"]`.
 - **Linting/formatting:** `ruff`. Config in `[tool.ruff]`, `target-version` pinned to the minimum Python.
 - **Testing:** `pytest` (with `pytest-asyncio`, `pytest-mock`, `pytest-timeout`), in two physically-separated tiers — a fast, deterministic, no-network default run (`tests/`) and an opt-in live tier (`tests-e2e/`) that calls the real Deepgram API. Full strategy is specced in [testing.md](testing.md).

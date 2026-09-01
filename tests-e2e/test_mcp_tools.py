@@ -9,14 +9,16 @@ from __future__ import annotations
 
 import asyncio
 import re
-from pathlib import Path
 
 import pytest
-from helpers import default_provider, start_mcp_server, stop_mcp_server
+from helpers import (
+    FIXTURE_BLUE,
+    FIXTURE_BLUE_VALIDATE,
+    default_provider,
+    start_mcp_server,
+    stop_mcp_server,
+)
 from mcp_tool_client import McpToolClient
-
-_FIXTURE_WAV = Path(__file__).parent / "fixtures" / "sample.wav"
-_FIXTURE_SUBMIT_WAV = Path(__file__).parent / "fixtures" / "sample_submit.wav"
 
 
 def _normalize(text: str) -> str:
@@ -28,10 +30,13 @@ async def test_listen_trigger_word() -> None:
     """listen tool with trigger_word mode: ends on 'validate', transcript excludes trigger utterance."""
     module_type, module_config = default_provider()
     proc, config_path = await start_mcp_server(
-        _FIXTURE_SUBMIT_WAV,
+        FIXTURE_BLUE_VALIDATE,
         module_type,
         module_config,
         port=18003,
+        # Tail silence so Deepgram finalizes the "validate" utterance and the
+        # trigger_word segment can close (the tight mp3 has little of its own).
+        trailing_silence_s=2.0,
         engine_overrides={
             "auto_start": False,
             "listen_default_segmentation_mode": "trigger_word",
@@ -58,7 +63,7 @@ async def test_listen_streaming() -> None:
     """listen tool streams progress notifications for each committed final."""
     module_type, module_config = default_provider()
     proc, config_path = await start_mcp_server(
-        _FIXTURE_WAV,
+        FIXTURE_BLUE,
         module_type,
         module_config,
         port=18005,
@@ -94,7 +99,7 @@ async def test_listen_timeout() -> None:
     """listen tool with timeout mode: ends after silence, returns full transcript."""
     module_type, module_config = default_provider()
     proc, config_path = await start_mcp_server(
-        _FIXTURE_WAV,
+        FIXTURE_BLUE,
         module_type,
         module_config,
         port=18004,

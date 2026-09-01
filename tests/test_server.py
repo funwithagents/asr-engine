@@ -33,11 +33,24 @@ def _engine_config(module_type: str = "mock", **kwargs) -> ASREngineConfig:
     )
 
 
+def _capable_mock_class(instance):
+    """A MagicMock ASRModule *class* carrying the format capabilities the engine
+    reads at construction (``None`` = the module accepts any value)."""
+    cls = MagicMock(return_value=instance)
+    cls.SUPPORTED_SAMPLE_RATES = None
+    cls.SUPPORTED_CHANNELS = None
+    cls.SUPPORTED_ENCODINGS = None
+    cls.DEFAULT_SAMPLE_RATE = 16000
+    cls.DEFAULT_CHANNELS = 1
+    cls.DEFAULT_ENCODING = "linear16"
+    return cls
+
+
 def make_engine(**cfg_kwargs) -> ASREngine:
     module = MagicMock()
     module.start = AsyncMock(return_value=None)
     module.stop = AsyncMock(return_value=None)
-    mock_class = MagicMock(return_value=module)
+    mock_class = _capable_mock_class(module)
     with patch.dict("asr_engine.engine.REGISTRY", {"mock": mock_class}):
         return ASREngine(_engine_config(**cfg_kwargs))
 
@@ -446,7 +459,7 @@ async def test_run_server_auto_start_false_does_not_start_engine() -> None:
     fake_module = MagicMock()
     fake_module.start = AsyncMock(return_value=None)
     fake_module.stop = AsyncMock(return_value=None)
-    fake_class = MagicMock(return_value=fake_module)
+    fake_class = _capable_mock_class(fake_module)
 
     config = AppConfig(
         engine=_engine_config(module_type="fake_auto", auto_start=False),
@@ -470,7 +483,7 @@ async def test_run_server_prints_banner(capsys) -> None:
     fake_module = MagicMock()
     fake_module.start = AsyncMock(return_value=None)
     fake_module.stop = AsyncMock(return_value=None)
-    fake_class = MagicMock(return_value=fake_module)
+    fake_class = _capable_mock_class(fake_module)
 
     config = AppConfig(
         server=ServerConfig(host="0.0.0.0", port=9090),

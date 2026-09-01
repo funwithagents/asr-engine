@@ -14,15 +14,21 @@ from __future__ import annotations
 
 import asyncio
 import re
-from pathlib import Path
 
 import pytest
-from helpers import MODULES, build_engine, build_file_engine, require_api_key
+from helpers import (
+    FIXTURE_BLUE,
+    FIXTURE_BLUE_VALIDATE,
+    FIXTURE_BLUE_WAV_16000,
+    FORMAT_MP3_44100,
+    FORMAT_WAV_16000,
+    MODULES,
+    build_engine,
+    build_file_engine,
+    require_api_key,
+)
 
 from asr_engine import ScriptableAudioSource, SpeechSegment, SpeechUtterance
-
-_FIXTURE_WAV = Path(__file__).parent / "fixtures" / "sample.wav"
-_FIXTURE_SUBMIT_WAV = Path(__file__).parent / "fixtures" / "sample_submit.wav"
 
 
 def _normalize(text: str) -> str:
@@ -55,11 +61,12 @@ async def test_engine_streams(
     async def on_seg(s: SpeechSegment) -> None:
         segments.append(s)
 
-    source = ScriptableAudioSource()
+    source = ScriptableAudioSource(audio_format=FORMAT_MP3_44100)
     engine = build_engine(
         source,
         module_type,
         module_config,
+        audio_format=FORMAT_MP3_44100,
         segmentation_mode="utterance",
         on_speech_utterance=on_utt,
         on_speech_segment=on_seg,
@@ -68,12 +75,12 @@ async def test_engine_streams(
         await engine.start()
 
         # First utterance: play, then wait for the engine to close its segment.
-        await source.play(_FIXTURE_WAV, trailing_silence_s=silence_s)
+        await source.play(FIXTURE_BLUE, trailing_silence_s=silence_s)
         await _wait_until(lambda: any(s.is_final for s in segments))
         finals_after_first = sum(1 for s in segments if s.is_final)
 
         # Second utterance, sequenced after the first — a fresh segment closes.
-        await source.play(_FIXTURE_SUBMIT_WAV, trailing_silence_s=silence_s)
+        await source.play(FIXTURE_BLUE_VALIDATE, trailing_silence_s=silence_s)
         await _wait_until(
             lambda: sum(1 for s in segments if s.is_final) > finals_after_first
         )
@@ -104,7 +111,7 @@ async def test_listen_trigger_word(
     """engine.listen(trigger_word) returns the closed segment, excluding the trigger."""
     require_api_key(module_config)
     engine = build_file_engine(
-        _FIXTURE_SUBMIT_WAV,
+        FIXTURE_BLUE_VALIDATE,
         module_type,
         module_config,
         trigger_words=["validate"],
@@ -126,7 +133,7 @@ async def test_listen_timeout(
     """engine.listen(timeout) closes on end-of-speech silence with the full transcript."""
     require_api_key(module_config)
     engine = build_file_engine(
-        _FIXTURE_WAV,
+        FIXTURE_BLUE,
         module_type,
         module_config,
         end_of_speech_timeout_s=2.0,
@@ -136,4 +143,30 @@ async def test_listen_timeout(
 
     assert segment.is_final is True
     assert segment.end_reason == "end_of_speech_timeout"
+    assert "the sky is blue" in _normalize(segment.transcript)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("module_type, module_config, silence_s", MODULES)
+async def test_sample_rate_compat_16000_wav(
+    module_type: str, module_config: dict, silence_s: float
+) -> None:
+    """A different input format (16 kHz WAV) transcribes the same as the 44.1 kHz mp3.
+
+    The default conformance tests run at 44.1 kHz from MP3; this pins that a module
+    also works when the engine is configured for a 16 kHz WAV input.
+    """
+    require_api_key(module_config)
+    engine = build_file_engine(
+        FIXTURE_BLUE_WAV_16000,
+        module_type,
+        module_config,
+        audio_format=FORMAT_WAV_16000,
+        end_of_speech_timeout_s=2.0,
+        trailing_silence_s=silence_s,
+    )
+    assert engine.audio_format == FORMAT_WAV_16000
+    segment = await asyncio.wait_for(engine.listen(mode="timeout"), timeout=30.0)
+
+    assert segment.is_final is True
     assert "the sky is blue" in _normalize(segment.transcript)

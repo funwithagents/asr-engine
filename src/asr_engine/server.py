@@ -155,16 +155,9 @@ async def run_server(config: AppConfig, log_level: str = "INFO") -> None:
     already configured the root/``asr_engine`` handlers via ``setup_logging``.
     """
     engine_config = config.engine
-    if engine_config.audio.audio_file:
-        from asr_engine.audio import FileAudioSource  # noqa: PLC0415
-
-        audio_source = FileAudioSource(
-            engine_config.audio.audio_file,
-            trailing_silence_s=engine_config.audio.trailing_silence_s,
-        )
-        engine = ASREngine(engine_config, audio_source=audio_source)
-    else:
-        engine = ASREngine(engine_config)
+    # The engine selects its own audio source from config (live device or, when
+    # engine.audio.audio_file is set, a format-matched FileAudioSource).
+    engine = ASREngine(engine_config)
 
     mcp = create_mcp_server(engine)
 
