@@ -20,7 +20,7 @@ tests:
 - **Utterances** — one `SpeechUtterance` per ASR event (interim or final), passed through unchanged from the module.
 - **Segments** — a `SpeechSegment` produced by aggregating utterances according to the current *segment mode*.
 
-Segmentation used to live in a client-side `EndOfUtteranceDetector` that the `listen` tool and `AsrToTerminal` each instantiated. It now lives entirely in the engine (in the `Segmenter` helper), so every consumer sees the same segmentation without re-implementing it. See the macro picture in [architecture.md](architecture.md); this spec is the engine-level detail.
+Segmentation lives entirely in the engine (in the `Segmenter` helper), so every consumer sees the same segmentation without re-implementing it. See the macro picture in [architecture.md](architecture.md); this spec is the engine-level detail.
 
 ---
 
@@ -311,7 +311,7 @@ Behaviour:
 5. Restore the saved callback. (`stop()` already reset the stored mode to `utterance`; `listen` never touches the segmentation params.)
 6. Return the closed `SpeechSegment`.
 
-Sound-feedback cues are played by the engine itself (see [sound-feedback.md](sound-feedback.md)); callers no longer wrap `listen` with cue playback.
+Sound-feedback cues are played by the engine itself (see [sound-feedback.md](sound-feedback.md)); callers do not wrap `listen` with cue playback.
 
 ---
 
@@ -335,4 +335,4 @@ The `listen` tool (via the transport-agnostic tools layer — see [mcp-server.md
 
 ### `AsrToTerminal`
 
-`AsrToTerminal` no longer segments; it subscribes to the server's `asr://segment` resource and types each segment, sending Enter when a segment closes (`is_final=True`). See [asr-to-terminal.md](asr-to-terminal.md).
+`AsrToTerminal` does not segment; it subscribes to the server's `asr://segment` resource and types each segment, sending Enter when a segment closes (`is_final=True`). See [asr-to-terminal.md](asr-to-terminal.md).

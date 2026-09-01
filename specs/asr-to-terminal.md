@@ -14,7 +14,7 @@ tests:
 
 `AsrToTerminal` bridges the ASR MCP server with the active terminal window: it types the current speech *segment* progressively, overwriting text as the segment grows, and sends Enter when the segment closes.
 
-Segmentation is **no longer done by the client** — it is owned by the server's `ASREngine` and exposed as the `asr://segment` resource (see [engine.md](engine.md) and [mcp-server.md](mcp-server.md)). `AsrToTerminal` simply subscribes to `asr://segment`, types each `transcript` as it changes, and on a closed segment (`is_final=true`) sends Enter and starts fresh.
+Segmentation is **not done by the client** — it is owned by the server's `ASREngine` and exposed as the `asr://segment` resource (see [engine.md](engine.md) and [mcp-server.md](mcp-server.md)). `AsrToTerminal` simply subscribes to `asr://segment`, types each `transcript` as it changes, and on a closed segment (`is_final=true`) sends Enter and starts fresh.
 
 When to close a segment (i.e. when Enter fires) is decided **on the server**, not here. Because the always-on stream is `utterance` mode by default, the useful "dictate freely, submit on a trigger word / after silence" behaviour comes from starting the server in a persistent dictation: set `engine.auto_start_dictation=true` and `engine.dictation_default_segmentation_mode` (`trigger_word` / `timeout`) plus the shared `engine.segmentation` trigger words / timeouts. Without that, a default (`utterance`) server makes `asr-to-terminal` press Enter after every final utterance. See [configuration.md](configuration.md).
 
@@ -146,6 +146,6 @@ Each server is configured with `auto_start_dictation=true` and the `dictation_de
 
 ## External dependencies
 
-`xdotool` (X11) and `ydotool` (Wayland) are system packages the **runtime CLI** needs, not Python dependencies. On Wayland, `ydotoold` must also be running with access to `/dev/uinput`. The CLI should print a clear error if the required tool or daemon is unavailable. The e2e tests no longer depend on them (they inject a `RecordingTyper`).
+`xdotool` (X11) and `ydotool` (Wayland) are system packages the **runtime CLI** needs, not Python dependencies. On Wayland, `ydotoold` must also be running with access to `/dev/uinput`. The CLI should print a clear error if the required tool or daemon is unavailable. The e2e tests do not depend on them (they inject a `RecordingTyper`).
 
 No new Python packages are required.

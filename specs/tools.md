@@ -16,7 +16,7 @@ Define the ASR control operations **once**, independent of any transport, so the
 - called directly by a Python program that `import asr_engine` and holds an `ASREngine`, and
 - wrapped, unchanged, by the MCP server (see [mcp-server.md](mcp-server.md)).
 
-Before this layer, `start` / `stop` / `is_running` / `listen` lived inline in the FastMCP server, entangling the control logic (the listen lock, progress reporting) with MCP's `Context`. `AsrTools` extracts that logic so the MCP tools are thin adapters and direct importers get the same behaviour.
+`AsrTools` holds the control logic (the listen lock, progress reporting) independent of MCP's `Context`, so the MCP tools are thin adapters and direct importers get the same behaviour.
 
 ## `AsrTools`
 
@@ -60,7 +60,7 @@ Thin pass-throughs to the engine:
 
 ### `listen`
 
-Wraps `engine.listen` with the concurrency guard and progress translation that used to live in the server:
+Wraps `engine.listen` with a concurrency guard and progress translation:
 
 1. Raise `ValueError("A listen session is already in progress.")` if a `listen` is already running on this `AsrTools` (an internal `asyncio.Lock`).
 2. Raise `ValueError("ASR is already running. Stop it before calling listen.")` if `engine.status()["running"]` (the engine also enforces this; the tool checks first to give the clear message before acquiring anything).

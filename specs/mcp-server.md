@@ -265,7 +265,7 @@ The session logic lives in the engine's `listen` primitive and its `Segmenter` (
 2. Maps `on_progress(progress, total, message)` to `ctx.report_progress(...)` (see Streaming below).
 3. Returns `{"transcript": ..., "end_reason": ...}`.
 
-Sound cues are played by `engine.listen` itself — the tool no longer wraps the call with cue playback. The returned `SpeechSegment` carries the committed finals (`transcript`) and the `end_reason` that closed it.
+Sound cues are played by `engine.listen` itself — the tool does not wrap the call with cue playback. The returned `SpeechSegment` carries the committed finals (`transcript`) and the `end_reason` that closed it.
 
 ### `start_dictation`
 
