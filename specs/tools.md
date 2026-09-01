@@ -9,16 +9,6 @@ tests:
 
 **Status:** Implemented
 
-> **Dictation update (2026-09-01):** `AsrTools` gains `start_dictation` /
-> `stop_dictation` and the two default-mode setters
-> (`set_dictation_default_segmentation_mode`,
-> `set_listen_default_segmentation_mode`), thin pass-throughs to the engine so the
-> MCP server can expose them. Implemented by
-> [plans/202609012010_dictation-sessions.md](../plans/202609012010_dictation-sessions.md).
-
-> **New in the 2026-08-31 refactor**, implemented by
-> [plans/202608311612_asr-engine-refactor.md](../plans/202608311612_asr-engine-refactor.md).
-
 ## Purpose
 
 Define the ASR control operations **once**, independent of any transport, so

@@ -13,12 +13,6 @@ tests:
 
 **Status:** Implemented
 
-> **Refactor note (2026-08-31):** `ASREngine` is now self-configured from
-> `ASREngineConfig` and owns sound feedback; a transport-agnostic tools layer
-> (`AsrTools`) sits between the engine and the MCP layer. Package renamed
-> `asr_mcp` → `asr_engine`. Implemented by
-> [plans/202608311612_asr-engine-refactor.md](../plans/202608311612_asr-engine-refactor.md).
-
 ## System Diagram
 
 ```

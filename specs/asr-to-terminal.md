@@ -10,25 +10,6 @@ tests:
 
 **Status:** Implemented
 
-> **Server-only-package update (2026-09-01):** `asr-to-terminal` is now an
-> **example**, not part of the `asr_engine` package. `terminal_typer.py` and
-> `asr_to_terminal.py` move to `examples/asr_to_terminal/` (names unchanged) and
-> import `AsrResourceClient` from `examples/mcp_client/`. The `asr-to-terminal`
-> console script is dropped; it runs via `python -m
-> examples.asr_to_terminal.asr_to_terminal`. Behavior is unchanged. To be
-> implemented by
-> [plans/202609012100_server-only-package.md](../plans/202609012100_server-only-package.md),
-> which flips this spec's `code:` frontmatter to `examples/asr_to_terminal/*`.
-
-> **Dictation update (2026-09-01):** the always-on `segmentation_mode` config is
-> gone. To get an aggregating `asr://segment` stream (trigger-word / timeout),
-> the **server** is now started in a persistent dictation via
-> `engine.auto_start_dictation=true` + `engine.dictation_default_segmentation_mode`.
-> `asr-to-terminal` itself is unchanged — it still just subscribes to
-> `asr://segment` and types each segment; it does **not** drive dictation or take
-> a segmentation-mode flag. Implemented by
-> [plans/202609012010_dictation-sessions.md](../plans/202609012010_dictation-sessions.md).
-
 ## Purpose
 
 `AsrToTerminal` bridges the ASR MCP server with the active terminal window: it

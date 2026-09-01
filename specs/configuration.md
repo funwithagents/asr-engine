@@ -9,23 +9,6 @@ tests:
 
 **Status:** Implemented
 
-> **Dictation update (2026-09-01):** the always-on `segmentation_mode` field is
-> **removed** — the always-on stream is fixed to `utterance` and aggregation is
-> done through explicit *dictation* sessions or `listen` (see [engine.md](engine.md)).
-> A `dictation_default_segmentation_mode` field is added, and both
-> `listen_default_segmentation_mode` and the new dictation default now accept
-> `utterance` too. Implemented by
-> [plans/202609012010_dictation-sessions.md](../plans/202609012010_dictation-sessions.md).
-
-> **Refactor note (2026-08-31):** the config schema is being restructured so the
-> engine is configured by a single nested `ASREngineConfig` (usable without the
-> MCP server), the ASR-backend block is renamed `asr` → `module`, sound feedback
-> and logging move under the engine, `audio.output_device` is removed, and the
-> separate `listen` block is deleted. Implemented by
-> [plans/202608311612_asr-engine-refactor.md](../plans/202608311612_asr-engine-refactor.md).
-> The importable package is being renamed `asr_mcp` → `asr_engine` in the same
-> plan.
-
 ## Config File
 
 The MCP server reads a JSON config file at startup, passed as a CLI argument:
@@ -108,7 +91,7 @@ scalar engine settings plus five nested sub-blocks.
 > `auto_start_dictation=true` so the server begins in a persistent dictation at
 > startup, or have a consumer call the `start_dictation` tool / use `listen` —
 > all of which switch the engine's segmentation mode and revert to `utterance`
-> when they end. This is what `asr-to-terminal` now relies on for continuous
+> when they end. This is what `asr-to-terminal` relies on for continuous
 > aggregation (see [asr-to-terminal.md](asr-to-terminal.md)). See
 > [engine.md](engine.md).
 | `sound_feedback` | object | see below | Start/stop audio cues, owned and played by the engine during `listen`. |
@@ -157,9 +140,6 @@ does any device conversion) and transcodes to the encoding; `mulaw` silence is
 `0xFF`, not zero bytes, so silence is transcoded rather than assumed. WAV file
 sources are validated against the configured rate/channels (they are **not**
 resampled) and re-encoded to `mulaw` when asked.
-
-> **Removed:** `audio.output_device` — the playback device now lives at
-> `engine.sound_feedback.output_device`.
 
 #### `engine.module` sub-block
 

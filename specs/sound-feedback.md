@@ -9,14 +9,6 @@ tests:
 
 **Status:** Implemented
 
-> **Refactor note (2026-08-31):** ownership of sound feedback moves from the MCP
-> server into `ASREngine` — the engine constructs `SoundFeedback` from
-> `engine.sound_feedback` config and plays the cues inside `engine.listen`.
-> Config moves from the (deleted) `listen` block to `engine.sound_feedback`
-> (`enabled` + `output_device`); `audio.output_device` is removed. Implemented by
-> [plans/202608311612_asr-engine-refactor.md](../plans/202608311612_asr-engine-refactor.md).
-> (Package renamed `asr_mcp` → `asr_engine` in the same plan.)
-
 ## Purpose
 
 Play short audio cues when a `listen` session starts and stops, so the user

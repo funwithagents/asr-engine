@@ -11,24 +11,6 @@ tests:
 
 **Status:** Implemented
 
-> **Dictation update (2026-09-01):** the server registers four new tools —
-> `start_dictation`, `stop_dictation`, `set_dictation_default_segmentation_mode`,
-> `set_listen_default_segmentation_mode` — and, when `engine.auto_start_dictation`
-> is set, calls `start_dictation(end_on_final_segment=False)` right after the
-> startup `start()`. Implemented by
-> [plans/202609012010_dictation-sessions.md](../plans/202609012010_dictation-sessions.md).
-
-> **Refactor note (2026-08-31):** the MCP server becomes a thin transport over a
-> transport-agnostic **tools layer** (`AsrTools`, see below), and `ASREngine`
-> now self-configures from `ASREngineConfig` — so `create_mcp_server` takes just
-> the engine, no longer wires `set_segmentation_mode`, and no longer owns sound
-> feedback (moved into the engine). The server entry-point command is renamed
-> `asr-mcp-server` → `asr-engine-mcp`. Implemented by
-> [plans/202608311612_asr-engine-refactor.md](../plans/202608311612_asr-engine-refactor.md).
-> (Package renamed `asr_mcp` → `asr_engine` in the same plan.) A dedicated
-> `specs/tools.md` for the tools layer is added by that plan alongside
-> `src/asr_engine/tools.py`.
-
 ## Tools layer (`AsrTools`)
 
 The control operations are defined once, transport-agnostically, in

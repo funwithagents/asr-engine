@@ -13,30 +13,6 @@ tests:
 
 **Status:** Implemented
 
-> **Dictation update (2026-09-01):** the always-on segmentation mode is fixed to
-> `utterance`; the configurable `segmentation_mode` is gone. Aggregation is done
-> through *dictation* sessions (`start_dictation`/`stop_dictation`) or `listen`,
-> both of which temporarily switch the mode and revert to `utterance` when they
-> end. `set_segmentation_mode` becomes the private `_set_segmentation_mode`,
-> called only by `listen` and the dictation methods; `listen` now also accepts
-> `utterance` mode. New setters `set_listen_default_segmentation_mode` and
-> `set_dictation_default_segmentation_mode`. A new `auto_start_dictation` config
-> flag lets a caller start the server directly in a persistent dictation (like
-> `auto_start`, it is a signal to the caller, not acted on by the engine). To be
-> implemented by
-> [plans/202609012010_dictation-sessions.md](../plans/202609012010_dictation-sessions.md).
-
-> **Refactor note (2026-08-31):** `ASREngine` becomes the self-contained heart of
-> the repo — constructed from a single `ASREngineConfig`, owning audio, module,
-> segmentation and sound feedback, so it is usable
-> directly (via `import asr_engine`) without the MCP server. `set_segmentation_mode`
-> becomes mode-only, segmentation params move to a new `set_segmentation_params`,
-> and `listen` takes just a mode and never mutates the segmentation params.
-> Implemented by
-> [plans/202608311612_asr-engine-refactor.md](../plans/202608311612_asr-engine-refactor.md).
-> (The package is renamed `asr_mcp` → `asr_engine` in the same plan; paths below
-> use the new name.)
-
 ## Purpose
 
 `ASREngine` owns the live speech pipeline and all *segmentation* logic. It wires

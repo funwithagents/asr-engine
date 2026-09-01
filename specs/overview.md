@@ -9,20 +9,6 @@ tests:
 
 **Status:** Implemented
 
-> **Refactor note (2026-08-31):** the project is reframed from "an ASR MCP
-> server" to "a reusable ASR **engine** with an MCP server on top". The
-> `ASREngine` (constructed from a single `ASREngineConfig`) is the primary
-> product and is usable by direct import; a transport-agnostic tools layer and
-> the MCP server are built on it. The package is renamed `asr_mcp` →
-> `asr_engine`. Implemented by
-> [plans/202608311612_asr-engine-refactor.md](../plans/202608311612_asr-engine-refactor.md).
->
-> **Server-only-package update (2026-09-01):** the deliverable is the
-> engine + tools + MCP server. The demo client and the `asr-to-terminal` bridge
-> are demoted from shipped components to `examples/` (see the Components table).
-> To be implemented by
-> [plans/202609012100_server-only-package.md](../plans/202609012100_server-only-package.md).
-
 ## Goal
 
 Provide a real-time Automatic Speech Recognition (ASR) **engine** that:

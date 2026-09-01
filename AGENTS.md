@@ -133,8 +133,7 @@ uv run pytest tests-e2e/     # opt-in live tier (needs the provider API key; con
 
 ### Entry points
 
-`asr-engine-mcp` is the only console script (the client-side apps live in
-`examples/`, outside the wheel, and run via `python -m`):
+Quick reference for the runnable commands (the packaging rationale — why `asr-engine-mcp` is the only console script and the examples run via `python -m` — is in [specs/project.md](specs/project.md)):
 
 ```bash
 uv run asr-engine-mcp --config config.json                              # Start the MCP server
@@ -147,21 +146,12 @@ uv run python -m examples.gradio_demo.app --config config.json          # Gradio
 
 ### Audio format contract
 
-Audio is delivered end-to-end in the engine's reconciled `AudioFormat`:
-configurable sample rate and channels, with `linear16` or G.711 `mulaw`
-encoding, in roughly 100 ms chunks. Each ASR module declares its supported and
-default formats; the engine either rejects unsupported configured dimensions or
-falls back to module defaults according to `engine.audio.on_unsupported_format`.
-The capture layer owns live-device conversion and encoding, while file sources
-validate their decoded rate/channels and encode as requested. Modules consume
-the resulting chunks and report that same format to their backend.
+The end-to-end `AudioFormat` contract (reconciled rate/channels/encoding, `linear16`/`mulaw`, ~100 ms chunks, `on_unsupported_format` fallback, who converts where) is specified in [specs/asr-module-interface.md](specs/asr-module-interface.md) and [specs/architecture.md](specs/architecture.md).
 
 ### Logging
 
-- Every module that logs uses `log = logging.getLogger(__name__)` (variable name `log`, not `logger`).
-- **Library modules** (`src/asr_engine/`) configure nothing — no `basicConfig`, no handlers, no levels. They only acquire a logger and use it. This includes `ASREngine`, which never touches global logging state. `asr_engine/__init__.py` attaches a `NullHandler` to the `asr_engine` logger so a bare `import asr_engine` that configures nothing drops records silently instead of hitting the last-resort handler.
-- **Entry points and scripts** (the application layer) own all configuration: they call `setup_logging()` from `asr_engine._logging` (which owns `basicConfig`) at startup. The `asr-engine-mcp` server takes a `--log-level` CLI flag (default `INFO`) as the sole level control — there is no config-file logging block.
-- The MCP server (`server.py`) additionally passes a uvicorn-specific `log_config` dict to `uvicorn.Config` to control uvicorn's own loggers — separate from `setup_logging()`, and given the resolved `--log-level`; don't change without good reason.
+- Every module that logs uses `log = logging.getLogger(__name__)` — variable name `log`, **not** `logger`.
+- The library-vs-application logging boundary (library modules configure nothing, the `NullHandler`, `setup_logging()`, the `--log-level` flag, uvicorn's `log_config`) is specified in [specs/project.md](specs/project.md) "Logging" and [specs/mcp-server.md](specs/mcp-server.md).
 
 ### Adding a new ASR module
 

@@ -12,15 +12,6 @@ tests:
 
 **Status:** Implemented
 
-> **Server-only-package update (2026-09-01):** this is now an **example**, not
-> part of the `asr_engine` package. The MCP subscription SDK
-> (`resource_subscriber`, `resource_client`) and the demo CLI move to
-> `examples/mcp_client/` (names unchanged), and the `asr-mcp-client` console
-> script is dropped — the demo runs via `python -m
-> examples.mcp_client.asr_resource_client`. To be implemented by
-> [plans/202609012100_server-only-package.md](../plans/202609012100_server-only-package.md),
-> which flips this spec's `code:` frontmatter to `examples/mcp_client/*`.
-
 ## Purpose
 
 A standalone example that connects to the MCP server via StreamableHTTP, subscribes to the `asr://utterance` resource, and logs each update to stdout. Used to validate the server end-to-end. It lives in `examples/mcp_client/`, outside the `asr_engine` package.

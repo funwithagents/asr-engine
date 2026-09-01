@@ -10,22 +10,6 @@ tests:
 
 **Status:** Implemented
 
-> **Controller-tests update (2026-09-01):** the demo's UI-agnostic
-> `DemoController` gains fast automated tests (it was previously untested by
-> design). See the revised "Testing" section. To be implemented by
-> [plans/202609012100_server-only-package.md](../plans/202609012100_server-only-package.md),
-> which adds `tests/examples/test_gradio_controller.py` and this spec's `tests:`
-> frontmatter entry.
-
-> **Dictation update (2026-09-01):** the always-on `segmentation_mode` is gone,
-> so the demo's live segmentation-mode selector is replaced by **dictation
-> controls** (a mode picker + an "end on final segment" toggle + Start/Stop
-> dictation) that call the engine's `start_dictation` / `stop_dictation` on the
-> running engine. The controller drops `set_segmentation_mode`, gains
-> `start_dictation` / `stop_dictation`, and its phase gains `"dictating"`. To be
-> implemented by
-> [plans/202609012010_dictation-sessions.md](../plans/202609012010_dictation-sessions.md).
-
 ## Purpose
 
 A small, standalone **example** that drives the `ASREngine` from a Gradio web UI,
