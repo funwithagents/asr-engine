@@ -2,6 +2,13 @@
 code:
   - pyproject.toml
   - src/asr_engine/_logging.py
+  - src/asr_engine/mcp_server_cli.py
+  - src/asr_engine/asr_resource_client.py
+  - src/asr_engine/asr_to_terminal.py
+  - scripts/debug_server.py
+  - scripts/test_deepgram_live.py
+  - scripts/test_e2e_client.py
+  - scripts/test_engine_live.py
 tests:
   - tests/test_project_map.py
 ---
@@ -11,7 +18,7 @@ tests:
 **Status:** Implemented
 
 > **Refactor note (2026-08-31):** the importable package and distribution are
-> renamed `asr_mcp` → `asr_engine` (repo directory kept as `asr-mcp`), a new
+> renamed `asr_mcp` → `asr_engine` (repository renamed `asr-engine`), a new
 > transport-agnostic `tools.py` module is added, entry-point commands are
 > renamed, and the logging convention gains a config-driven engine level.
 > Implemented by

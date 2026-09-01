@@ -45,17 +45,14 @@ async def _run(server_url: str) -> None:
 
             if not status.get("running"):
                 print(
-                    "[debug] Engine is NOT running — server may have crashed at startup."
+                    "[debug] Engine is idle. This is expected when auto_start is false; "
+                    "otherwise check the server startup logs."
                 )
                 return
             if not status.get("connected"):
                 print("[debug] Engine is running but NOT connected to Deepgram.")
                 print("[debug] Check your API key and network connectivity.")
                 return
-            if status.get("paused"):
-                print("[debug] Engine is PAUSED — call the resume tool to start it.")
-                return
-
             # 2. Poll asr://utterance directly (no subscription)
             print("=== Polling asr://utterance every second (speak now) ===")
             print("[debug] If transcripts appear here, ASR is working.")

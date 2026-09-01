@@ -1,6 +1,7 @@
 ---
 code:
   - src/asr_engine/modules/base.py
+  - src/asr_engine/modules/__init__.py
   - src/asr_engine/engine.py
 tests:
   - tests/modules/test_base.py
@@ -13,7 +14,7 @@ tests:
 
 ## Purpose
 
-The ASR module interface decouples the MCP server from any specific speech recognition backend. The server loads one module at startup based on the `asr.type` config field.
+The ASR module interface decouples the MCP server from any specific speech recognition backend. The engine loads one module at construction based on the `engine.module.type` config field.
 
 ## Abstract Base Class
 
@@ -92,7 +93,9 @@ REGISTRY: dict[str, type[ASRModule]] = {
 }
 ```
 
-The server loads the correct class from this registry using the `asr.type` config value, then instantiates it with the full `asr` config dict (minus the `type` field).
+The engine loads the correct class from this registry using the
+`engine.module.type` config value, then instantiates it with the remaining
+module-specific fields (the `engine.module` block minus `type`).
 
 ## Module Constructor Contract
 

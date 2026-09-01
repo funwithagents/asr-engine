@@ -179,8 +179,9 @@ containing a submit word, e.g. `"the sky is blue validate"`.
 ## External dependencies
 
 `xdotool` (X11) and `ydotool` (Wayland) are system packages the **runtime CLI**
-needs, not Python dependencies. The CLI should print a clear error if the
-required tool is missing. The e2e tests no longer depend on them (they inject a
+needs, not Python dependencies. On Wayland, `ydotoold` must also be running with
+access to `/dev/uinput`. The CLI should print a clear error if the required tool
+or daemon is unavailable. The e2e tests no longer depend on them (they inject a
 `RecordingTyper`).
 
 No new Python packages are required.

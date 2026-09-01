@@ -221,5 +221,5 @@ This tolerates differences in punctuation and capitalisation across models.
 ## Non-Goals
 
 - Mocking the Deepgram API — the test must hit the real backend.
-- Testing pause/resume/reconnection logic.
+- Testing lifecycle races or backend reconnection logic.
 - Running in CI without a real API key.

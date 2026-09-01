@@ -61,6 +61,15 @@ The server exposes two rolling resources, both `application/json` and both
 subscribable. They are fed by the engine's `on_speech_utterance` and
 `on_speech_segment` callbacks respectively (see [engine.md](engine.md)).
 
+### Delivery semantics
+
+These resources are **latest-value snapshots**, not event logs. A
+`notifications/resources/updated` message tells a subscriber that a URI changed;
+the subscriber then reads that URI to obtain its current value. The notification
+does not contain the utterance or segment itself, and several fast changes may be
+coalesced before a client reads them. Consumers must therefore not assume that a
+rolling resource delivers every intermediate state.
+
 ### `asr://utterance`
 
 The latest ASR utterance — one atomic result, interim or final.
@@ -76,8 +85,8 @@ The latest ASR utterance — one atomic result, interim or final.
   "properties": {
     "transcript": { "type": "string", "description": "Text of the current utterance" },
     "is_final": { "type": "boolean", "description": "true = final, false = interim/partial" },
-    "confidence": { "type": "number", "description": "0–1, or null if not provided by the backend" },
-    "timestamp": { "type": "string", "format": "date-time", "description": "ISO 8601 UTC emit time" }
+    "confidence": { "type": ["number", "null"], "description": "0–1, or null if not provided by the backend" },
+    "timestamp": { "type": ["string", "null"], "format": "date-time", "description": "ISO 8601 UTC emit time, or null before the first event" }
   },
   "required": ["transcript", "is_final", "timestamp"]
 }
@@ -111,10 +120,10 @@ the `engine` block). `is_final=false` while the segment is still growing;
     "transcript": { "type": "string", "description": "Committed finals joined, plus the current interim while open" },
     "is_final": { "type": "boolean", "description": "true once the segment has closed" },
     "end_reason": {
-      "type": "string",
+      "type": ["string", "null"],
       "description": "null while open; else 'utterance', 'trigger_word', 'end_of_speech_timeout', or 'initial_silence_timeout'"
     },
-    "timestamp": { "type": "string", "format": "date-time", "description": "ISO 8601 UTC emit time" }
+    "timestamp": { "type": ["string", "null"], "format": "date-time", "description": "ISO 8601 UTC emit time, or null before the first event" }
   },
   "required": ["transcript", "is_final", "timestamp"]
 }

@@ -24,7 +24,7 @@ class AsrToTerminal:
     Progressively types the current segment transcript (overwriting the changed
     suffix on each update) and, when a segment closes (``is_final``), sends Enter
     and starts fresh. No segmentation logic lives here — the server closes
-    segments per its ``engine.segment_mode`` config.
+    segments per its ``engine.segmentation_mode`` config.
     """
 
     def __init__(

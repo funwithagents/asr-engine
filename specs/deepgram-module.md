@@ -36,7 +36,11 @@ is unset/empty — construction raises `ValueError`.
 
 ### Overview
 
-Uses the Deepgram Listen v1 WebSocket API with any v1-compatible model. Utterance detection is based on `speech_final` — Deepgram signals end-of-utterance after a configurable silence threshold.
+Uses the Deepgram Listen v1 WebSocket API with any v1-compatible model.
+`SpeechUtterance.is_final` maps from Deepgram's `is_final`, meaning the backend
+has committed that transcript chunk. The module deliberately does not use
+`speech_final`, so a final v1 result is not necessarily a natural
+end-of-utterance boundary.
 
 ### Configuration Fields
 
@@ -49,7 +53,8 @@ Uses the Deepgram Listen v1 WebSocket API with any v1-compatible model. Utteranc
 | `punctuate` | boolean | no | `true` | Enable automatic punctuation |
 | `interim_results` | boolean | no | `true` | Enable interim results |
 
-¹ Provide exactly one of `api_key` / `api_key_env` (see [API key resolution](#api-key-resolution)).
+¹ Provide at least one of `api_key` / `api_key_env`; `api_key` takes precedence
+when both are set (see [API key resolution](#api-key-resolution)).
 
 ### Example Config
 
@@ -113,7 +118,8 @@ Supports only Flux-family models (`flux-general-en`, etc.). Not suitable for non
 | `eot_threshold` | float | no | `0.7` | End-of-turn confidence threshold (0.5–0.9) |
 | `eot_timeout_ms` | int | no | `5000` | Silence timeout before forced turn-end (ms) |
 
-¹ Provide exactly one of `api_key` / `api_key_env` (see [API key resolution](#api-key-resolution)).
+¹ Provide at least one of `api_key` / `api_key_env`; `api_key` takes precedence
+when both are set (see [API key resolution](#api-key-resolution)).
 
 ### Example Config
 

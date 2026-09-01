@@ -69,7 +69,8 @@ Two rolling resources, both `application/json` and both subscribable:
 - Python 3.11+
 - [`uv`](https://docs.astral.sh/uv/)
 - A [Deepgram](https://deepgram.com) API key
-- For `asr-to-terminal`: `xdotool` (X11) or `ydotool` (Wayland)
+- For `asr-to-terminal`: `xdotool` (X11), or `ydotool` plus a running
+  `ydotoold` with access to `/dev/uinput` (Wayland)
 
 ---
 
@@ -77,7 +78,7 @@ Two rolling resources, both `application/json` and both subscribable:
 
 ```bash
 git clone <repo-url>
-cd asr-mcp
+cd asr-engine
 uv sync
 ```
 
@@ -85,10 +86,12 @@ uv sync
 
 ## Configuration
 
-Copy the example config and fill in your Deepgram API key:
+Copy the example config and export the Deepgram API key named by
+`api_key_env`:
 
 ```bash
 cp config.example.json config.json
+export DEEPGRAM_API_KEY="..."
 ```
 
 ```json
@@ -111,7 +114,7 @@ cp config.example.json config.json
     "audio": { "device": null },
     "module": {
       "type": "deepgram_v2",
-      "api_key": "YOUR_DEEPGRAM_API_KEY",
+      "api_key_env": "DEEPGRAM_API_KEY",
       "model": "flux-general-en"
     }
   }
@@ -163,7 +166,7 @@ Default trigger words: `submit`, `enter`, `validate`, `send`, `confirm`, `go`, `
 
 | Field | Default | Description |
 |---|---|---|
-| `device` | `null` | Audio input device name or index. `null` = system default |
+| `device` | `null` | Audio input device name. `null` = system default |
 | `audio_file` | `null` | Stream a WAV file instead of the live device (testing hook) |
 | `trailing_silence_s` | `0.0` | (`audio_file` only) Silence appended after the file ends |
 
@@ -173,7 +176,7 @@ Default trigger words: `submit`, `enter`, `validate`, `send`, `confirm`, `go`, `
 |---|---|---|
 | `type` | yes | Module to use: `"deepgram_v1"` or `"deepgram_v2"` |
 | `api_key` | one of | Deepgram API key (literal) |
-| `api_key_env` | one of | Name of an environment variable holding the key — keeps the secret out of committed configs. Provide exactly one of `api_key` / `api_key_env`. |
+| `api_key_env` | one of | Name of an environment variable holding the key — keeps the secret out of committed configs. Provide at least one of `api_key` / `api_key_env`; `api_key` takes precedence when both are set. |
 | `model` | no | Model name (e.g. `"nova-3"`, `"flux-general-en"`) |
 | `language` | no | (v1 only) BCP-47 language code or `"multi"` |
 | `eot_threshold` | no | (v2 only) End-of-turn confidence threshold, default `0.7` |
@@ -231,7 +234,10 @@ The server uses a **pluggable module architecture**: one ASR backend is active a
 | `deepgram_v1` | Deepgram Listen v1 | Nova-3, Nova-2, … | Multi-language, general transcription |
 | `deepgram_v2` | Deepgram Listen v2 | Flux family | English conversational AI, built-in turn detection |
 
-**`deepgram_v1`** sends 16kHz PCM audio over a WebSocket and relies on Deepgram's `is_final` flag to detect utterance boundaries — the model signals "I'm done with this segment" after a silence threshold.
+**`deepgram_v1`** sends 16kHz PCM audio over a WebSocket. Deepgram's
+`is_final` flag marks a committed transcript chunk; the adapter intentionally
+does not use the separate `speech_final` endpointing signal, so a final result
+is not necessarily a natural end-of-utterance boundary.
 
 **`deepgram_v2`** targets Flux models and uses Deepgram's integrated **EndOfTurn** detection: the model itself decides when a conversational turn is complete, providing a confidence score and a configurable threshold. This produces more natural utterance boundaries for dialogue use cases.
 
@@ -335,7 +341,11 @@ Standard HTTP is request/response. To receive live data from a running server wi
 2. The server keeps the connection open and sends `notifications/resources/updated` messages each time the resource changes.
 3. The client receives these notifications in real time, then reads the new resource value.
 
-This means an AI agent or any MCP client gets a genuine event-driven feed of transcription results — no polling, no missed updates — over a plain HTTP connection that works across a local network.
+This gives clients event-driven notification that a rolling resource changed,
+without polling. The notification carries the resource URI, not the event
+payload: the client then reads the latest value. Fast consecutive updates may
+therefore be coalesced, so these resources are latest-value snapshots rather
+than a lossless event log.
 
 The `AsrResourceClient` class ([src/asr_engine/resource_client.py](src/asr_engine/resource_client.py)) implements this subscription pattern and can be reused as a building block for any client that needs to consume a live MCP resource.
 
@@ -360,7 +370,9 @@ uv run asr-to-terminal --server http://192.168.1.10:8000/mcp
 uv run asr-to-terminal --display-server wayland
 ```
 
-**System requirements:** `xdotool` (X11) or `ydotool` (Wayland) must be installed separately.
+**System requirements:** `xdotool` (X11), or `ydotool` with a running
+`ydotoold` that can access `/dev/uinput` (Wayland), must be installed and
+configured separately.
 
 ```bash
 sudo apt-get install xdotool   # X11
