@@ -1,8 +1,10 @@
 # ASR Engine
 
-ASR Engine is a real-time Automatic Speech Recognition engine, usable directly by import (`import asr_engine`) or over the Model Context Protocol. The `ASREngine` (constructed from a single `ASREngineConfig`) captures audio continuously, streams it to a pluggable ASR backend (Deepgram first), owns segmentation and sound feedback, and emits the latest utterance and the latest aggregated segment. A transport-agnostic tools layer (`start`/`stop`/`is_running`/`listen`) sits on top, and the bundled MCP server publishes the two rolling resources (`asr://utterance`, `asr://segment`) and the tools over StreamableHTTP. The design revolves around one always-on asyncio pipeline — audio capture in a thread, everything else async on one event loop — with the engine aggregating utterances into segments that consumers subscribe to rather than a full transcript history.
+ASR Engine is a real-time Automatic Speech Recognition engine usable directly from Python or through the Model Context Protocol. `ASREngine` owns audio capture, pluggable ASR modules, audio-format negotiation, segmentation, sound feedback, and lifecycle. It emits every backend result as a `SpeechUtterance` and passes each utterance through its `Segmenter` to produce `SpeechSegment` updates.
 
-> **2026-08-31 refactor (done):** the package was renamed `asr_mcp` → `asr_engine` and restructured around a self-configured `ASREngine` + transport-agnostic tools layer — see [plans/202608311612_asr-engine-refactor.md](../plans/202608311612_asr-engine-refactor.md).
+`AsrTools` provides transport-independent lifecycle, listening, and dictation operations over the engine. In-process agents can register these methods directly, while the bundled MCP server exposes the same operations as MCP tools and publishes `asr://utterance` and `asr://segment` as rolling latest-value resources over StreamableHTTP.
+
+The pipeline is asynchronous: audio capture runs in a dedicated thread, while the engine, ASR module, segmentation, tools, and MCP server share one asyncio event loop.
 
 ## Specs
 
