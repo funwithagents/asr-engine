@@ -127,11 +127,19 @@ engine raises `ValueError` on an unknown one) and do not change the current mode
 ## MCP adapter
 
 The MCP server (see [mcp-server.md](mcp-server.md)) constructs one
-`AsrTools(engine)` and registers four MCP tools that call the corresponding
-methods. The `listen` tool passes an `on_progress` that forwards to
+`AsrTools(engine)` and registers all nine methods as MCP tools through thin
+adapters. The `listen` tool passes an `on_progress` that forwards to
 `ctx.report_progress(progress, total, message)`; when the client sends no
 `progressToken`, `ctx.report_progress` is a no-op and the tool still returns
 normally.
+
+An in-process agent can instead register the bound `AsrTools` methods directly
+with its own tool mechanism. Their signatures, docstrings, validation, and
+return shapes provide a ready-made agent tool contract, avoiding another layer
+of wrappers and descriptions derived from the lower-level engine API. The
+`on_progress` parameter of `listen` is a host integration hook and must be
+omitted or injected by the framework rather than exposed as a model-supplied
+argument.
 
 ## Testing
 

@@ -28,7 +28,7 @@ tests:
 
 > **Refactor note (2026-08-31):** `ASREngine` becomes the self-contained heart of
 > the repo — constructed from a single `ASREngineConfig`, owning audio, module,
-> segmentation, sound feedback, and its own logging level, so it is usable
+> segmentation and sound feedback, so it is usable
 > directly (via `import asr_engine`) without the MCP server. `set_segmentation_mode`
 > becomes mode-only, segmentation params move to a new `set_segmentation_params`,
 > and `listen` takes just a mode and never mutates the segmentation params.
@@ -315,7 +315,7 @@ lock so overlapping `listen` / dictation calls can't interleave (see
 ### `set_segmentation_params`
 
 ```python
-def set_segmentation_params(
+async def set_segmentation_params(
     self,
     *,
     trigger_words: list[str] | None = None,

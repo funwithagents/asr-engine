@@ -46,8 +46,8 @@ Where things live. This is a coarse, module-level map — for the full file inve
 | [mcp_server_cli.py](src/asr_engine/mcp_server_cli.py) | MCP server entry point (argparse → wires everything) | [mcp-server.md](specs/mcp-server.md) |
 | [config.py](src/asr_engine/config.py) | Config dataclasses + load/validate | [configuration.md](specs/configuration.md) |
 | [audio.py](src/asr_engine/audio.py) | `AudioCapture`, `AudioSource` protocol, `FileAudioSource` | [architecture.md](specs/architecture.md) |
-| [engine.py](src/asr_engine/engine.py) | `ASREngine`: built from `ASREngineConfig`; wires audio + module, start/stop, segmentation, sound feedback, logging level, `listen` | [engine.md](specs/engine.md) |
-| [tools.py](src/asr_engine/tools.py) | `AsrTools`: transport-agnostic `start`/`stop`/`is_running`/`listen` over an `ASREngine` | [tools.md](specs/tools.md) |
+| [engine.py](src/asr_engine/engine.py) | `ASREngine`: built from `ASREngineConfig`; wires audio + module, start/stop, segmentation, sound feedback, `listen` | [engine.md](specs/engine.md) |
+| [tools.py](src/asr_engine/tools.py) | `AsrTools`: transport-agnostic lifecycle, `listen`, and dictation tools over an `ASREngine` | [tools.md](specs/tools.md) |
 | [server.py](src/asr_engine/server.py) | MCP server: resources + StreamableHTTP, thin MCP adapter over `AsrTools` | [mcp-server.md](specs/mcp-server.md) |
 | [speech_utils.py](src/asr_engine/speech_utils.py) | `contains_trigger_word()` — shared trigger-word detection | [engine.md](specs/engine.md) |
 | [segmenter.py](src/asr_engine/segmenter.py) | `Segmenter` + `SpeechSegment`: utterance→segment aggregation (utterance/trigger_word/timeout) | [engine.md](specs/engine.md) |
@@ -147,7 +147,14 @@ uv run python -m examples.gradio_demo.app --config config.json          # Gradio
 
 ### Audio format contract
 
-All ASR modules receive audio as **16 kHz, 16-bit signed PCM, mono, ~100 ms chunks (3200 bytes)**. The audio capture layer owns resampling; modules must not worry about format conversion.
+Audio is delivered end-to-end in the engine's reconciled `AudioFormat`:
+configurable sample rate and channels, with `linear16` or G.711 `mulaw`
+encoding, in roughly 100 ms chunks. Each ASR module declares its supported and
+default formats; the engine either rejects unsupported configured dimensions or
+falls back to module defaults according to `engine.audio.on_unsupported_format`.
+The capture layer owns live-device conversion and encoding, while file sources
+validate their decoded rate/channels and encode as requested. Modules consume
+the resulting chunks and report that same format to their backend.
 
 ### Logging
 

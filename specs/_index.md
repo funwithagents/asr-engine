@@ -16,7 +16,7 @@ ASR Engine is a real-time Automatic Speech Recognition engine, usable directly b
 | [architecture.md](architecture.md) | System diagram, concurrency model, data flow | Implemented |
 | [engine.md](engine.md) | `ASREngine` (from `ASREngineConfig`) + `Segmenter`: callbacks, dictation (`start_dictation`/`stop_dictation`), `set_segmentation_params`, `segmentation_mode`/`dictating` getters, `listen` | Implemented |
 | [configuration.md](configuration.md) | Config file schema (`server` + nested `engine`/`ASREngineConfig`), fields, validation rules | Implemented |
-| [tools.md](tools.md) | Transport-agnostic `AsrTools` (`start`/`stop`/`is_running`/`listen`/dictation) over an `ASREngine` | Implemented |
+| [tools.md](tools.md) | Transport-agnostic `AsrTools` for direct in-process agent registration or MCP adaptation over an `ASREngine` | Implemented |
 | [mcp-server.md](mcp-server.md) | Resources `asr://utterance` + `asr://segment`, MCP adapter over the tools layer, server lifecycle | Implemented |
 | [asr-module-interface.md](asr-module-interface.md) | ABC, audio format contract, registry, reconnection | Implemented |
 | [deepgram-module.md](deepgram-module.md) | WebSocket details, config fields, message mapping | Implemented |

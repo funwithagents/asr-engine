@@ -32,15 +32,16 @@ Provide a real-time Automatic Speech Recognition (ASR) **engine** that:
 - Owns segmentation and sound feedback internally, so consumers don't re-implement
   end-of-utterance logic
 - Supports swappable ASR backend modules configured via a JSON config file
-- Exposes control tools (`start`, `stop`, `is_running`, `listen`) as a
-  transport-agnostic layer, surfaced over StreamableHTTP by the MCP server
+- Exposes lifecycle, `listen`, and dictation tools as a transport-agnostic
+  layer that in-process agents can register directly and the MCP server surfaces
+  over StreamableHTTP
 
 ## Components
 
 | Component | Description |
 |---|---|
-| **ASR Engine** | The core: wires audio + module, owns segmentation, sound feedback, and logging level; constructed from `ASREngineConfig`. Usable standalone. |
-| **Tools layer** | Transport-agnostic `AsrTools` (`start`/`stop`/`is_running`/`listen`) over an `ASREngine`; called directly or wrapped by the MCP server |
+| **ASR Engine** | The core: wires audio + module and owns segmentation and sound feedback; constructed from `ASREngineConfig`. Usable standalone. Logging remains the caller's concern. |
+| **Tools layer** | Transport-agnostic `AsrTools` lifecycle, `listen`, and dictation operations over an `ASREngine`; registerable directly by an in-process agent or wrapped by the MCP server |
 | **MCP Server** | StreamableHTTP server exposing the resources and the tools layer |
 | **ASR Module** | Pluggable backend implementing the ASR interface (first: Deepgram) |
 | **Audio Capture** | Reads from system audio input (configurable) |

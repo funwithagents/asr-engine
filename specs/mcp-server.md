@@ -136,8 +136,10 @@ Final example:
 ### `asr://segment`
 
 The latest ASR *segment* — an aggregation of utterances per the engine's
-current segment mode (`utterance` / `trigger_word` / `timeout`, configured by
-the `engine` block). `is_final=false` while the segment is still growing;
+current segment mode (`utterance` / `trigger_word` / `timeout`). The always-on
+mode is `utterance`; `listen`, dictation, or server `auto_start_dictation`
+temporarily selects another configured/default mode. `is_final=false` while the
+segment is still growing;
 `is_final=true` with an `end_reason` when it closes.
 
 - **URI:** `asr://segment`
