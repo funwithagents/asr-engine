@@ -6,8 +6,10 @@ import asyncio
 import json
 import logging
 import os
+import re
 import tempfile
 from pathlib import Path
+from typing import Callable
 
 import pytest
 
@@ -57,10 +59,31 @@ def require_api_key(module_config: dict) -> None:
         )
 
 
-def default_provider() -> tuple[str, dict]:
-    """(module_type, module_config) for the single-provider e2e tests.
+def normalize_transcript(text: str) -> str:
+    """Normalize a live transcript for robust phrase-level assertions."""
+    return re.sub(r"[^a-z0-9 ]", "", text.lower()).strip()
 
-    The single place the provider/model is chosen for every module-agnostic test
+
+async def wait_until(
+    predicate: Callable[[], bool],
+    *,
+    timeout: float = 30.0,
+    interval: float = 0.1,
+) -> None:
+    """Wait until a synchronous predicate is true or raise ``TimeoutError``."""
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout
+    while loop.time() < deadline:
+        if predicate():
+            return
+        await asyncio.sleep(interval)
+    raise TimeoutError("condition not met within timeout")
+
+
+def default_module() -> tuple[str, dict]:
+    """Return the module type and config for module-agnostic live tests.
+
+    The single place the module/model is chosen for every module-agnostic test
     (MCP resource/tool, asr-to-terminal), so none of them hardcodes a backend.
     Skips if the module's key env var is unset; carries ``api_key_env``, not a
     literal key.
@@ -71,8 +94,8 @@ def default_provider() -> tuple[str, dict]:
     return module_type, module_config
 
 
-# Per-provider param table for the parametrized engine conformance tests
-# (``test_engine_modules.py``). Each entry carries the model, a per-provider
+# Per-module param table for the parametrized engine conformance test
+# (``test_engine_modules.py``). Each entry carries the model, a per-module
 # ``silence_s`` (the gap the backend needs to finalize an utterance — Flux/EndOfTurn
 # needs longer than nova-3/is_final), and ``api_key_env`` (the module's own key env var,
 # omitted for a module needing no key). Add a row here when adding a new ASR module so

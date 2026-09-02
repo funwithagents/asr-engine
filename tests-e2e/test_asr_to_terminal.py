@@ -12,16 +12,15 @@ xdotool, or X11 display. They still need a Deepgram API key (see helpers).
 
 from __future__ import annotations
 
-import asyncio
-import re
-
 import pytest
 from helpers import (
     FIXTURE_BLUE,
     FIXTURE_BLUE_VALIDATE,
-    default_provider,
+    default_module,
+    normalize_transcript,
     start_mcp_server,
     stop_mcp_server,
+    wait_until,
 )
 
 from examples.asr_to_terminal.asr_to_terminal import AsrToTerminal
@@ -51,24 +50,10 @@ class RecordingTyper:
         self.line = ""
 
 
-def _normalize(text: str) -> str:
-    return re.sub(r"[^a-z0-9 ]", "", text.lower()).strip()
-
-
-async def _wait_until(predicate, timeout: float = 30.0) -> None:
-    loop = asyncio.get_event_loop()
-    deadline = loop.time() + timeout
-    while loop.time() < deadline:
-        if predicate():
-            return
-        await asyncio.sleep(0.1)
-    raise TimeoutError("condition not met within timeout")
-
-
 @pytest.mark.asyncio
 async def test_terminal_typing() -> None:
     """Feed the mp3 with an impossible trigger word: text is typed, never committed."""
-    module_type, module_config = default_provider()
+    module_type, module_config = default_module()
     port = 18101
 
     proc, config_path = await start_mcp_server(
@@ -87,12 +72,12 @@ async def test_terminal_typing() -> None:
     atr = AsrToTerminal(server_url=f"http://127.0.0.1:{port}/mcp", typer=typer)
     try:
         await atr.start()
-        await _wait_until(lambda: "the sky is blue" in _normalize(typer.line))
+        await wait_until(lambda: "the sky is blue" in normalize_transcript(typer.line))
     finally:
         await atr.stop()
         await stop_mcp_server(proc, config_path)
 
-    assert "the sky is blue" in _normalize(typer.line)
+    assert "the sky is blue" in normalize_transcript(typer.line)
     # Segment never closed → Enter never fired.
     assert typer.committed == []
 
@@ -100,7 +85,7 @@ async def test_terminal_typing() -> None:
 @pytest.mark.asyncio
 async def test_terminal_submit() -> None:
     """Feed the validate mp3; expect the segment to close and Enter to fire."""
-    module_type, module_config = default_provider()
+    module_type, module_config = default_module()
     port = 18102
 
     proc, config_path = await start_mcp_server(
@@ -119,7 +104,7 @@ async def test_terminal_submit() -> None:
     atr = AsrToTerminal(server_url=f"http://127.0.0.1:{port}/mcp", typer=typer)
     try:
         await atr.start()
-        await _wait_until(lambda: len(typer.committed) >= 1)
+        await wait_until(lambda: len(typer.committed) >= 1)
     finally:
         await atr.stop()
         await stop_mcp_server(proc, config_path)
@@ -127,13 +112,13 @@ async def test_terminal_submit() -> None:
     # A committed line means the segment closed and Enter fired.
     assert len(typer.committed) >= 1
     # The trigger word "validate" fires the action, not the text.
-    assert "validate" not in _normalize(typer.committed[-1])
+    assert "validate" not in normalize_transcript(typer.committed[-1])
 
 
 @pytest.mark.asyncio
 async def test_asr_to_terminal_timeout() -> None:
     """Feed the mp3 in timeout mode; expect text typed then Enter after EOS timeout."""
-    module_type, module_config = default_provider()
+    module_type, module_config = default_module()
     port = 18103
 
     proc, config_path = await start_mcp_server(
@@ -155,10 +140,10 @@ async def test_asr_to_terminal_timeout() -> None:
     atr = AsrToTerminal(server_url=f"http://127.0.0.1:{port}/mcp", typer=typer)
     try:
         await atr.start()
-        await _wait_until(lambda: len(typer.committed) >= 1)
+        await wait_until(lambda: len(typer.committed) >= 1)
     finally:
         await atr.stop()
         await stop_mcp_server(proc, config_path)
 
     assert len(typer.committed) >= 1, "Expected Enter to fire on EOS timeout"
-    assert "the sky is blue" in _normalize(typer.committed[-1])
+    assert "the sky is blue" in normalize_transcript(typer.committed[-1])

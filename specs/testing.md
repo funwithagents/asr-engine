@@ -23,7 +23,7 @@ Tests split into two directories, and the split is structural — a directory bo
 | Live / e2e | `tests-e2e/` | real Deepgram API | no | verify against a live service |
 
 - **`tests/` is the normal dev loop.** Fast, deterministic, no real network, no credentials — this is what runs on every change and what any contributor or CI can run with zero secrets. `pyproject.toml`'s `testpaths = ["tests"]` points the default `uv run pytest` here. It mirrors the `src/asr_engine/` module layout (`test_<module>.py`, plus the `tests/modules/` subpackage and the `test_project_map.py` drift-guard).
-- **`tests-e2e/` is opt-in.** It drives the full pipeline against the real Deepgram API — network, credentials (`$DEEPGRAM_API_KEY`), non-deterministic output — so it is deliberately *not* collected by the default run. Because `testpaths` already excludes it, no marker or flag is needed: the physical separation is the whole mechanism. Run it explicitly (`uv run pytest tests-e2e`), organized around live scenarios rather than modules. The terminal scenarios inject an in-memory keystroke sink, so the live tier does not require `xdotool`, `ydotool`, `xterm`, or a graphical display. Credentials are supplied by name: config carries `api_key_env` (the `$DEEPGRAM_API_KEY` variable name, never the value) and the module's `resolve_api_key` reads it; `tests-e2e/helpers.require_api_key()` skips when the variable is unset.
+- **`tests-e2e/` is opt-in.** It drives the full pipeline against the real Deepgram API — network, credentials (`$DEEPGRAM_API_KEY`), non-deterministic output — so it is deliberately *not* collected by the default run. Because `testpaths` already excludes it, no marker or flag is needed: the physical separation is the whole mechanism. Run it explicitly (`uv run pytest tests-e2e`). One streaming-lifecycle scenario is parametrized over the ASR modules; shared engine, MCP, and consumer scenarios run once on a default module. The terminal scenarios inject an in-memory keystroke sink, so the live tier does not require `xdotool`, `ydotool`, `xterm`, or a graphical display. Credentials are supplied by name: config carries `api_key_env` (the `$DEEPGRAM_API_KEY` variable name, never the value) and the module's `resolve_api_key` reads it; `tests-e2e/helpers.require_api_key()` skips when the variable is unset.
 
 ## What a good test asserts
 
@@ -42,6 +42,9 @@ The full unit suite (`pytest tests/`) must complete in a few seconds. If it does
 ## Test isolation
 
 If the package holds process-global or singleton state (a module-level registry, a cached client, a configured logger, a background timer/thread), reset it before and after each test via an `autouse` fixture in the tier's `conftest.py`, so no state leaks across tests.
+
+Live scenarios that wait for asynchronous callbacks or state transitions share
+`tests-e2e/helpers.wait_until()` rather than defining local polling loops.
 
 ## Open questions
 

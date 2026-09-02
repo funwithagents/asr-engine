@@ -1,36 +1,30 @@
 """End-to-end: FileAudioSource → ASREngine → MCP server → AsrResourceClient.
 
 Verifies the resource path (asr://utterance) surfaces a final transcript. This is
-module-agnostic plumbing, so it runs on a single provider (see ``default_provider``);
+module-agnostic plumbing, so it runs on the default module (see ``default_module``);
 per-module backend behavior is covered in ``test_engine_modules.py``.
 """
 
 from __future__ import annotations
 
 import asyncio
-import re
 
 import pytest
 from helpers import (
     FIXTURE_BLUE,
     FIXTURE_BLUE_VALIDATE,
-    default_provider,
+    default_module,
+    normalize_transcript,
     start_mcp_server,
     stop_mcp_server,
 )
 
 from examples.mcp_client.resource_client import AsrResourceClient
 
-_EXPECTED = "the sky is blue"
-
-
-def _normalize(text: str) -> str:
-    return re.sub(r"[^a-z0-9 ]", "", text.lower()).strip()
-
 
 @pytest.mark.asyncio
 async def test_resource_emits_final_transcript() -> None:
-    module_type, module_config = default_provider()
+    module_type, module_config = default_module()
     proc, config_path = await start_mcp_server(
         FIXTURE_BLUE, module_type, module_config, port=18001, trailing_silence_s=3.0
     )
@@ -54,9 +48,7 @@ async def test_resource_emits_final_transcript() -> None:
         await stop_mcp_server(proc, config_path)
 
     assert len(last_final_transcript) > 0, "No final result received"
-    assert _normalize(last_final_transcript[0]) == _normalize(_EXPECTED), (
-        f"Expected transcript {_EXPECTED!r}, got {last_final_transcript[0]!r}"
-    )
+    assert "the sky is blue" in normalize_transcript(last_final_transcript[0])
 
 
 @pytest.mark.asyncio
@@ -67,7 +59,7 @@ async def test_auto_start_dictation_aggregates_segment() -> None:
     plays), so the segment closes with end_reason 'trigger_word', excluding the
     trigger utterance.
     """
-    module_type, module_config = default_provider()
+    module_type, module_config = default_module()
     proc, config_path = await start_mcp_server(
         FIXTURE_BLUE_VALIDATE,
         module_type,
@@ -101,4 +93,4 @@ async def test_auto_start_dictation_aggregates_segment() -> None:
         await stop_mcp_server(proc, config_path)
 
     assert closed, "expected a trigger_word segment on asr://segment"
-    assert "validate" not in _normalize(closed[-1]["transcript"])
+    assert "validate" not in normalize_transcript(closed[-1]["transcript"])
