@@ -72,6 +72,8 @@ Consumed by the MCP entry point, not by `ASREngine`.
 
 The whole `engine` block maps to one `ASREngineConfig` dataclass, the single argument to `ASREngine(config=...)` (see [engine.md](engine.md)). It carries the scalar engine settings plus five nested sub-blocks.
 
+**`ASREngineConfig.from_dict(engine_block)`** is the public, in-memory constructor for direct importers: it takes the raw `engine` block (the object under the top-level `"engine"` key, **not** the whole file) and returns a validated `ASREngineConfig`, running exactly the same validation as file loading (see [Validation](#validation)). This is the "build from the `engine` block alone" path — no temp file, no `server` block, no environment reads (module `api_key`/`api_key_env` are carried through as extra fields and resolved later at engine construction, so a config with unset credentials still builds). `load_config` is implemented in terms of it: it parses the `server` block, then delegates the `engine` block to `from_dict`, so the two entry points produce identical results.
+
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `auto_start` | boolean | `true` | If `true`, ASR starts automatically at server startup. If `false`, the engine is initialised but not started — use the `start` or `listen` tool to begin capture. |

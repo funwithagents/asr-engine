@@ -75,90 +75,107 @@ class ASREngineConfig:
     audio: AudioConfig = field(default_factory=AudioConfig)
     module: ModuleConfig = field(default_factory=ModuleConfig)
 
+    @classmethod
+    def from_dict(cls, engine_block: dict[str, Any]) -> ASREngineConfig:
+        """Build (and validate) an ``ASREngineConfig`` from a raw ``engine`` block dict.
+
+        This is the public in-memory constructor for direct importers of the
+        library: it takes the object under the top-level ``"engine"`` key (not the
+        whole config file) and runs the same validation as ``load_config``'s engine
+        parsing — segmentation modes in {utterance, trigger_word, timeout}, encoding
+        in {linear16, mulaw}, on_unsupported_format in {error, fallback},
+        ``auto_start_dictation`` requires ``auto_start``, and ``module.type`` is
+        required. ``load_config`` is implemented in terms of it.
+
+        No environment variables are read: ``module`` extra fields are carried
+        through unchanged, and the module resolves its own ``api_key``/``api_key_env``
+        later at engine construction — so a config with unset credentials still
+        builds here.
+        """
+        auto_start = engine_block.get("auto_start", True)
+        auto_start_dictation = engine_block.get("auto_start_dictation", False)
+        if auto_start_dictation and not auto_start:
+            raise ValueError(
+                "Invalid engine config: auto_start_dictation requires auto_start=true."
+            )
+
+        listen_default = engine_block.get(
+            "listen_default_segmentation_mode", "trigger_word"
+        )
+        if listen_default not in _SEGMENT_MODES:
+            raise ValueError(
+                f"Invalid engine.listen_default_segmentation_mode: '{listen_default}'. "
+                f"Must be one of {', '.join(_SEGMENT_MODES)}."
+            )
+
+        dictation_default = engine_block.get(
+            "dictation_default_segmentation_mode", "trigger_word"
+        )
+        if dictation_default not in _SEGMENT_MODES:
+            raise ValueError(
+                f"Invalid engine.dictation_default_segmentation_mode: "
+                f"'{dictation_default}'. Must be one of {', '.join(_SEGMENT_MODES)}."
+            )
+
+        seg_data = engine_block.get("segmentation", {})
+        segmentation = SegmentationConfig(
+            trigger_words=seg_data.get("trigger_words", list(_DEFAULT_TRIGGER_WORDS)),
+            initial_silence_timeout_s=seg_data.get("initial_silence_timeout_s", 10.0),
+            end_of_speech_timeout_s=seg_data.get("end_of_speech_timeout_s", 5.0),
+        )
+
+        sf_data = engine_block.get("sound_feedback", {})
+        sound_feedback = SoundFeedbackConfig(
+            enabled=sf_data.get("enabled", True),
+            output_device=sf_data.get("output_device", None),
+        )
+
+        audio_data = engine_block.get("audio", {})
+        encoding = audio_data.get("encoding", "linear16")
+        if encoding not in _ENCODINGS:
+            raise ValueError(
+                f"Invalid engine.audio.encoding: '{encoding}'. "
+                f"Must be one of {', '.join(_ENCODINGS)}."
+            )
+        on_unsupported = audio_data.get("on_unsupported_format", "error")
+        if on_unsupported not in _UNSUPPORTED_FORMAT_POLICIES:
+            raise ValueError(
+                f"Invalid engine.audio.on_unsupported_format: '{on_unsupported}'. "
+                f"Must be one of {', '.join(_UNSUPPORTED_FORMAT_POLICIES)}."
+            )
+        audio = AudioConfig(
+            device=audio_data.get("device", None),
+            audio_file=audio_data.get("audio_file", None),
+            trailing_silence_s=audio_data.get("trailing_silence_s", 0.0),
+            sample_rate=audio_data.get("sample_rate", 16000),
+            channels=audio_data.get("channels", 1),
+            encoding=encoding,
+            on_unsupported_format=on_unsupported,
+        )
+
+        module_data = engine_block.get("module", {})
+        module_type = module_data.get("type")
+        if not module_type:
+            raise ValueError("Config is missing required field: engine.module.type")
+        extra = {k: v for k, v in module_data.items() if k != "type"}
+        module = ModuleConfig(type=module_type, extra=extra)
+
+        return cls(
+            auto_start=auto_start,
+            auto_start_dictation=auto_start_dictation,
+            listen_default_segmentation_mode=listen_default,
+            dictation_default_segmentation_mode=dictation_default,
+            segmentation=segmentation,
+            sound_feedback=sound_feedback,
+            audio=audio,
+            module=module,
+        )
+
 
 @dataclass
 class AppConfig:
     server: ServerConfig = field(default_factory=ServerConfig)
     engine: ASREngineConfig = field(default_factory=ASREngineConfig)
-
-
-def _parse_engine(engine_data: dict[str, Any]) -> ASREngineConfig:
-    auto_start = engine_data.get("auto_start", True)
-    auto_start_dictation = engine_data.get("auto_start_dictation", False)
-    if auto_start_dictation and not auto_start:
-        raise ValueError(
-            "Invalid engine config: auto_start_dictation requires auto_start=true."
-        )
-
-    listen_default = engine_data.get("listen_default_segmentation_mode", "trigger_word")
-    if listen_default not in _SEGMENT_MODES:
-        raise ValueError(
-            f"Invalid engine.listen_default_segmentation_mode: '{listen_default}'. "
-            f"Must be one of {', '.join(_SEGMENT_MODES)}."
-        )
-
-    dictation_default = engine_data.get(
-        "dictation_default_segmentation_mode", "trigger_word"
-    )
-    if dictation_default not in _SEGMENT_MODES:
-        raise ValueError(
-            f"Invalid engine.dictation_default_segmentation_mode: "
-            f"'{dictation_default}'. Must be one of {', '.join(_SEGMENT_MODES)}."
-        )
-
-    seg_data = engine_data.get("segmentation", {})
-    segmentation = SegmentationConfig(
-        trigger_words=seg_data.get("trigger_words", list(_DEFAULT_TRIGGER_WORDS)),
-        initial_silence_timeout_s=seg_data.get("initial_silence_timeout_s", 10.0),
-        end_of_speech_timeout_s=seg_data.get("end_of_speech_timeout_s", 5.0),
-    )
-
-    sf_data = engine_data.get("sound_feedback", {})
-    sound_feedback = SoundFeedbackConfig(
-        enabled=sf_data.get("enabled", True),
-        output_device=sf_data.get("output_device", None),
-    )
-
-    audio_data = engine_data.get("audio", {})
-    encoding = audio_data.get("encoding", "linear16")
-    if encoding not in _ENCODINGS:
-        raise ValueError(
-            f"Invalid engine.audio.encoding: '{encoding}'. "
-            f"Must be one of {', '.join(_ENCODINGS)}."
-        )
-    on_unsupported = audio_data.get("on_unsupported_format", "error")
-    if on_unsupported not in _UNSUPPORTED_FORMAT_POLICIES:
-        raise ValueError(
-            f"Invalid engine.audio.on_unsupported_format: '{on_unsupported}'. "
-            f"Must be one of {', '.join(_UNSUPPORTED_FORMAT_POLICIES)}."
-        )
-    audio = AudioConfig(
-        device=audio_data.get("device", None),
-        audio_file=audio_data.get("audio_file", None),
-        trailing_silence_s=audio_data.get("trailing_silence_s", 0.0),
-        sample_rate=audio_data.get("sample_rate", 16000),
-        channels=audio_data.get("channels", 1),
-        encoding=encoding,
-        on_unsupported_format=on_unsupported,
-    )
-
-    module_data = engine_data.get("module", {})
-    module_type = module_data.get("type")
-    if not module_type:
-        raise ValueError("Config is missing required field: engine.module.type")
-    extra = {k: v for k, v in module_data.items() if k != "type"}
-    module = ModuleConfig(type=module_type, extra=extra)
-
-    return ASREngineConfig(
-        auto_start=auto_start,
-        auto_start_dictation=auto_start_dictation,
-        listen_default_segmentation_mode=listen_default,
-        dictation_default_segmentation_mode=dictation_default,
-        segmentation=segmentation,
-        sound_feedback=sound_feedback,
-        audio=audio,
-        module=module,
-    )
 
 
 def load_config(path: str) -> AppConfig:
@@ -180,7 +197,7 @@ def load_config(path: str) -> AppConfig:
         port=server_data.get("port", 8000),
     )
 
-    engine = _parse_engine(data.get("engine", {}))
+    engine = ASREngineConfig.from_dict(data.get("engine", {}))
 
     return AppConfig(server=server, engine=engine)
 

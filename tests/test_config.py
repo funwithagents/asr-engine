@@ -220,6 +220,141 @@ def test_load_config_auto_start_dictation_ok_with_auto_start(tmp_path: Path) -> 
 
 
 # ---------------------------------------------------------------------------
+# ASREngineConfig.from_dict — the public in-memory constructor
+# ---------------------------------------------------------------------------
+
+
+def test_from_dict_full_block() -> None:
+    """A full engine block yields the expected scalars and nested sub-blocks."""
+    cfg = ASREngineConfig.from_dict(
+        {
+            "auto_start": False,
+            "listen_default_segmentation_mode": "timeout",
+            "dictation_default_segmentation_mode": "utterance",
+            "segmentation": {
+                "trigger_words": ["stop"],
+                "initial_silence_timeout_s": 7.0,
+                "end_of_speech_timeout_s": 2.0,
+            },
+            "sound_feedback": {"enabled": False, "output_device": "speakers"},
+            "audio": {"device": "hw:0", "sample_rate": 48000, "encoding": "mulaw"},
+            "module": {"type": "deepgram", "api_key": "secret", "language": "fr"},
+        }
+    )
+
+    assert cfg.auto_start is False
+    assert cfg.listen_default_segmentation_mode == "timeout"
+    assert cfg.dictation_default_segmentation_mode == "utterance"
+    assert cfg.segmentation.trigger_words == ["stop"]
+    assert cfg.segmentation.initial_silence_timeout_s == 7.0
+    assert cfg.segmentation.end_of_speech_timeout_s == 2.0
+    assert cfg.sound_feedback.enabled is False
+    assert cfg.sound_feedback.output_device == "speakers"
+    assert cfg.audio.device == "hw:0"
+    assert cfg.audio.sample_rate == 48000
+    assert cfg.audio.encoding == "mulaw"
+    assert cfg.module.type == "deepgram"
+    assert cfg.module.extra == {"api_key": "secret", "language": "fr"}
+
+
+def test_from_dict_defaults_for_omitted_blocks() -> None:
+    """Only module.type is required; every omitted block gets its documented default."""
+    cfg = ASREngineConfig.from_dict({"module": {"type": "deepgram"}})
+
+    assert cfg.auto_start is True
+    assert cfg.auto_start_dictation is False
+    assert cfg.listen_default_segmentation_mode == "trigger_word"
+    assert cfg.dictation_default_segmentation_mode == "trigger_word"
+    assert cfg.segmentation.initial_silence_timeout_s == 10.0
+    assert cfg.segmentation.end_of_speech_timeout_s == 5.0
+    assert "submit" in cfg.segmentation.trigger_words
+    assert cfg.sound_feedback.enabled is True
+    assert cfg.sound_feedback.output_device is None
+    assert cfg.audio.device is None
+    assert cfg.audio.sample_rate == 16000
+    assert cfg.audio.channels == 1
+    assert cfg.audio.encoding == "linear16"
+    assert cfg.audio.on_unsupported_format == "error"
+    assert cfg.module.extra == {}
+
+
+def test_from_dict_builds_without_credentials() -> None:
+    """A module block with no api_key still builds — keys resolve later."""
+    cfg = ASREngineConfig.from_dict({"module": {"type": "deepgram"}})
+    assert cfg.module.type == "deepgram"
+    assert "api_key" not in cfg.module.extra
+
+
+def test_from_dict_missing_module_type() -> None:
+    with pytest.raises(ValueError, match="engine.module.type"):
+        ASREngineConfig.from_dict({"segmentation": {"trigger_words": ["go"]}})
+
+
+def test_from_dict_empty_module_type() -> None:
+    with pytest.raises(ValueError, match="engine.module.type"):
+        ASREngineConfig.from_dict({"module": {"type": ""}})
+
+
+def test_from_dict_invalid_listen_default_mode() -> None:
+    with pytest.raises(ValueError, match="engine.listen_default_segmentation_mode"):
+        ASREngineConfig.from_dict(
+            {"listen_default_segmentation_mode": "bad", "module": {"type": "deepgram"}}
+        )
+
+
+def test_from_dict_invalid_dictation_default_mode() -> None:
+    with pytest.raises(ValueError, match="engine.dictation_default_segmentation_mode"):
+        ASREngineConfig.from_dict(
+            {
+                "dictation_default_segmentation_mode": "bad",
+                "module": {"type": "deepgram"},
+            }
+        )
+
+
+def test_from_dict_invalid_encoding() -> None:
+    with pytest.raises(ValueError, match="encoding"):
+        ASREngineConfig.from_dict(
+            {"audio": {"encoding": "opus"}, "module": {"type": "deepgram"}}
+        )
+
+
+def test_from_dict_invalid_unsupported_format_policy() -> None:
+    with pytest.raises(ValueError, match="on_unsupported_format"):
+        ASREngineConfig.from_dict(
+            {
+                "audio": {"on_unsupported_format": "resample"},
+                "module": {"type": "deepgram"},
+            }
+        )
+
+
+def test_from_dict_auto_start_dictation_requires_auto_start() -> None:
+    with pytest.raises(ValueError, match="auto_start_dictation requires auto_start"):
+        ASREngineConfig.from_dict(
+            {
+                "auto_start": False,
+                "auto_start_dictation": True,
+                "module": {"type": "deepgram"},
+            }
+        )
+
+
+def test_from_dict_matches_load_config(tmp_path: Path) -> None:
+    """load_config produces the same engine config as from_dict on that file's block."""
+    engine_block = {
+        "auto_start": False,
+        "listen_default_segmentation_mode": "timeout",
+        "segmentation": {"trigger_words": ["stop"], "end_of_speech_timeout_s": 2.0},
+        "audio": {"device": "hw:0", "encoding": "mulaw"},
+        "module": {"type": "deepgram", "api_key": "secret", "language": "fr"},
+    }
+    path = write_config(tmp_path, {"server": {"port": 9000}, "engine": engine_block})
+
+    assert load_config(path).engine == ASREngineConfig.from_dict(engine_block)
+
+
+# ---------------------------------------------------------------------------
 # validate_asr_type
 # ---------------------------------------------------------------------------
 

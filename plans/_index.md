@@ -34,6 +34,7 @@ Implementation plans for ASR MCP — each plan turns a settled part of a spec (s
 | [202609012100_server-only-package.md](202609012100_server-only-package.md) | Server-only package: move the MCP subscription SDK, demo client, and `asr-to-terminal` bridge to `examples/`; drop their console scripts; add fast `tests/examples/` + e2e coverage, incl. new `DemoController` tests | Done |
 | [202609020922_e2e-module-lifecycle-boundary.md](202609020922_e2e-module-lifecycle-boundary.md) | Limit per-module live coverage to streaming lifecycle; run engine/MCP/consumer APIs once on the default module | Done |
 | [202609020943_shared-e2e-wait-helper.md](202609020943_shared-e2e-wait-helper.md) | Consolidate duplicated live-test condition polling into one typed helper | Done |
+| [202609041741_engine-config-from-dict.md](202609041741_engine-config-from-dict.md) | Public `ASREngineConfig.from_dict(engine_block)` in-memory constructor; `load_config` delegates to it | Done |
 
 ## Status legend
 
