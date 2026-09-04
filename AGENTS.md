@@ -45,7 +45,7 @@ Where things live. This is a coarse, module-level map — for the full file inve
 |---|---|---|
 | [mcp_server_cli.py](src/asr_engine/mcp_server_cli.py) | MCP server entry point (argparse → wires everything) | [mcp-server.md](specs/mcp-server.md) |
 | [config.py](src/asr_engine/config.py) | Config dataclasses + load/validate | [configuration.md](specs/configuration.md) |
-| [audio.py](src/asr_engine/audio.py) | `AudioCapture`, `AudioSource` protocol, `FileAudioSource` | [architecture.md](specs/architecture.md) |
+| [audio.py](src/asr_engine/audio.py) | `AudioCapture`, `AudioSource` protocol (public injection seam), `FileAudioSource` | [architecture.md](specs/architecture.md), [audio-source.md](specs/audio-source.md) |
 | [engine.py](src/asr_engine/engine.py) | `ASREngine`: built from `ASREngineConfig`; wires audio + module, start/stop, segmentation, sound feedback, `listen` | [engine.md](specs/engine.md) |
 | [tools.py](src/asr_engine/tools.py) | `AsrTools`: transport-agnostic lifecycle, `listen`, and dictation tools over an `ASREngine` | [tools.md](specs/tools.md) |
 | [server.py](src/asr_engine/server.py) | MCP server: resources + StreamableHTTP, thin MCP adapter over `AsrTools` | [mcp-server.md](specs/mcp-server.md) |

@@ -69,14 +69,38 @@ DEFAULT_AUDIO_FORMAT = AudioFormat()
 
 
 class AudioSource(Protocol):
-    """Shared interface for microphone and file-based audio sources."""
+    """Audio source for an ``ASREngine`` — the public, stable injection seam.
+
+    Pass an implementation as ``ASREngine(config, audio_source=...)`` to feed the
+    engine from something other than the local mic or a file (e.g. an external,
+    already-captured PCM stream). The bundled ``AudioCapture`` (default mic),
+    ``FileAudioSource`` and ``ScriptableAudioSource`` all satisfy this Protocol.
+    See specs/audio-source.md for the full contract; in brief:
+
+    - ``start()`` opens the source and returns the ``asyncio.Queue[bytes]`` it
+      **owns and feeds**; the engine reads that queue (it does not create it).
+    - Each queue item is one chunk of raw PCM bytes **in the engine's reconciled
+      ``engine.audio_format``**: ``linear16`` is signed 16-bit little-endian,
+      ``mulaw`` is G.711; mono unless ``channels > 1`` (then interleaved). Any
+      reasonable chunk size is accepted — the module forwards bytes as-is; the
+      ``~CHUNK_MS`` target is what the bundled sources use, not a requirement.
+    - The engine does **not** resample/re-encode chunks from an injected source;
+      a custom source must produce ``engine.audio_format`` itself (which is valid
+      immediately after construction, before ``start()``).
+    - ``stop()`` halts feeding and releases resources. The engine calls it on
+      ``engine.stop()`` and in ``listen()`` teardown (always, even on error), and
+      may call ``start()`` again afterwards — the source must be restartable.
+    - The source owns the queue and picks bounded vs unbounded. The module drains
+      continuously (including during reconnect backoff), so an unbounded queue
+      with ``put_nowait`` never wedges the engine.
+    """
 
     def start(self) -> asyncio.Queue[bytes]:
-        """Open the source and return a queue that receives PCM chunks."""
+        """Open the source and return the queue it feeds with PCM chunks."""
         ...
 
     def stop(self) -> None:
-        """Stop and close the source."""
+        """Stop and close the source (restartable via a later ``start()``)."""
         ...
 
 

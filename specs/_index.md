@@ -16,6 +16,7 @@ The pipeline is asynchronous: audio capture runs in a dedicated thread, while th
 | [testing.md](testing.md) | Testing strategy: two-tier `tests/`/`tests-e2e/` split, functional-test philosophy | Implemented |
 | [overview.md](overview.md) | Goals, components, constraints, non-goals | Implemented |
 | [architecture.md](architecture.md) | System diagram, concurrency model, data flow | Implemented |
+| [audio-source.md](audio-source.md) | `AudioSource` injection seam: public/stable extension point, chunk contract, `audio_format` pre-`start()`, `stop()`/queue lifecycle | Implemented |
 | [engine.md](engine.md) | `ASREngine` (from `ASREngineConfig`) + `Segmenter`: callbacks, dictation (`start_dictation`/`stop_dictation`), `set_segmentation_params`, `segmentation_mode`/`dictating` getters, `listen` | Implemented |
 | [configuration.md](configuration.md) | Config file schema (`server` + nested `engine`/`ASREngineConfig`), fields, validation rules | Implemented |
 | [tools.md](tools.md) | Transport-agnostic `AsrTools` for direct in-process agent registration or MCP adaptation over an `ASREngine` | Implemented |

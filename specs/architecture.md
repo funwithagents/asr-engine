@@ -81,3 +81,5 @@ The server runs as a single Python process with an `asyncio` event loop:
 7. Subscribed MCP clients receive the updated resources
 
 Segmentation (trigger-word / timeout / one-per-utterance) is owned entirely by the engine — see [engine.md](engine.md) for the detail.
+
+Audio capture is pluggable through the `AudioSource` seam: the default `AudioCapture` reads a `sounddevice` `InputStream`, but a caller can inject any `AudioSource` (a custom stream, a file, a scripted source) via `ASREngine(config, audio_source=...)`. That seam is a supported public extension point with its own chunk/lifecycle contract — see [audio-source.md](audio-source.md).

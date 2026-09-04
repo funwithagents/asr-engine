@@ -59,6 +59,8 @@ Both sounds are played even if the session ends with an error (try/finally).
 
 If playback fails for any reason (device unavailable, file missing, etc.), the error is logged at `ERROR` level and the `listen` session continues or returns normally. Sound failures must never abort a `listen` call.
 
+On a headless host or one where audio output must be redirected (e.g. an engine driven by a custom `AudioSource` with no local speaker), set `engine.sound_feedback.enabled = false` to install `NoOpSoundFeedback` and fully disable local playback — see [audio-source.md](audio-source.md).
+
 ## Configuration
 
 Sound feedback is configured by the `engine.sound_feedback` sub-block (see [configuration.md](configuration.md)):
