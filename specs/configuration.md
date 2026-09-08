@@ -17,7 +17,19 @@ The MCP server reads a JSON config file at startup, passed as a CLI argument:
 uv run asr-engine-mcp --config config.json
 ```
 
-The file has two top-level blocks: `server` (an MCP-only concern — host/port) and `engine` (everything the `ASREngine` itself needs). A direct importer of the library builds an `ASREngineConfig` from the `engine` block alone and never needs `server`.
+The file has two top-level blocks: `server` (an MCP-only concern — host/port) and `engine` (everything the `ASREngine` itself needs). The whole file maps to an **`MCPServerConfig`** (the `server` + `engine` wrapper); only the `asr-engine-mcp` entry point needs it. A direct importer of the library builds an `ASREngineConfig` from the `engine` block alone and never needs `server`.
+
+### Constructors
+
+Both config classes expose the same three-rung constructor ladder — pick the rung matching what you have in hand:
+
+| Constructor | Input | Notes |
+|---|---|---|
+| `from_dict(d)` | an already-parsed dict | where all validation lives |
+| `from_json(text)` | a JSON string | parses `text`, then `from_dict` |
+| `from_json_file(path)` | a path to a JSON file | reads the file, then `from_json` |
+
+`MCPServerConfig`'s constructors take the **whole-file** shape (`{server, engine}`); `ASREngineConfig`'s take the **`engine` block** shape (`module`, `segmentation`, … at top level) — *not* a whole config file. `MCPServerConfig.from_dict` parses the `server` block itself and delegates the `engine` block to `ASREngineConfig.from_dict`, so both paths run identical engine validation and produce identical engine configs. `MCPServerConfig.from_json_file` is the MCP server's load path (`asr-engine-mcp --config …`).
 
 ## Schema
 
@@ -72,7 +84,7 @@ Consumed by the MCP entry point, not by `ASREngine`.
 
 The whole `engine` block maps to one `ASREngineConfig` dataclass, the single argument to `ASREngine(config=...)` (see [engine.md](engine.md)). It carries the scalar engine settings plus five nested sub-blocks.
 
-**`ASREngineConfig.from_dict(engine_block)`** is the public, in-memory constructor for direct importers: it takes the raw `engine` block (the object under the top-level `"engine"` key, **not** the whole file) and returns a validated `ASREngineConfig`, running exactly the same validation as file loading (see [Validation](#validation)). This is the "build from the `engine` block alone" path — no temp file, no `server` block, no environment reads (module `api_key`/`api_key_env` are carried through as extra fields and resolved later at engine construction, so a config with unset credentials still builds). `load_config` is implemented in terms of it: it parses the `server` block, then delegates the `engine` block to `from_dict`, so the two entry points produce identical results.
+**`ASREngineConfig.from_dict(engine_block)`** is the public, in-memory constructor for direct importers: it takes the raw `engine` block (the object under the top-level `"engine"` key, **not** the whole file) and returns a validated `ASREngineConfig`, running exactly the same validation as file loading (see [Validation](#validation)). This is the "build from the `engine` block alone" path — no `server` block, no environment reads (module `api_key`/`api_key_env` are carried through as extra fields and resolved later at engine construction, so a config with unset credentials still builds). `from_json`/`from_json_file` (see [Constructors](#constructors)) layer JSON string and file loading over it; `from_json_file` reads a file whose top-level object *is* an `engine` block, not a whole `config.json`. `MCPServerConfig.from_dict` delegates its `engine` block here, so the direct and MCP entry points produce identical engine configs.
 
 | Field | Type | Default | Description |
 |---|---|---|---|

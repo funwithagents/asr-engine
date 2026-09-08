@@ -8,10 +8,9 @@ from pathlib import Path
 import pytest
 
 from asr_engine.config import (
-    AppConfig,
     ASREngineConfig,
+    MCPServerConfig,
     ModuleConfig,
-    load_config,
     validate_asr_type,
 )
 
@@ -31,7 +30,7 @@ def _min(engine_overrides: dict | None = None, **top) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# load_config — happy path
+# MCPServerConfig.from_json_file — happy path
 # ---------------------------------------------------------------------------
 
 
@@ -55,7 +54,7 @@ def test_load_config_full(tmp_path: Path) -> None:
             },
         },
     )
-    cfg = load_config(path)
+    cfg = MCPServerConfig.from_json_file(path)
 
     assert cfg.server.host == "0.0.0.0"
     assert cfg.server.port == 9000
@@ -75,7 +74,7 @@ def test_load_config_full(tmp_path: Path) -> None:
 
 def test_load_config_defaults(tmp_path: Path) -> None:
     """Omitting optional blocks applies defaults."""
-    cfg = load_config(write_config(tmp_path, _min()))
+    cfg = MCPServerConfig.from_json_file(write_config(tmp_path, _min()))
 
     assert cfg.server.host == "127.0.0.1"
     assert cfg.server.port == 8000
@@ -97,7 +96,7 @@ def test_load_config_defaults(tmp_path: Path) -> None:
 
 
 def test_load_config_audio_format_fields(tmp_path: Path) -> None:
-    cfg = load_config(
+    cfg = MCPServerConfig.from_json_file(
         write_config(
             tmp_path,
             _min(
@@ -120,7 +119,7 @@ def test_load_config_audio_format_fields(tmp_path: Path) -> None:
 def test_load_config_rejects_unknown_encoding(tmp_path: Path) -> None:
     path = write_config(tmp_path, _min({"audio": {"encoding": "opus"}}))
     with pytest.raises(ValueError, match="encoding"):
-        load_config(path)
+        MCPServerConfig.from_json_file(path)
 
 
 def test_load_config_rejects_unknown_unsupported_policy(tmp_path: Path) -> None:
@@ -128,17 +127,19 @@ def test_load_config_rejects_unknown_unsupported_policy(tmp_path: Path) -> None:
         tmp_path, _min({"audio": {"on_unsupported_format": "resample"}})
     )
     with pytest.raises(ValueError, match="on_unsupported_format"):
-        load_config(path)
+        MCPServerConfig.from_json_file(path)
 
 
 def test_load_config_partial_server_defaults(tmp_path: Path) -> None:
-    cfg = load_config(write_config(tmp_path, _min(server={"port": 7777})))
+    cfg = MCPServerConfig.from_json_file(
+        write_config(tmp_path, _min(server={"port": 7777}))
+    )
     assert cfg.server.host == "127.0.0.1"
     assert cfg.server.port == 7777
 
 
 def test_load_config_custom_trigger_words(tmp_path: Path) -> None:
-    cfg = load_config(
+    cfg = MCPServerConfig.from_json_file(
         write_config(
             tmp_path, _min({"segmentation": {"trigger_words": ["go", "send"]}})
         )
@@ -147,38 +148,38 @@ def test_load_config_custom_trigger_words(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# load_config — error cases
+# MCPServerConfig.from_json_file — error cases
 # ---------------------------------------------------------------------------
 
 
 def test_load_config_missing_file() -> None:
     with pytest.raises(FileNotFoundError, match="not found"):
-        load_config("/nonexistent/path/config.json")
+        MCPServerConfig.from_json_file("/nonexistent/path/config.json")
 
 
 def test_load_config_invalid_json(tmp_path: Path) -> None:
     p = tmp_path / "bad.json"
     p.write_text("{not valid json")
     with pytest.raises(ValueError, match="not valid JSON"):
-        load_config(str(p))
+        MCPServerConfig.from_json_file(str(p))
 
 
 def test_load_config_missing_module_type(tmp_path: Path) -> None:
     path = write_config(tmp_path, {"engine": {"module": {"api_key": "x"}}})
     with pytest.raises(ValueError, match="engine.module.type"):
-        load_config(path)
+        MCPServerConfig.from_json_file(path)
 
 
 def test_load_config_empty_module_type(tmp_path: Path) -> None:
     path = write_config(tmp_path, {"engine": {"module": {"type": ""}}})
     with pytest.raises(ValueError, match="engine.module.type"):
-        load_config(path)
+        MCPServerConfig.from_json_file(path)
 
 
 def test_load_config_missing_engine_block(tmp_path: Path) -> None:
     path = write_config(tmp_path, {"server": {"port": 8080}})
     with pytest.raises(ValueError, match="engine.module.type"):
-        load_config(path)
+        MCPServerConfig.from_json_file(path)
 
 
 def test_load_config_invalid_dictation_default_mode(tmp_path: Path) -> None:
@@ -186,7 +187,7 @@ def test_load_config_invalid_dictation_default_mode(tmp_path: Path) -> None:
         tmp_path, _min({"dictation_default_segmentation_mode": "bad_mode"})
     )
     with pytest.raises(ValueError, match="engine.dictation_default_segmentation_mode"):
-        load_config(path)
+        MCPServerConfig.from_json_file(path)
 
 
 def test_load_config_invalid_listen_default_mode(tmp_path: Path) -> None:
@@ -194,11 +195,11 @@ def test_load_config_invalid_listen_default_mode(tmp_path: Path) -> None:
         tmp_path, _min({"listen_default_segmentation_mode": "bad_mode"})
     )
     with pytest.raises(ValueError, match="engine.listen_default_segmentation_mode"):
-        load_config(path)
+        MCPServerConfig.from_json_file(path)
 
 
 def test_load_config_listen_default_allows_utterance(tmp_path: Path) -> None:
-    cfg = load_config(
+    cfg = MCPServerConfig.from_json_file(
         write_config(tmp_path, _min({"listen_default_segmentation_mode": "utterance"}))
     )
     assert cfg.engine.listen_default_segmentation_mode == "utterance"
@@ -209,11 +210,11 @@ def test_load_config_auto_start_dictation_requires_auto_start(tmp_path: Path) ->
         tmp_path, _min({"auto_start": False, "auto_start_dictation": True})
     )
     with pytest.raises(ValueError, match="auto_start_dictation requires auto_start"):
-        load_config(path)
+        MCPServerConfig.from_json_file(path)
 
 
 def test_load_config_auto_start_dictation_ok_with_auto_start(tmp_path: Path) -> None:
-    cfg = load_config(
+    cfg = MCPServerConfig.from_json_file(
         write_config(tmp_path, _min({"auto_start": True, "auto_start_dictation": True}))
     )
     assert cfg.engine.auto_start_dictation is True
@@ -340,8 +341,8 @@ def test_from_dict_auto_start_dictation_requires_auto_start() -> None:
         )
 
 
-def test_from_dict_matches_load_config(tmp_path: Path) -> None:
-    """load_config produces the same engine config as from_dict on that file's block."""
+def test_from_dict_matches_from_json_file(tmp_path: Path) -> None:
+    """Loading a file yields the same engine config as from_dict on that file's block."""
     engine_block = {
         "auto_start": False,
         "listen_default_segmentation_mode": "timeout",
@@ -351,7 +352,81 @@ def test_from_dict_matches_load_config(tmp_path: Path) -> None:
     }
     path = write_config(tmp_path, {"server": {"port": 9000}, "engine": engine_block})
 
-    assert load_config(path).engine == ASREngineConfig.from_dict(engine_block)
+    assert MCPServerConfig.from_json_file(path).engine == ASREngineConfig.from_dict(
+        engine_block
+    )
+
+
+# ---------------------------------------------------------------------------
+# from_json / from_json_file — the string and engine-block-file constructors
+# ---------------------------------------------------------------------------
+
+
+def test_engine_from_json_parses_engine_block() -> None:
+    """ASREngineConfig.from_json takes a JSON *engine block* (no server wrapper)."""
+    cfg = ASREngineConfig.from_json(
+        json.dumps(
+            {
+                "listen_default_segmentation_mode": "timeout",
+                "module": {"type": "deepgram", "language": "fr"},
+            }
+        )
+    )
+    assert cfg.listen_default_segmentation_mode == "timeout"
+    assert cfg.module.type == "deepgram"
+    assert cfg.module.extra == {"language": "fr"}
+
+
+def test_engine_from_json_matches_from_dict() -> None:
+    block = {"audio": {"encoding": "mulaw"}, "module": {"type": "deepgram"}}
+    assert ASREngineConfig.from_json(json.dumps(block)) == ASREngineConfig.from_dict(
+        block
+    )
+
+
+def test_engine_from_json_rejects_malformed_json() -> None:
+    with pytest.raises(ValueError, match="not valid JSON"):
+        ASREngineConfig.from_json("{not valid")
+
+
+def test_engine_from_json_file_reads_engine_block(tmp_path: Path) -> None:
+    """from_json_file on the engine config reads a file that *is* the engine block."""
+    p = tmp_path / "engine.json"
+    p.write_text(json.dumps({"module": {"type": "deepgram", "model": "nova-3"}}))
+    cfg = ASREngineConfig.from_json_file(str(p))
+    assert cfg.module.type == "deepgram"
+    assert cfg.module.extra == {"model": "nova-3"}
+
+
+def test_engine_from_json_file_missing_file() -> None:
+    with pytest.raises(FileNotFoundError, match="not found"):
+        ASREngineConfig.from_json_file("/nonexistent/engine.json")
+
+
+def test_mcp_from_dict_parses_server_and_engine() -> None:
+    cfg = MCPServerConfig.from_dict(
+        {"server": {"host": "0.0.0.0", "port": 9000}, "engine": _min()["engine"]}
+    )
+    assert cfg.server.host == "0.0.0.0"
+    assert cfg.server.port == 9000
+    assert cfg.engine.module.type == "deepgram"
+
+
+def test_mcp_from_json_matches_from_json_file(tmp_path: Path) -> None:
+    """from_json (string) and from_json_file (path) produce the same whole config."""
+    data = {"server": {"port": 7000}, "engine": _min()["engine"]}
+    path = write_config(tmp_path, data)
+    assert MCPServerConfig.from_json(
+        json.dumps(data)
+    ) == MCPServerConfig.from_json_file(path)
+
+
+def test_mcp_from_json_names_file_in_parse_error(tmp_path: Path) -> None:
+    """A malformed config *file* names itself in the error."""
+    p = tmp_path / "bad.json"
+    p.write_text("{not valid")
+    with pytest.raises(ValueError, match=r"not valid JSON.*bad\.json"):
+        MCPServerConfig.from_json_file(str(p))
 
 
 # ---------------------------------------------------------------------------
@@ -359,8 +434,8 @@ def test_from_dict_matches_load_config(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _cfg(module_type: str) -> AppConfig:
-    return AppConfig(engine=ASREngineConfig(module=ModuleConfig(type=module_type)))
+def _cfg(module_type: str) -> ASREngineConfig:
+    return ASREngineConfig(module=ModuleConfig(type=module_type))
 
 
 def test_validate_asr_type_known() -> None:

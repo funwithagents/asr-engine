@@ -24,6 +24,28 @@ _ENCODINGS = ("linear16", "mulaw")
 _UNSUPPORTED_FORMAT_POLICIES = ("error", "fallback")
 
 
+def _read_file(path: str) -> str:
+    """Read *path*, re-raising a missing file with a config-flavored message."""
+    try:
+        with open(path) as f:
+            return f.read()
+    except FileNotFoundError:
+        raise FileNotFoundError(f"Config file not found: {path}")
+
+
+def _parse_config_json(text: str, source: str | None = None) -> Any:
+    """Parse *text* as JSON, raising a clear ``ValueError`` on malformed input.
+
+    *source* (a file path, when the JSON came from a file) is included in the
+    error so a bad config file names itself.
+    """
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError as exc:
+        where = f" ({source})" if source else ""
+        raise ValueError(f"Config is not valid JSON{where}: {exc}") from exc
+
+
 @dataclass
 class ServerConfig:
     host: str = "127.0.0.1"
@@ -80,12 +102,14 @@ class ASREngineConfig:
         """Build (and validate) an ``ASREngineConfig`` from a raw ``engine`` block dict.
 
         This is the public in-memory constructor for direct importers of the
-        library: it takes the object under the top-level ``"engine"`` key (not the
-        whole config file) and runs the same validation as ``load_config``'s engine
-        parsing — segmentation modes in {utterance, trigger_word, timeout}, encoding
-        in {linear16, mulaw}, on_unsupported_format in {error, fallback},
+        library, and where all engine validation lives: it takes the object under
+        the top-level ``"engine"`` key (not the whole config file) and validates it
+        — segmentation modes in {utterance, trigger_word, timeout}, encoding in
+        {linear16, mulaw}, on_unsupported_format in {error, fallback},
         ``auto_start_dictation`` requires ``auto_start``, and ``module.type`` is
-        required. ``load_config`` is implemented in terms of it.
+        required. ``from_json``/``from_json_file`` layer JSON string/file loading
+        over it, and ``MCPServerConfig.from_dict`` delegates its ``engine`` block
+        here, so every entry point validates identically.
 
         No environment variables are read: ``module`` extra fields are carried
         through unchanged, and the module resolves its own ``api_key``/``api_key_env``
@@ -171,40 +195,70 @@ class ASREngineConfig:
             module=module,
         )
 
+    @classmethod
+    def from_json(cls, text: str) -> ASREngineConfig:
+        """Build an ``ASREngineConfig`` from a JSON string holding an ``engine`` block.
+
+        The JSON's top-level object is the ``engine`` block itself (the shape found
+        under a config file's ``"engine"`` key) — **not** a whole MCP server config
+        file. Parses the string and delegates to :meth:`from_dict` (same validation).
+        """
+        return cls.from_dict(_parse_config_json(text))
+
+    @classmethod
+    def from_json_file(cls, path: str) -> ASREngineConfig:
+        """Build an ``ASREngineConfig`` from a JSON *file* holding an ``engine`` block.
+
+        The file's top-level object is the ``engine`` block itself (``module``,
+        ``segmentation``, …) — **not** an MCP ``config.json`` with ``server``/``engine``
+        wrappers. To load a whole server config file and take its engine, use
+        :meth:`MCPServerConfig.from_json_file` and read ``.engine`` instead.
+        """
+        return cls.from_dict(_parse_config_json(_read_file(path), source=path))
+
 
 @dataclass
-class AppConfig:
+class MCPServerConfig:
+    """A whole MCP server config file: the ``server`` block plus the ``engine`` block.
+
+    Only the ``asr-engine-mcp`` entry point needs this wrapper. A direct importer of
+    the library builds an :class:`ASREngineConfig` from the ``engine`` block alone
+    and never needs ``server``.
+    """
+
     server: ServerConfig = field(default_factory=ServerConfig)
     engine: ASREngineConfig = field(default_factory=ASREngineConfig)
 
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> MCPServerConfig:
+        """Build an ``MCPServerConfig`` from a whole-file dict (``server`` + ``engine``).
 
-def load_config(path: str) -> AppConfig:
-    """Load and parse the JSON config file at *path*."""
-    try:
-        with open(path) as f:
-            raw = f.read()
-    except FileNotFoundError:
-        raise FileNotFoundError(f"Config file not found: {path}")
+        Parses the optional ``server`` block (host/port) and delegates the ``engine``
+        block to :meth:`ASREngineConfig.from_dict`, so both entry points run identical
+        engine validation.
+        """
+        server_data = data.get("server", {})
+        server = ServerConfig(
+            host=server_data.get("host", "127.0.0.1"),
+            port=server_data.get("port", 8000),
+        )
+        engine = ASREngineConfig.from_dict(data.get("engine", {}))
+        return cls(server=server, engine=engine)
 
-    try:
-        data = json.loads(raw)
-    except json.JSONDecodeError as exc:
-        raise ValueError(f"Config file is not valid JSON ({path}): {exc}") from exc
+    @classmethod
+    def from_json(cls, text: str) -> MCPServerConfig:
+        """Build an ``MCPServerConfig`` from a whole-file JSON string."""
+        return cls.from_dict(_parse_config_json(text))
 
-    server_data = data.get("server", {})
-    server = ServerConfig(
-        host=server_data.get("host", "127.0.0.1"),
-        port=server_data.get("port", 8000),
-    )
-
-    engine = ASREngineConfig.from_dict(data.get("engine", {}))
-
-    return AppConfig(server=server, engine=engine)
+    @classmethod
+    def from_json_file(cls, path: str) -> MCPServerConfig:
+        """Load and parse the MCP server JSON config file at *path*."""
+        return cls.from_dict(_parse_config_json(_read_file(path), source=path))
 
 
-def validate_asr_type(config: AppConfig, registry: dict) -> None:
-    """Raise ValueError if config.engine.module.type is not a key in *registry*."""
-    module_type = config.engine.module.type
+def validate_asr_type(config: ASREngineConfig, registry: dict) -> None:
+    """Raise ValueError if config.module.type is not a key in *registry*."""
+    module_type = config.module.type
     if module_type not in registry:
         available = ", ".join(sorted(registry.keys())) or "(none)"
         raise ValueError(f"Unknown ASR type '{module_type}'. Available: {available}")

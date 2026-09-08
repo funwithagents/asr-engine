@@ -4,7 +4,7 @@ import logging
 import sys
 
 from asr_engine._logging import setup_logging
-from asr_engine.config import load_config
+from asr_engine.config import MCPServerConfig
 from asr_engine.server import run_server
 
 _LOG_LEVELS = sorted(
@@ -32,7 +32,7 @@ def main() -> None:
     setup_logging(args.log_level)
 
     try:
-        config = load_config(args.config)
+        config = MCPServerConfig.from_json_file(args.config)
     except (FileNotFoundError, ValueError) as exc:
         print(f"Error: {exc}", file=sys.stderr)
         sys.exit(1)

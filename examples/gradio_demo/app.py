@@ -16,7 +16,7 @@ import logging
 
 import gradio as gr
 
-from asr_engine.config import ASREngineConfig, ModuleConfig, load_config
+from asr_engine.config import ASREngineConfig, MCPServerConfig, ModuleConfig
 
 from .controller import ControllerState, DemoController
 
@@ -264,7 +264,11 @@ def main() -> None:
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
 
-    config = load_config(args.config).engine if args.config else _default_config()
+    config = (
+        MCPServerConfig.from_json_file(args.config).engine
+        if args.config
+        else _default_config()
+    )
 
     with DemoController(config) as controller:
         ui = build_ui(controller)

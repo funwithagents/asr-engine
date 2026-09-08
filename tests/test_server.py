@@ -9,8 +9,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from asr_engine.config import (
-    AppConfig,
     ASREngineConfig,
+    MCPServerConfig,
     ModuleConfig,
     ServerConfig,
     SoundFeedbackConfig,
@@ -294,7 +294,7 @@ async def test_dead_session_removed_on_send_failure():
 
 @pytest.mark.asyncio
 async def test_run_server_raises_on_unknown_asr_type() -> None:
-    config = AppConfig(engine=_engine_config(module_type="no_such_module"))
+    config = MCPServerConfig(engine=_engine_config(module_type="no_such_module"))
     with pytest.raises(ValueError, match="no_such_module"):
         await run_server(config)
 
@@ -471,7 +471,7 @@ async def test_run_server_auto_start_false_does_not_start_engine() -> None:
     fake_module.stop = AsyncMock(return_value=None)
     fake_class = _capable_mock_class(fake_module)
 
-    config = AppConfig(
+    config = MCPServerConfig(
         engine=_engine_config(module_type="fake_auto", auto_start=False),
     )
     original = dict(mod.REGISTRY)
@@ -495,7 +495,7 @@ async def test_run_server_prints_banner(capsys) -> None:
     fake_module.stop = AsyncMock(return_value=None)
     fake_class = _capable_mock_class(fake_module)
 
-    config = AppConfig(
+    config = MCPServerConfig(
         server=ServerConfig(host="0.0.0.0", port=9090),
         engine=_engine_config(module_type="fake_banner"),
     )
@@ -523,7 +523,7 @@ async def test_run_server_auto_start_dictation_starts_dictation() -> None:
     fake_module.stop = AsyncMock(return_value=None)
     fake_class = _capable_mock_class(fake_module)
 
-    config = AppConfig(
+    config = MCPServerConfig(
         engine=_engine_config(
             module_type="fake_dict", auto_start=True, auto_start_dictation=True
         ),

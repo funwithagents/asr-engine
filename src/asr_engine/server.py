@@ -9,7 +9,7 @@ import uvicorn
 from mcp.server.fastmcp import Context, FastMCP
 from pydantic import AnyUrl
 
-from asr_engine.config import AppConfig
+from asr_engine.config import MCPServerConfig
 from asr_engine.engine import ASREngine
 from asr_engine.modules.base import SpeechUtterance
 from asr_engine.segmenter import SpeechSegment
@@ -178,7 +178,7 @@ def create_mcp_server(engine: ASREngine) -> FastMCP:
     return mcp
 
 
-async def run_server(config: AppConfig, log_level: str = "INFO") -> None:
+async def run_server(config: MCPServerConfig, log_level: str = "INFO") -> None:
     """Create the ASR engine, the MCP server, and run uvicorn.
 
     ``log_level`` sets the level for uvicorn's own loggers; the entry point has

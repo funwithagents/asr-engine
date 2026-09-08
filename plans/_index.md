@@ -35,6 +35,7 @@ Implementation plans for ASR MCP — each plan turns a settled part of a spec (s
 | [202609020922_e2e-module-lifecycle-boundary.md](202609020922_e2e-module-lifecycle-boundary.md) | Limit per-module live coverage to streaming lifecycle; run engine/MCP/consumer APIs once on the default module | Done |
 | [202609020943_shared-e2e-wait-helper.md](202609020943_shared-e2e-wait-helper.md) | Consolidate duplicated live-test condition polling into one typed helper | Done |
 | [202609041741_engine-config-from-dict.md](202609041741_engine-config-from-dict.md) | Public `ASREngineConfig.from_dict(engine_block)` in-memory constructor; `load_config` delegates to it | Done |
+| [202609081500_config-constructor-ladder.md](202609081500_config-constructor-ladder.md) | Rename `AppConfig` → `MCPServerConfig`, drop `load_config`; `from_dict`/`from_json`/`from_json_file` ladder on both configs; retype `validate_asr_type` | Done |
 
 ## Status legend
 
