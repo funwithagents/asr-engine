@@ -11,12 +11,24 @@ tests:
 
 **Status:** Implemented
 
-Two Deepgram modules are provided, targeting different API versions and use cases:
+Two Deepgram modules are provided, targeting different API versions and use cases. They are **optional**: neither is a default, and neither is importable without the `deepgram` extra.
 
 | Key | Class | API | Best for |
 |---|---|---|---|
 | `deepgram_v1` | `DeepgramV1Module` | Listen v1 (Nova-3, Nova-2, …) | Multi-language, general transcription |
 | `deepgram_v2` | `DeepgramV2Module` | Listen v2 (Flux) | English conversational AI, built-in turn detection |
+
+## Installation
+
+Both modules ship in the `deepgram` extra (see [asr-module-interface.md](asr-module-interface.md) "Optional dependencies (extras)"), which pulls `deepgram-sdk`:
+
+```bash
+pip install 'asr-engine[deepgram]'
+# from source
+uv sync --extra deepgram
+```
+
+Without it, `deepgram_v1` / `deepgram_v2` still appear in the registry, but constructing an engine with either raises the registry's `ImportError` naming the `deepgram` extra. Each module file imports the SDK at top level; the lazy registry keeps that import off the `import asr_engine` path.
 
 ## API key resolution
 

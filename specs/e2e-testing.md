@@ -15,7 +15,7 @@ tests:
 
 ## Goal
 
-Provide an automated end-to-end test that exercises the full pipeline — from audio source through ASR backend to MCP client — without human interaction or a live microphone. Audio is read from a pre-recorded fixture (WAV or MP3) and fed into the real Deepgram API.
+Provide an automated end-to-end test that exercises the full pipeline — from audio source through ASR module to MCP client — without human interaction or a live microphone. Audio is read from a pre-recorded fixture (WAV or MP3) at real-time pace. Per-module conformance feeds it to the real provider APIs; module-agnostic scenarios run on the scripted [`fake`](fake-module.md) module, so they need no credentials and are deterministic.
 
 ## Scope
 
@@ -31,12 +31,14 @@ actually vary when the ASR module changes**:
 - **MCP and consumer APIs, default module** (`test_mcp_resource.py`,
   `test_mcp_tools.py`, `test_asr_to_terminal.py`): resources, tools, server
   lifecycle, and the terminal bridge. These consume engine events independently
-  of which module produced them, so repeating them per module only re-tests shared
-  code over the network. The default is selected only by
-  `helpers.default_module()`.
+  of which module produced them, so running them on a live backend only re-tests
+  shared code over the network. The default is selected only by
+  `helpers.default_module()`, which returns the **`fake` module** with a script
+  matching the fixture being played (see [Default module](#default-module-fake)).
+  These scenarios never skip for missing credentials.
 
 The `Segmenter` modes and engine/API error paths are exhaustive in the fast tier.
-Live e2e keeps representative success paths and does not repeat that deterministic
+The e2e tier keeps representative success paths and does not repeat that deterministic
 matrix for each module.
 
 **Test naming:** functions are named for the behavior under test, never the module (the folder already says "e2e"; the module identity shows up only as a parametrize id). So `test_resource_emits_final_transcript`, not `test_e2e_deepgram_v1`.
@@ -45,7 +47,7 @@ matrix for each module.
 `ASREngine` on its own, with no MCP server:
 
 ```
-FileAudioSource → asyncio.Queue → ASRModule (Deepgram API)
+FileAudioSource → asyncio.Queue → ASRModule (provider API, or fake)
                                          │
                                     ASREngine (callbacks + public APIs)
                                          │
@@ -61,7 +63,7 @@ only the module and observes its utterance/lifecycle contract.
 `test_asr_to_terminal.py`) — the same pipeline surfaced over the server:
 
 ```
-FileAudioSource → asyncio.Queue → ASRModule (Deepgram API)
+FileAudioSource → asyncio.Queue → ASRModule (fake)
                                          │
                                     ASREngine (utterance/segment callbacks)
                                          │
@@ -139,9 +141,29 @@ Each row runs one `test_engine_streams` scenario at 44.1 kHz from MP3:
 It does not assert `SpeechSegment`, `listen`, dictation, or MCP behavior: those are
 owned by shared engine/API layers.
 
+### Default module (`fake`)
+
+`helpers.default_module(script)` returns `("fake", {"utterances": script})`. The scripts come from builder functions in `helpers.py`, one per fixture, timed to fall **inside the audio actually fed** — the fixture plus any trailing silence (the fake's clock is audio time, so events past the end of the fed audio never fire — see [fake-module.md](fake-module.md) "Clock"):
+
+| Builder | Fixture | Script (at `delay_s=0`) |
+|---|---|---|
+| `script_blue(delay_s=0.0)` | `FIXTURE_BLUE` (1.35 s), `FIXTURE_BLUE_WAV_16000` (1.49 s) | `"the sky is blue"` 0.1–1.2 s |
+| `script_blue_validate(delay_s=0.0)` | `FIXTURE_BLUE_VALIDATE` (1.90 s) | `"the sky is blue"` 0.1–1.1 s, then the trigger word `"validate"` as its own final 1.3–1.7 s |
+
+The trigger word is scripted as a separate final so trigger-word scenarios assert the full pre-trigger transcript (`"the sky is blue"`) — a stronger check than the live model allowed, since nova-3 often merged both into one final.
+
+**`delay_s`** shifts a script later on the audio clock. It is needed where the audio starts before the test is ready to observe it:
+
+- **Auto-starting servers** (`test_mcp_resource.py`, `test_asr_to_terminal.py`) begin playing at subprocess startup, before the test's client subscribes. These scenarios feed `trailing_silence_s` (2–3 s) and delay the script into it (1.5–2 s), leaving the client time to connect.
+- **`test_dictation_pipeline`** starts the engine (and the fake's clock) before arming dictation and calling `play()`; a 0.5 s delay keeps the first final after dictation is armed.
+
+`listen`-tool scenarios need no delay: the tool starts the engine itself. The fixture audio content is irrelevant to the fake; the file is still played because it is how the subprocess server gets a real-time audio source.
+
+Because the transcripts are scripted, assertions on these scenarios are **exact** (e.g. the `listen` trigger-word result's transcript equals `"the sky is blue"`), not `normalize_transcript` containment.
+
 ### Default module — direct engine API
 
-Built from `helpers.default_module()` (`deepgram_v1`/`nova-3`):
+Built from `helpers.default_module(...)` (`fake`):
 
 - `test_listen_pipeline` — timeout-mode `listen` over the 16 kHz WAV; asserts the
   resolved format, final segment/reason, a recognizable phrase, and stopped state.
@@ -152,7 +174,7 @@ Built from `helpers.default_module()` (`deepgram_v1`/`nova-3`):
 
 ### Default module — MCP and consumer APIs
 
-Also built from `helpers.default_module()`; each scenario runs once because it
+Also built from `helpers.default_module(...)` (`fake`); each scenario runs once because it
 exercises shared adapters or consumers:
 
 | Test file | Covers | Port(s) |
@@ -167,6 +189,8 @@ and therefore do not belong in the live tier.
 
 ## Assertion Strategy
 
+**Live (per-module) scenarios:**
+
 1. A scenario expecting completion must receive at least one final result.
 2. Transcripts are normalized with `helpers.normalize_transcript()`:
    - converted to lowercase
@@ -177,6 +201,9 @@ and therefore do not belong in the live tier.
 
 Exact transcript equality is avoided because live service segmentation and output
 can vary between runs and models.
+
+**`fake` (default-module) scenarios** assert exact transcripts and exact event
+sequences where the scenario defines them, since the script fixes the output.
 
 ## Infrastructure
 
@@ -189,7 +216,7 @@ can vary between runs and models.
 - **Through-MCP tests** (`test_mcp_resource.py`, `test_mcp_tools.py`, `test_asr_to_terminal.py`): `helpers.start_mcp_server` spawns a real `asr-engine-mcp` **subprocess** (`uv run asr-engine-mcp --config <temp>`) on a dedicated port, writing a temp JSON config with `audio.audio_file`, the `module` block, and any `engine` overrides. It waits until the TCP port accepts connections (`_wait_for_port`); `stop_mcp_server` terminates the process and removes the temp config.
 - **Clients:** `AsrResourceClient` (subscribes to `asr://utterance`) for the resource path, `McpToolClient` (single tool call, optional progress callback) for the `listen` tool, and `AsrToTerminal` with an injected in-memory `RecordingTyper` for the terminal bridge.
 - **Timeout:** 30 seconds per test (covers real-time audio playback + API round-trip).
-- **API key:** tests never read the literal key. Each module config carries
+- **API key** (per-module live scenarios only; the `fake` module needs none): tests never read the literal key. Each module config carries
   `api_key_env` — the name of the env var it authenticates with — and the module's
   own `resolve_api_key` reads it. `default_module()` and the `MODULES` rows set that
   name; `require_api_key()` skips when it is unset. A keyless module is never
@@ -197,6 +224,6 @@ can vary between runs and models.
 
 ## Non-Goals
 
-- Mocking the Deepgram API — the test must hit the real backend.
+- Mocking a provider's API — per-module conformance must hit the real backend. (The `fake` module is not a mock of any provider: it replaces the module entirely, and is only used where the module is irrelevant to what is tested.)
 - Testing lifecycle races or backend reconnection logic.
-- Running in CI without a real API key.
+- Running the per-module live scenarios in CI without a real API key. (The `fake` scenarios need none.)

@@ -20,10 +20,14 @@ Tests split into two directories, and the split is structural — a directory bo
 | Tier | Directory | Network | Deterministic | Purpose |
 |---|---|---|---|---|
 | Unit / integration | `tests/` | never | yes | normal dev loop |
-| Live / e2e | `tests-e2e/` | real Deepgram API | no | verify against a live service |
+| Real-time / e2e | `tests-e2e/` | per-module scenarios only (real provider APIs) | module-agnostic scenarios yes (`fake` module); per-module no | full pipeline at natural speed: subprocess server, real-time audio, live backends |
 
 - **`tests/` is the normal dev loop.** Fast, deterministic, no real network, no credentials — this is what runs on every change and what any contributor or CI can run with zero secrets. `pyproject.toml`'s `testpaths = ["tests"]` points the default `uv run pytest` here. It mirrors the `src/asr_engine/` module layout (`test_<module>.py`, plus the `tests/modules/` subpackage and the `test_project_map.py` drift-guard).
-- **`tests-e2e/` is opt-in.** It drives the full pipeline against the real Deepgram API — network, credentials (`$DEEPGRAM_API_KEY`), non-deterministic output — so it is deliberately *not* collected by the default run. Because `testpaths` already excludes it, no marker or flag is needed: the physical separation is the whole mechanism. Run it explicitly (`uv run pytest tests-e2e`). One streaming-lifecycle scenario is parametrized over the ASR modules; shared engine, MCP, and consumer scenarios run once on a default module. The terminal scenarios inject an in-memory keystroke sink, so the live tier does not require `xdotool`, `ydotool`, `xterm`, or a graphical display. Credentials are supplied by name: config carries `api_key_env` (the `$DEEPGRAM_API_KEY` variable name, never the value) and the module's `resolve_api_key` reads it; `tests-e2e/helpers.require_api_key()` skips when the variable is unset.
+- **`tests-e2e/` is opt-in.** It drives the full pipeline at natural speed — a real `asr-engine-mcp` subprocess, real-time file audio — which takes seconds per scenario, so it is deliberately *not* collected by the default run. Because `testpaths` already excludes it, no marker or flag is needed: the physical separation is the whole mechanism. Run it explicitly (`uv run pytest tests-e2e`). It has two halves (see [e2e-testing.md](e2e-testing.md)):
+  - **Per-module conformance** — one streaming-lifecycle scenario parametrized over the real ASR modules, against the live provider APIs (network, credentials, non-deterministic output). This is the only live-network part of the suite.
+  - **Module-agnostic scenarios** — shared engine API, MCP, and consumer scenarios, run once on the [`fake`](fake-module.md) module: keyless and deterministic, so they run for any contributor and may assert exact transcripts.
+
+  The terminal scenarios inject an in-memory keystroke sink, so the tier does not require `xdotool`, `ydotool`, `xterm`, or a graphical display. Live credentials are supplied by name: a provider module's config carries `api_key_env` (e.g. `DEEPGRAM_API_KEY` — the variable name, never the value) and the module's `resolve_api_key` reads it; `tests-e2e/helpers.require_api_key()` skips a per-module case when the variable is unset. Running the tier also requires every provider extra to be installed (the dev environment has them — see [project.md](project.md)).
 
 ## What a good test asserts
 
@@ -33,7 +37,13 @@ Tests split into two directories, and the split is structural — a directory bo
 - **One test per distinct code path.** Merge two tests that exercise the same branch with different data; keep variants only when they trigger genuinely different logic (e.g. `is_final=True` vs `is_final=False`). Merge lifecycle sequences (start/stop, connect/disconnect) into one test that exercises the full cycle.
 - **Error paths deserve individual tests.** `missing_key`, `empty_key`, `unknown_type` are distinct validation branches with distinct messages.
 - **Delete trivial structural tests.** `isinstance(x, SomeClass)` or `x.name == "literal"` only break if you intentionally change the type or name — not worth a dedicated test.
-- **In the e2e tier, assert on behavior, not exact output.** Real service responses vary run to run, so a live test asserts a robust property ("a non-empty transcript came back", "the side effect happened"), never a specific string.
+- **Against a live service, assert on behavior, not exact output.** Real service responses vary run to run, so a live test asserts a robust property ("a non-empty transcript came back", "the side effect happened"), never a specific string. Scenarios on the `fake` module are scripted, so they assert exact transcripts.
+
+## The `fake` module as a test double
+
+Tests about behavior downstream of the ASR module (utterances → segments → tools → MCP → consumers) use the scripted [`fake`](fake-module.md) module rather than a real backend or an ad-hoc `REGISTRY` patch: it goes through the real config → registry → engine path, needs no credentials, and replays deterministically. In the fast tier, pair it with `ScriptableAudioSource(real_time=False)` via the `fake_engine_factory` fixture in `tests/conftest.py` so scripts replay faster than real time. `REGISTRY` patching with mocks stays appropriate only for tests about module *loading* or about a module's call contract (e.g. asserting `stop()` was awaited on failure).
+
+The fake is a test double only — never a user-facing default (see [asr-module-interface.md](asr-module-interface.md)).
 
 ## Speed rule
 

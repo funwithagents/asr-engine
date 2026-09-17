@@ -51,7 +51,7 @@ def make_engine(**cfg_kwargs) -> ASREngine:
     module.start = AsyncMock(return_value=None)
     module.stop = AsyncMock(return_value=None)
     mock_class = _capable_mock_class(module)
-    with patch.dict("asr_engine.engine.REGISTRY", {"mock": mock_class}):
+    with patch.dict("asr_engine.modules.REGISTRY", {"mock": mock_class}):
         return ASREngine(_engine_config(**cfg_kwargs))
 
 

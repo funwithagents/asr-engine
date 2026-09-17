@@ -80,18 +80,43 @@ async def wait_until(
     raise TimeoutError("condition not met within timeout")
 
 
-def default_module() -> tuple[str, dict]:
-    """Return the module type and config for module-agnostic live tests.
+# Scripts for the ``fake`` module (specs/fake-module.md), one per fixture. The fake
+# ignores the audio and emits these on its *audio-time* clock, so every event must
+# fall inside the audio actually fed (the file plus any trailing silence). Fixture
+# durations (soundfile): FIXTURE_BLUE 1.347 s, FIXTURE_BLUE_VALIDATE 1.904 s,
+# FIXTURE_BLUE_WAV_16000 1.486 s.
+#
+# ``delay_s`` shifts a script later on that clock. Servers that auto-start begin
+# playing before the test's client has subscribed, so those scenarios delay the
+# script into the trailing silence to leave the client time to connect.
 
-    The single place the module/model is chosen for every module-agnostic test
-    (MCP resource/tool, asr-to-terminal), so none of them hardcodes a backend.
-    Skips if the module's key env var is unset; carries ``api_key_env``, not a
-    literal key.
+
+def script_blue(delay_s: float = 0.0) -> list[dict]:
+    """ "the sky is blue" — fits FIXTURE_BLUE and FIXTURE_BLUE_WAV_16000 at delay 0."""
+    return [
+        {"text": "the sky is blue", "start_s": 0.1 + delay_s, "end_s": 1.2 + delay_s}
+    ]
+
+
+def script_blue_validate(delay_s: float = 0.0) -> list[dict]:
+    """ "the sky is blue" then the trigger word "validate" as its own final — fits
+    FIXTURE_BLUE_VALIDATE at delay 0."""
+    return [
+        {"text": "the sky is blue", "start_s": 0.1 + delay_s, "end_s": 1.1 + delay_s},
+        {"text": "validate", "start_s": 1.3 + delay_s, "end_s": 1.7 + delay_s},
+    ]
+
+
+def default_module(script: list[dict]) -> tuple[str, dict]:
+    """Return the module type and config for module-agnostic e2e tests.
+
+    The single place the module is chosen for every module-agnostic test (direct
+    engine API, MCP resource/tool, asr-to-terminal): the scripted ``fake`` module,
+    replaying *script*. It needs no credentials, so these tests never skip, and
+    their transcripts are exact. Live backends are covered per module by
+    ``test_engine_modules.py`` (``MODULES``).
     """
-    module_type = "deepgram_v1"
-    module_config = {"model": "nova-3", "api_key_env": DEEPGRAM_API_KEY_ENV}
-    require_api_key(module_config)
-    return module_type, module_config
+    return "fake", {"utterances": script}
 
 
 # Per-module param table for the parametrized engine conformance test

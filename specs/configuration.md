@@ -136,7 +136,7 @@ The three format fields (`sample_rate`/`channels`/`encoding`) form the desired `
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `type` | string | yes | Identifies which ASR module to load (e.g. `"deepgram_v1"`). |
+| `type` | string | yes | Identifies which ASR module to load (e.g. `"deepgram_v1"`). There is **no default module**. Provider modules need their extra installed (see [asr-module-interface.md](asr-module-interface.md) "Optional dependencies (extras)"); `"fake"` is a test double for tests only (see [fake-module.md](fake-module.md)). |
 | *(other fields)* | any | depends | Module-specific configuration, parsed by the module. |
 
 **Default trigger words:**
@@ -157,6 +157,8 @@ All three modes are valid for `listen` and dictation. In `utterance` mode a `lis
 
 ## Example: Deepgram config
 
+Requires the `deepgram` extra (`pip install 'asr-engine[deepgram]'`).
+
 ```json
 {
   "server": {
@@ -176,12 +178,29 @@ All three modes are valid for `listen` and dictation. In `utterance` mode a `lis
 }
 ```
 
+## Example: test config (fake module)
+
+For tests only — a keyless, deterministic scripted module (see [fake-module.md](fake-module.md)):
+
+```json
+{
+  "engine": {
+    "audio": { "audio_file": "tests-e2e/fixtures/sample_44100_theskyisblue.mp3", "sample_rate": 44100 },
+    "module": {
+      "type": "fake",
+      "utterances": [{ "text": "the sky is blue", "start_s": 0.3, "end_s": 1.2 }]
+    }
+  }
+}
+```
+
 ## Validation
 
 - The server must fail fast at startup with a clear error message if:
   - The config file is missing or not valid JSON
   - The required field `engine.module.type` is absent
   - The specified `engine.module.type` is unknown
+  - The specified module's optional dependencies (its extra) are not installed — checked at engine construction, not at config parsing, with an `ImportError` naming the extra to install
   - Module-specific required fields (e.g. `api_key` / `api_key_env`) are missing
   - `engine.listen_default_segmentation_mode` is not one of `utterance` / `trigger_word` / `timeout`
   - `engine.dictation_default_segmentation_mode` is not one of `utterance` / `trigger_word` / `timeout`

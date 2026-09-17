@@ -14,7 +14,8 @@ from helpers import (
     FIXTURE_BLUE,
     FIXTURE_BLUE_VALIDATE,
     default_module,
-    normalize_transcript,
+    script_blue,
+    script_blue_validate,
     start_mcp_server,
     stop_mcp_server,
 )
@@ -24,7 +25,8 @@ from examples.mcp_client.resource_client import AsrResourceClient
 
 @pytest.mark.asyncio
 async def test_resource_emits_final_transcript() -> None:
-    module_type, module_config = default_module()
+    # The server auto-starts before the client subscribes: script into the tail.
+    module_type, module_config = default_module(script_blue(delay_s=2.0))
     proc, config_path = await start_mcp_server(
         FIXTURE_BLUE, module_type, module_config, port=18001, trailing_silence_s=3.0
     )
@@ -48,7 +50,7 @@ async def test_resource_emits_final_transcript() -> None:
         await stop_mcp_server(proc, config_path)
 
     assert len(last_final_transcript) > 0, "No final result received"
-    assert "the sky is blue" in normalize_transcript(last_final_transcript[0])
+    assert last_final_transcript == ["the sky is blue"]
 
 
 @pytest.mark.asyncio
@@ -59,7 +61,7 @@ async def test_auto_start_dictation_aggregates_segment() -> None:
     plays), so the segment closes with end_reason 'trigger_word', excluding the
     trigger utterance.
     """
-    module_type, module_config = default_module()
+    module_type, module_config = default_module(script_blue_validate(delay_s=1.5))
     proc, config_path = await start_mcp_server(
         FIXTURE_BLUE_VALIDATE,
         module_type,
@@ -93,4 +95,4 @@ async def test_auto_start_dictation_aggregates_segment() -> None:
         await stop_mcp_server(proc, config_path)
 
     assert closed, "expected a trigger_word segment on asr://segment"
-    assert "validate" not in normalize_transcript(closed[-1]["transcript"])
+    assert closed[-1]["transcript"] == "the sky is blue"

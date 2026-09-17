@@ -16,21 +16,12 @@ import logging
 
 import gradio as gr
 
-from asr_engine.config import ASREngineConfig, MCPServerConfig, ModuleConfig
+from asr_engine.config import MCPServerConfig
 
 from .controller import ControllerState, DemoController
 
 _SEG_MODES = ["utterance", "trigger_word", "timeout"]
 _POLL_INTERVAL_S = 0.5
-
-
-def _default_config() -> ASREngineConfig:
-    """Minimal built-in config when no ``--config`` is given: Deepgram via env."""
-    return ASREngineConfig(
-        module=ModuleConfig(
-            type="deepgram_v1", extra={"api_key_env": "DEEPGRAM_API_KEY"}
-        )
-    )
 
 
 def build_ui(controller: DemoController) -> gr.Blocks:
@@ -248,8 +239,12 @@ def _render(state: ControllerState) -> list:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Gradio demo for the ASR engine.")
+    # Required: a built-in fallback would have to pick an ASR module, making it the
+    # implicit default. The user chooses the module (and installs its extra).
     parser.add_argument(
-        "--config", help="Path to a JSON config file (only its `engine` block is used)."
+        "--config",
+        required=True,
+        help="Path to a JSON config file (only its `engine` block is used).",
     )
     parser.add_argument("--host", default="127.0.0.1", help="Host to bind the UI to.")
     parser.add_argument(
@@ -264,11 +259,7 @@ def main() -> None:
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
 
-    config = (
-        MCPServerConfig.from_json_file(args.config).engine
-        if args.config
-        else _default_config()
-    )
+    config = MCPServerConfig.from_json_file(args.config).engine
 
     with DemoController(config) as controller:
         ui = build_ui(controller)

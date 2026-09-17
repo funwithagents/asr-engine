@@ -1,4 +1,4 @@
-"""Default-module live coverage for the public direct-engine APIs."""
+"""Default-module (``fake``) e2e coverage for the public direct-engine APIs."""
 
 from __future__ import annotations
 
@@ -13,7 +13,8 @@ from helpers import (
     build_engine,
     build_file_engine,
     default_module,
-    normalize_transcript,
+    script_blue,
+    script_blue_validate,
     wait_until,
 )
 
@@ -23,7 +24,7 @@ from asr_engine import ScriptableAudioSource, SpeechSegment
 @pytest.mark.asyncio
 async def test_listen_pipeline() -> None:
     """listen transcribes 16 kHz input, closes on silence, and stops the engine."""
-    module_type, module_config = default_module()
+    module_type, module_config = default_module(script_blue())
     engine = build_file_engine(
         FIXTURE_BLUE_WAV_16000,
         module_type,
@@ -38,14 +39,16 @@ async def test_listen_pipeline() -> None:
     assert engine.audio_format == FORMAT_WAV_16000
     assert segment.is_final is True
     assert segment.end_reason == "end_of_speech_timeout"
-    assert "the sky is blue" in normalize_transcript(segment.transcript)
+    assert segment.transcript == "the sky is blue"
     assert engine.status() == {"running": False, "connected": False}
 
 
 @pytest.mark.asyncio
 async def test_dictation_pipeline() -> None:
     """dictation closes a trigger-word segment and reverts without stopping ASR."""
-    module_type, module_config = default_module()
+    # The fake's clock starts at engine.start(), before play(): delay the script
+    # past the silence fed while dictation is being armed.
+    module_type, module_config = default_module(script_blue_validate(delay_s=0.5))
     segments: list[SpeechSegment] = []
 
     async def on_segment(segment: SpeechSegment) -> None:
@@ -83,4 +86,5 @@ async def test_dictation_pipeline() -> None:
 
     closed = [segment for segment in segments if segment.is_final]
     assert closed[-1].end_reason == "trigger_word"
-    assert "validate" not in normalize_transcript(closed[-1].transcript)
+    # The trigger utterance closes the segment but is excluded from it.
+    assert closed[-1].transcript == "the sky is blue"

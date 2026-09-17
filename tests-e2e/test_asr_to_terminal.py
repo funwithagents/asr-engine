@@ -4,10 +4,11 @@ Segmentation is owned by the server: it is started in a persistent dictation via
 engine.auto_start_dictation + engine.dictation_default_segmentation_mode, and
 AsrToTerminal just consumes the asr://segment resource. See specs/asr-to-terminal.md.
 
-These tests drive the full live pipeline (real MCP server subprocess + live
-Deepgram) but inject an in-memory ``RecordingTyper`` instead of doing real OS
-keystroke injection — so they run anywhere (macOS/CI included) with no xterm,
-xdotool, or X11 display. They still need a Deepgram API key (see helpers).
+These tests drive the full pipeline (real MCP server subprocess, real-time audio)
+on the scripted ``fake`` module and inject an in-memory ``RecordingTyper`` instead of
+doing real OS keystroke injection — so they run anywhere (macOS/CI included) with no
+API key, xterm, xdotool, or X11 display. Each server auto-starts before the bridge
+subscribes, so scripts are delayed into the trailing silence (see helpers).
 """
 
 from __future__ import annotations
@@ -17,7 +18,8 @@ from helpers import (
     FIXTURE_BLUE,
     FIXTURE_BLUE_VALIDATE,
     default_module,
-    normalize_transcript,
+    script_blue,
+    script_blue_validate,
     start_mcp_server,
     stop_mcp_server,
     wait_until,
@@ -53,7 +55,7 @@ class RecordingTyper:
 @pytest.mark.asyncio
 async def test_terminal_typing() -> None:
     """Feed the mp3 with an impossible trigger word: text is typed, never committed."""
-    module_type, module_config = default_module()
+    module_type, module_config = default_module(script_blue(delay_s=2.0))
     port = 18101
 
     proc, config_path = await start_mcp_server(
@@ -61,6 +63,7 @@ async def test_terminal_typing() -> None:
         module_type,
         module_config,
         port,
+        trailing_silence_s=3.0,
         # Impossible trigger word so the segment never closes → text only, no Enter.
         engine_overrides={
             "auto_start_dictation": True,
@@ -72,12 +75,12 @@ async def test_terminal_typing() -> None:
     atr = AsrToTerminal(server_url=f"http://127.0.0.1:{port}/mcp", typer=typer)
     try:
         await atr.start()
-        await wait_until(lambda: "the sky is blue" in normalize_transcript(typer.line))
+        await wait_until(lambda: typer.line == "the sky is blue")
     finally:
         await atr.stop()
         await stop_mcp_server(proc, config_path)
 
-    assert "the sky is blue" in normalize_transcript(typer.line)
+    assert typer.line == "the sky is blue"
     # Segment never closed → Enter never fired.
     assert typer.committed == []
 
@@ -85,7 +88,7 @@ async def test_terminal_typing() -> None:
 @pytest.mark.asyncio
 async def test_terminal_submit() -> None:
     """Feed the validate mp3; expect the segment to close and Enter to fire."""
-    module_type, module_config = default_module()
+    module_type, module_config = default_module(script_blue_validate(delay_s=1.5))
     port = 18102
 
     proc, config_path = await start_mcp_server(
@@ -109,16 +112,15 @@ async def test_terminal_submit() -> None:
         await atr.stop()
         await stop_mcp_server(proc, config_path)
 
-    # A committed line means the segment closed and Enter fired.
-    assert len(typer.committed) >= 1
-    # The trigger word "validate" fires the action, not the text.
-    assert "validate" not in normalize_transcript(typer.committed[-1])
+    # The segment closed and Enter fired; the trigger word fires the action, not
+    # the text.
+    assert typer.committed == ["the sky is blue"]
 
 
 @pytest.mark.asyncio
 async def test_asr_to_terminal_timeout() -> None:
     """Feed the mp3 in timeout mode; expect text typed then Enter after EOS timeout."""
-    module_type, module_config = default_module()
+    module_type, module_config = default_module(script_blue(delay_s=2.0))
     port = 18103
 
     proc, config_path = await start_mcp_server(
@@ -145,5 +147,4 @@ async def test_asr_to_terminal_timeout() -> None:
         await atr.stop()
         await stop_mcp_server(proc, config_path)
 
-    assert len(typer.committed) >= 1, "Expected Enter to fire on EOS timeout"
-    assert "the sky is blue" in normalize_transcript(typer.committed[-1])
+    assert typer.committed == ["the sky is blue"], "Expected Enter on EOS timeout"

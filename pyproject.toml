@@ -11,8 +11,15 @@ dependencies = [
     "mcp[cli]",
     "sounddevice",
     "numpy",
-    "deepgram-sdk",
     "soundfile",
+]
+
+[project.optional-dependencies]
+# ASR provider backends. No provider is a core dependency (and none is the
+# default): install the extra for the backend you select in engine.module.type.
+# See specs/asr-module-interface.md "Optional dependencies (extras)".
+deepgram = [
+    "deepgram-sdk",
 ]
 
 [project.scripts]
@@ -63,6 +70,8 @@ default-groups = ["dev", "demo"]
 
 [dependency-groups]
 dev = [
+    # Every provider extra, so pyright and the tests see all bundled modules.
+    "asr-engine[deepgram]",
     "pyright>=1.1.411",
     "pytest",
     "pytest-asyncio",

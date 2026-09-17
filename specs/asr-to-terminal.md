@@ -131,17 +131,17 @@ No `pyproject.toml` entry point: this is an example, not built into the wheel, s
 
 ## E2E tests
 
-Three real end-to-end tests in `tests-e2e/test_asr_to_terminal.py`, following the same `FileAudioSource → ASREngine → MCP server → AsrToTerminal` chain as the other ASR e2e tests. They inject an in-memory `RecordingTyper` (a `KeystrokeSink` that models a terminal input line: `type_text` appends, `backspace` trims, `send_enter` commits the line), so they run on any OS — **no `xterm`, `xdotool`, or X11 display required**. They still need a live Deepgram API key.
+Three real end-to-end tests in `tests-e2e/test_asr_to_terminal.py`, following the same `FileAudioSource → ASREngine → MCP server → AsrToTerminal` chain as the other ASR e2e tests. They inject an in-memory `RecordingTyper` (a `KeystrokeSink` that models a terminal input line: `type_text` appends, `backspace` trims, `send_enter` commits the line), so they run on any OS — **no `xterm`, `xdotool`, or X11 display required**. They run on the scripted `fake` module selected by `helpers.default_module(...)` (see [e2e-testing.md](e2e-testing.md) "Default module"), so they need no API key and assert exact typed text.
 
 Each server is configured with `auto_start_dictation=true` and the `dictation_default_segmentation_mode` in the table (plus the matching trigger words / timeouts), so the always-on `asr://segment` stream aggregates for the test.
 
-| Test | Fixture | dictation mode | Assertion |
+| Test | Fixture / script | dictation mode | Assertion |
 |---|---|---|---|
-| Text injection | `sample.wav` | `trigger_word` (impossible word) | `typer.line` contains `"the sky is blue"`; `typer.committed == []` (Enter never fired) |
-| Submit word | `sample_submit.wav` | `trigger_word` (`validate`) | `typer.committed` non-empty (Enter fired); trigger word not in the committed text |
-| Timeout | `sample.wav` | `timeout` | `typer.committed[-1]` contains `"the sky is blue"` (Enter fired on EOS) |
+| Text injection | `FIXTURE_BLUE` / `script_blue` | `trigger_word` (impossible word) | `typer.line == "the sky is blue"`; `typer.committed == []` (Enter never fired) |
+| Submit word | `FIXTURE_BLUE_VALIDATE` / `script_blue_validate` | `trigger_word` (`validate`) | `typer.committed == ["the sky is blue"]` (Enter fired; trigger word not typed) |
+| Timeout | `FIXTURE_BLUE` / `script_blue` | `timeout` | `typer.committed == ["the sky is blue"]` (Enter fired on EOS) |
 
-`sample_submit.wav` is a second audio fixture (same format as `sample.wav`) containing a submit word, e.g. `"the sky is blue validate"`.
+Each server auto-starts before the bridge subscribes, so the scripts are delayed into the trailing silence (see [e2e-testing.md](e2e-testing.md) "Default module").
 
 ---
 

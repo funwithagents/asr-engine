@@ -19,7 +19,7 @@ The engine owns audio capture, backend selection, audio-format negotiation, prov
 
 - Python 3.11+
 - [`uv`](https://docs.astral.sh/uv/)
-- Credentials for the selected ASR provider; the bundled modules use [Deepgram](https://deepgram.com/)
+- An ASR module installed from its extra, plus that provider's credentials — no provider is installed or selected by default (see [ASR modules](#asr-modules))
 - An available system input device for live capture
 
 Install the project from source:
@@ -27,9 +27,11 @@ Install the project from source:
 ```bash
 git clone <repo-url>
 cd asr-engine
-uv sync
+uv sync --extra deepgram   # the extra for the ASR module you will use
 export DEEPGRAM_API_KEY="..."
 ```
+
+As a dependency, install the extra the same way: `pip install 'asr-engine[deepgram]'`. The examples in this README use Deepgram, the first available provider module.
 
 ## Quick start
 
@@ -181,17 +183,32 @@ For every field, default, and validation rule, see the [configuration specificat
 An ASR module owns provider-specific authentication, connection management, audio streaming, reconnection, and conversion of provider responses into `SpeechUtterance` values. Audio capture, segmentation, engine operations, tools, and MCP resources remain provider-independent.
 
 ```text
-ASREngine ──▶ REGISTRY[config.module.type] ──▶ ASRModule ──▶ provider
+ASREngine ──▶ resolve_module_class(config.module.type) ──▶ ASRModule ──▶ provider
                                                         │
                                                         └──▶ SpeechUtterance
 ```
 
-### Bundled modules
+### Available modules
 
-| Module type | Provider API | Best for | Default model |
-|---|---|---|---|
-| `deepgram_v1` | Deepgram Listen v1 | General and multilingual transcription | `nova-3` |
-| `deepgram_v2` | Deepgram Listen v2 | English conversational transcription with integrated turn detection | `flux-general-en` |
+Provider modules are optional: each one ships in an extra, and none is a default. `engine.module.type` must always name the module you chose. Selecting a module whose extra is not installed fails at engine construction with an `ImportError` naming the extra to install.
+
+| Module type | Extra | Provider API | Best for | Default model |
+|---|---|---|---|---|
+| `deepgram_v1` | `deepgram` | Deepgram Listen v1 | General and multilingual transcription | `nova-3` |
+| `deepgram_v2` | `deepgram` | Deepgram Listen v2 | English conversational transcription with integrated turn detection | `flux-general-en` |
+
+#### `fake` — test double, not an ASR backend
+
+The core install also contains `fake`, a scripted module for **tests only**. It ignores the audio and replays configured utterances: word-by-word interims evenly spaced over each utterance's `[start_s, end_s]` window (measured in audio time), then the full text as a final at `end_s`. It needs no extra and no credentials, so it lets you test code built on `asr-engine` deterministically:
+
+```json
+{
+  "type": "fake",
+  "utterances": [{"text": "the sky is blue", "start_s": 0.5, "end_s": 1.5}]
+}
+```
+
+Do not use it for real speech recognition. See the [fake module specification](specs/fake-module.md).
 
 #### Deepgram v1
 
@@ -246,7 +263,7 @@ Both bundled modules accept either a literal API key or the name of an environme
 
 ### Adding a module
 
-To integrate another cloud or local backend, implement the `ASRModule` interface, declare its supported and default audio formats, emit `SpeechUtterance` values, and register the class under a new module key. `ASREngine`, `AsrTools`, and the MCP server can then use it without provider-specific changes. See the [ASR module interface specification](specs/asr-module-interface.md) for the complete contract.
+To integrate another cloud or local backend, implement the `ASRModule` interface, declare its supported and default audio formats, emit `SpeechUtterance` values, and register it under a new module key as a lazy entry naming the extra that provides its dependencies. `ASREngine`, `AsrTools`, and the MCP server can then use it without provider-specific changes. See the [ASR module interface specification](specs/asr-module-interface.md) for the complete contract.
 
 ## Engine output
 
@@ -536,10 +553,10 @@ See the [examples guide](examples/README.md) for setup and links to each example
 
 The repository keeps its design specifications alongside the code. The [specification index](specs/_index.md) describes the intended design and implementation status, while the [implementation plan index](plans/_index.md) records how each feature was built.
 
-Fast deterministic tests live in `tests/`; opt-in live Deepgram tests live in `tests-e2e/`.
+Fast deterministic tests live in `tests/`; opt-in real-time pipeline tests live in `tests-e2e/` (live provider conformance, plus keyless scenarios on the `fake` module). The `dev` dependency group installs every provider extra.
 
 ```bash
-uv sync --dev
+uv sync
 uv run ruff check .
 uv run ruff format --check .
 uv run pyright

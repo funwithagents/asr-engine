@@ -275,7 +275,6 @@ async def test_on_message_non_turn_info_is_ignored() -> None:
 
 
 def test_deepgram_v2_registered_in_registry() -> None:
-    from asr_engine.modules import REGISTRY
+    from asr_engine.modules import resolve_module_class
 
-    assert "deepgram_v2" in REGISTRY
-    assert REGISTRY["deepgram_v2"] is DeepgramV2Module
+    assert resolve_module_class("deepgram_v2") is DeepgramV2Module

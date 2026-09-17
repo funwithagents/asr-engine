@@ -36,6 +36,8 @@ Implementation plans for ASR MCP — each plan turns a settled part of a spec (s
 | [202609020943_shared-e2e-wait-helper.md](202609020943_shared-e2e-wait-helper.md) | Consolidate duplicated live-test condition polling into one typed helper | Done |
 | [202609041741_engine-config-from-dict.md](202609041741_engine-config-from-dict.md) | Public `ASREngineConfig.from_dict(engine_block)` in-memory constructor; `load_config` delegates to it | Done |
 | [202609081500_config-constructor-ladder.md](202609081500_config-constructor-ladder.md) | Rename `AppConfig` → `MCPServerConfig`, drop `load_config`; `from_dict`/`from_json`/`from_json_file` ladder on both configs; retype `validate_asr_type` | Done |
+| [202609171830_asr-module-extras-and-fake.md](202609171830_asr-module-extras-and-fake.md) | Deepgram → `deepgram` extra behind a lazy `LazyModule` registry (no default backend, install-hint `ImportError`); scripted `fake` test-double module (audio-clock word-by-word interims, final at end) + `fake_engine_factory` fixture; Gradio demo requires `--config`; README/AGENTS/examples docs | Done |
+| [202609171831_e2e-default-module-fake.md](202609171831_e2e-default-module-fake.md) | `helpers.default_module(script)` → `fake`: direct-engine, MCP, and asr-to-terminal e2e scenarios run keyless with exact assertions; only per-module conformance stays live | Done |
 
 ## Status legend
 

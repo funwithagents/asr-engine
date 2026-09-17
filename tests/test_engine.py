@@ -63,41 +63,13 @@ def make_engine(on_speech_utterance=None, on_speech_segment=None, **cfg_kwargs):
     module.start = AsyncMock(return_value=None)
     module.stop = AsyncMock(return_value=None)
     mock_class = _mock_module_class(module)
-    with patch.dict("asr_engine.engine.REGISTRY", {"mock": mock_class}):
+    with patch.dict("asr_engine.modules.REGISTRY", {"mock": mock_class}):
         engine = ASREngine(
             make_config(**cfg_kwargs),
             on_speech_utterance=on_speech_utterance,
             on_speech_segment=on_speech_segment,
         )
     return engine, module
-
-
-class _ScriptedModule:
-    """Fake ASR module that replays a list of utterances, then blocks until stop."""
-
-    def __init__(self, utterances: list[SpeechUtterance]) -> None:
-        self._utterances = utterances
-        self._stopped = asyncio.Event()
-
-    async def start(
-        self, audio_queue, on_utterance, on_connected=None, *, audio_format=None
-    ):
-        for u in self._utterances:
-            await on_utterance(u)
-        await self._stopped.wait()
-
-    async def stop(self):
-        self._stopped.set()
-
-
-def make_scripted_engine(utterances: list[SpeechUtterance], **cfg_kwargs):
-    """Engine wired to a _ScriptedModule and a fake audio source."""
-    module = _ScriptedModule(utterances)
-    audio_source = MagicMock()
-    audio_source.start.return_value = asyncio.Queue()
-    with patch.dict("asr_engine.engine.REGISTRY", {"mock": _mock_module_class(module)}):
-        engine = ASREngine(make_config(**cfg_kwargs), audio_source=audio_source)
-    return engine
 
 
 # ---------------------------------------------------------------------------
@@ -129,21 +101,21 @@ def _config_with_audio(**audio_kwargs) -> ASREngineConfig:
 
 def test_engine_reconciles_and_exposes_supported_format():
     cls = _restricted_module_class(MagicMock(), rates=frozenset({16000, 48000}))
-    with patch.dict("asr_engine.engine.REGISTRY", {"mock": cls}):
+    with patch.dict("asr_engine.modules.REGISTRY", {"mock": cls}):
         engine = ASREngine(_config_with_audio(sample_rate=48000))
     assert engine.audio_format.sample_rate == 48000
 
 
 def test_engine_construction_errors_on_unsupported_format():
     cls = _restricted_module_class(MagicMock(), rates=frozenset({16000}))
-    with patch.dict("asr_engine.engine.REGISTRY", {"mock": cls}):
+    with patch.dict("asr_engine.modules.REGISTRY", {"mock": cls}):
         with pytest.raises(ValueError, match="sample_rate=44100"):
             ASREngine(_config_with_audio(sample_rate=44100))
 
 
 def test_engine_fallback_policy_uses_module_default():
     cls = _restricted_module_class(MagicMock(), rates=frozenset({16000}))
-    with patch.dict("asr_engine.engine.REGISTRY", {"mock": cls}):
+    with patch.dict("asr_engine.modules.REGISTRY", {"mock": cls}):
         engine = ASREngine(
             _config_with_audio(sample_rate=44100, on_unsupported_format="fallback")
         )
@@ -153,7 +125,7 @@ def test_engine_fallback_policy_uses_module_default():
 def test_known_asr_type_instantiates_module():
     mock_module = MagicMock()
     mock_class = _mock_module_class(mock_module)
-    with patch.dict("asr_engine.engine.REGISTRY", {"fake": mock_class}):
+    with patch.dict("asr_engine.modules.REGISTRY", {"fake": mock_class}):
         engine = ASREngine(make_config(module_type="fake", extra={"key": "val"}))
     mock_class.assert_called_once_with(config={"key": "val"})
     assert engine._asr_module is mock_module
@@ -307,11 +279,14 @@ def test_default_mode_setters_update_the_stored_defaults():
 
 
 @pytest.mark.asyncio
-async def test_segmentation_mode_property_restored_after_listen():
+async def test_segmentation_mode_property_restored_after_listen(fake_engine_factory):
     """listen() runs in a different mode but the property reports ``utterance``
     again once it returns."""
-    engine = make_scripted_engine(
-        [SpeechUtterance("hi", True, None), SpeechUtterance("go", True, None)],
+    engine = fake_engine_factory(
+        [
+            {"text": "hi", "start_s": 0.0, "end_s": 0.1},
+            {"text": "go", "start_s": 0.2, "end_s": 0.3},
+        ],
         trigger_words=["go"],
     )
     assert engine.segmentation_mode == "utterance"
@@ -427,12 +402,11 @@ async def test_set_segmentation_mode_invalid_leaves_state_intact():
 
 
 @pytest.mark.asyncio
-async def test_listen_returns_first_closed_segment():
-    engine = make_scripted_engine(
+async def test_listen_returns_first_closed_segment(fake_engine_factory):
+    engine = fake_engine_factory(
         [
-            SpeechUtterance("the sky", False, None),
-            SpeechUtterance("the sky is blue", True, None),
-            SpeechUtterance("submit", True, None),
+            {"text": "the sky is blue", "start_s": 0.0, "end_s": 0.4},
+            {"text": "submit", "start_s": 0.5, "end_s": 0.6},
         ],
         trigger_words=["submit"],
     )
@@ -447,17 +421,21 @@ async def test_listen_returns_first_closed_segment():
     assert segment.transcript == "the sky is blue"
     assert segment.end_reason == "trigger_word"
     assert engine.status()["running"] is False
-    # on_update saw interim segments too.
-    assert any(not s.is_final for s in updates)
+    # on_update saw the word-by-word interims as open segments first.
+    assert [s.transcript for s in updates if not s.is_final][:3] == [
+        "the",
+        "the sky",
+        "the sky is",
+    ]
 
 
 @pytest.mark.asyncio
-async def test_listen_uses_default_mode_when_none():
+async def test_listen_uses_default_mode_when_none(fake_engine_factory):
     """listen(None) falls back to listen_default_segmentation_mode."""
-    engine = make_scripted_engine(
+    engine = fake_engine_factory(
         [
-            SpeechUtterance("hello there", True, None),
-            SpeechUtterance("go", True, None),
+            {"text": "hello there", "start_s": 0.0, "end_s": 0.2},
+            {"text": "go", "start_s": 0.3, "end_s": 0.4},
         ],
         listen_default_segmentation_mode="trigger_word",
         trigger_words=["go"],
@@ -468,9 +446,12 @@ async def test_listen_uses_default_mode_when_none():
 
 
 @pytest.mark.asyncio
-async def test_listen_reverts_to_utterance_mode():
-    engine = make_scripted_engine(
-        [SpeechUtterance("hi", True, None), SpeechUtterance("go", True, None)],
+async def test_listen_reverts_to_utterance_mode(fake_engine_factory):
+    engine = fake_engine_factory(
+        [
+            {"text": "hi", "start_s": 0.0, "end_s": 0.1},
+            {"text": "go", "start_s": 0.2, "end_s": 0.3},
+        ],
         trigger_words=["go"],
     )
     assert engine._segment_mode == "utterance"

@@ -3,8 +3,10 @@ code:
   - src/asr_engine/modules/base.py
   - src/asr_engine/modules/__init__.py
   - src/asr_engine/engine.py
+  - pyproject.toml
 tests:
   - tests/modules/test_base.py
+  - tests/modules/test_registry.py
   - tests/test_engine.py
 ---
 
@@ -14,7 +16,9 @@ tests:
 
 ## Purpose
 
-The ASR module interface decouples the MCP server from any specific speech recognition backend. The engine loads one module at construction based on the `engine.module.type` config field.
+The ASR module interface decouples the engine (and the MCP server over it) from any specific speech recognition backend. The engine loads one module at construction based on the `engine.module.type` config field.
+
+**No backend is the default.** `engine.module.type` is required and has no fallback. Real backends ship as **optional extras** (e.g. `asr-engine[deepgram]`), so the core install depends on no provider SDK; the only always-available module is the [`fake`](fake-module.md) test double.
 
 ## Abstract Base Class
 
@@ -105,24 +109,56 @@ The **default** `AudioFormat` (16 kHz, mono, `linear16`, ~100 ms / 3,200-byte ch
 
 ## Module Registration
 
-Modules are registered in a central registry mapping `type` string → module class:
+Modules are registered in a central registry mapping `type` string → module entry. Built-in entries are **lazy**: the registry names an import path and the extra that provides its dependencies, and nothing is imported until that type is selected — so `import asr_engine` never imports a provider SDK, and a missing extra only matters for the module that needs it.
 
 ```python
 # src/asr_engine/modules/__init__.py
-REGISTRY: dict[str, type[ASRModule]] = {
-    "deepgram_v1": DeepgramV1Module,
-    "deepgram_v2": DeepgramV2Module,
+@dataclass(frozen=True)
+class LazyModule:
+    import_path: str  # "package.module:ClassName"
+    extra: str | None = None  # pip extra providing its dependencies; None = core
+
+
+REGISTRY: dict[str, LazyModule | type[ASRModule]] = {
+    "fake": LazyModule("asr_engine.modules.fake:FakeASRModule"),
+    "deepgram_v1": LazyModule(
+        "asr_engine.modules.deepgram_v1:DeepgramV1Module", extra="deepgram"
+    ),
+    "deepgram_v2": LazyModule(
+        "asr_engine.modules.deepgram_v2:DeepgramV2Module", extra="deepgram"
+    ),
 }
+
+
+def resolve_module_class(module_type: str) -> type[ASRModule]: ...
+def load_module(asr_config: dict) -> ASRModule: ...
 ```
 
-The engine loads the correct class from this registry using the `engine.module.type` config value, then instantiates it with the remaining module-specific fields (the `engine.module` block minus `type`).
+- A value may also be an `ASRModule` subclass itself (eager). This is how a caller or a test registers a module it already imported (e.g. `patch.dict(REGISTRY, {"mock": MockModule})`).
+- **`resolve_module_class(module_type)`** is the single resolution point, used by the engine and `load_module`:
+  - unknown key → `ValueError("Unknown ASR type '<t>'. Available: <sorted keys>")` (unchanged message);
+  - eager class → returned as is;
+  - `LazyModule` → imports `import_path` and returns the class. If the import fails with `ModuleNotFoundError` for a **third-party** package (the error's `name` is not under `asr_engine`), it raises `ImportError` chaining the original, with a message naming the module type, the missing package, and the install command: `ASR module 'deepgram_v1' requires the optional dependency 'deepgram' which is not installed. Install it with: pip install 'asr-engine[deepgram]'` (or `uv sync --extra deepgram`). A `ModuleNotFoundError` for an `asr_engine` module itself is a packaging bug and propagates unchanged.
+- **Listing does not import.** `sorted(REGISTRY)` lists every registered type, installed or not; config validation (`validate_asr_type`) checks key membership only, so a config naming an uninstalled module still *parses*. The missing extra surfaces at engine construction (`ASREngine(config)` → `resolve_module_class`), which the MCP server does at startup — so `asr-engine-mcp` still fails fast, printing the install hint and exiting 1.
+- The engine calls `resolve_module_class(config.module.type)` then instantiates with the module-specific fields (the `engine.module` block minus `type`).
+
+## Optional dependencies (extras)
+
+Each real backend's third-party dependencies live in a `[project.optional-dependencies]` extra, named after the provider, never in core `dependencies`:
+
+| Extra | Modules | Dependencies |
+|---|---|---|
+| `deepgram` | `deepgram_v1`, `deepgram_v2` | `deepgram-sdk` |
+| *(core)* | `fake` | — |
+
+A module file may import its SDK at module top level — the lazy registry guarantees it is only imported when selected. Adding a backend with new dependencies means adding an extra and naming it in the `LazyModule` entry.
 
 ## Module Constructor Contract
 
 Each module is instantiated with the module-specific portion of the config:
 
 ```python
-module = REGISTRY[asr_type](config=asr_config_dict)
+module = resolve_module_class(asr_type)(config=asr_config_dict)
 ```
 
 Modules must validate their config in `__init__` and raise `ValueError` with a clear message if required fields are missing.

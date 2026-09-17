@@ -4,7 +4,7 @@ This browser UI demonstrates direct, in-process use of `ASREngine`. It does not 
 
 The demo lets you:
 
-- choose an input device and bundled ASR module;
+- choose an input device and registered ASR module;
 - start and stop continuous capture;
 - run a single-shot `listen`;
 - start and stop a dictation session;
@@ -18,9 +18,10 @@ The demo lets you:
 From the repository root:
 
 ```bash
-uv sync
+uv sync --extra deepgram   # or the extra for the ASR module your config selects
 export DEEPGRAM_API_KEY="..."
-uv run python -m examples.gradio_demo.app
+cp config.example.json config.json
+uv run python -m examples.gradio_demo.app --config config.json
 ```
 
 Open `http://127.0.0.1:7860`.
@@ -30,12 +31,12 @@ Gradio is in the repository's `demo` dependency group. That group is synced by d
 ## Options
 
 ```text
---config PATH  Load the engine block from an ASR Engine JSON config
+--config PATH  Load the engine block from an ASR Engine JSON config (required)
 --host HOST    UI bind host (default: 127.0.0.1)
 --port PORT    UI port (default: 7860)
 ```
 
-When `--config` is omitted, the demo uses `deepgram_v1`, the system-default input device, and `DEEPGRAM_API_KEY`. When a config is supplied, only its `engine` block is used; the MCP `server` block is ignored.
+`--config` is required: the demo has no built-in module choice. Only the config's `engine` block is used; the MCP `server` block is ignored. The module list includes every registered module; selecting one whose extra is not installed shows the install hint instead of starting.
 
 Changing the device or module while stopped causes the controller to construct a fresh engine on the next start or listen. Module-specific settings continue to come from the loaded configuration.
 

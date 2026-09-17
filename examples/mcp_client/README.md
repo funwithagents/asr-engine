@@ -7,6 +7,7 @@ This example connects to the ASR Engine MCP server, subscribes to `asr://utteran
 Start the server from the repository root in one terminal:
 
 ```bash
+uv sync --extra deepgram   # or the extra for the ASR module your config selects
 cp config.example.json config.json
 export DEEPGRAM_API_KEY="..."
 uv run asr-engine-mcp --config config.json

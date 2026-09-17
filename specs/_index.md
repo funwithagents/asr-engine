@@ -12,22 +12,23 @@ The pipeline is asynchronous: audio capture runs in a dedicated thread, while th
 
 | Spec | Description | Status |
 |---|---|---|
-| [project.md](project.md) | Project structure and tooling: Python version, packaging with uv, layout conventions, ruff/pyright | Implemented |
-| [testing.md](testing.md) | Testing strategy: two-tier `tests/`/`tests-e2e/` split, functional-test philosophy | Implemented |
+| [project.md](project.md) | Project structure and tooling: Python version, packaging with uv, provider extras, layout conventions, ruff/pyright | Implemented |
+| [testing.md](testing.md) | Testing strategy: two-tier `tests/`/`tests-e2e/` split, functional-test philosophy, `fake` module as the downstream test double | Implemented |
 | [overview.md](overview.md) | Goals, components, constraints, non-goals | Implemented |
 | [architecture.md](architecture.md) | System diagram, concurrency model, data flow | Implemented |
 | [audio-source.md](audio-source.md) | `AudioSource` injection seam: public/stable extension point, chunk contract, `audio_format` pre-`start()`, `stop()`/queue lifecycle | Implemented |
 | [engine.md](engine.md) | `ASREngine` (from `ASREngineConfig`) + `Segmenter`: callbacks, dictation (`start_dictation`/`stop_dictation`), `set_segmentation_params`, `segmentation_mode`/`dictating` getters, `listen` | Implemented |
-| [configuration.md](configuration.md) | Config file schema (`server` + nested `engine`/`ASREngineConfig`), fields, validation rules | Implemented |
+| [configuration.md](configuration.md) | Config file schema (`server` + nested `engine`/`ASREngineConfig`), fields, validation rules (no default module; extra-not-installed error) | Implemented |
 | [tools.md](tools.md) | Transport-agnostic `AsrTools` for direct in-process agent registration or MCP adaptation over an `ASREngine` | Implemented |
 | [mcp-server.md](mcp-server.md) | Resources `asr://utterance` + `asr://segment`, MCP adapter over the tools layer, server lifecycle | Implemented |
-| [asr-module-interface.md](asr-module-interface.md) | ABC, audio format contract, registry, reconnection | Implemented |
-| [deepgram-module.md](deepgram-module.md) | WebSocket details, config fields, message mapping | Implemented |
+| [asr-module-interface.md](asr-module-interface.md) | ABC, audio format contract, lazy registry + provider extras (no default backend), reconnection | Implemented |
+| [deepgram-module.md](deepgram-module.md) | `deepgram` extra, WebSocket details, config fields, message mapping | Implemented |
+| [fake-module.md](fake-module.md) | `fake` scripted test double: word-by-word interims evenly spaced over each utterance's window on an audio-time clock, final at end; `fake_engine_factory` fixture | Implemented |
 | [demo-client.md](demo-client.md) | CLI, log format, behavior | Implemented |
-| [e2e-testing.md](e2e-testing.md) | File-based e2e pipeline: audio source abstraction, fixture format, assertions | Implemented |
+| [e2e-testing.md](e2e-testing.md) | File-based e2e pipeline: audio source abstraction, fixture format, assertions; module-agnostic scenarios on the `fake` module | Implemented |
 | [asr-to-terminal.md](asr-to-terminal.md) | Progressive terminal injection via xdotool/ydotool, consuming the server's `asr://segment` resource | Implemented |
 | [sound-feedback.md](sound-feedback.md) | Bundled WAV cues at `listen` start/stop, owned by the engine; `engine.sound_feedback` config | Implemented |
-| [gradio-demo.md](gradio-demo.md) | Direct-import Gradio example: in-process `ASREngine`, device/module pickers, start/stop/listen/dictation, live utterances + segments | Implemented |
+| [gradio-demo.md](gradio-demo.md) | Direct-import Gradio example: in-process `ASREngine`, device/module pickers, start/stop/listen/dictation, live utterances + segments; `--config` required | Implemented |
 
 Each spec also opens with a YAML **frontmatter** block declaring the `code:` and `tests:` files it governs — the spec → code/tests mapping the spec-drift checks use to scope what they compare. Keep it current when files move, and see [AGENTS.md](../AGENTS.md) ("Spec frontmatter") for the full convention.
 

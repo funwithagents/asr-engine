@@ -39,6 +39,6 @@ def main() -> None:
 
     try:
         asyncio.run(run_server(config, log_level=args.log_level))
-    except ValueError as exc:
+    except (ValueError, ImportError) as exc:
         print(f"Error: {exc}", file=sys.stderr)
         sys.exit(1)

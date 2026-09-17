@@ -49,11 +49,15 @@ name = "asr-engine"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
-    { name = "deepgram-sdk" },
     { name = "mcp", extra = ["cli"] },
     { name = "numpy" },
     { name = "sounddevice" },
     { name = "soundfile" },
+]
+
+[package.optional-dependencies]
+deepgram = [
+    { name = "deepgram-sdk" },
 ]
 
 [package.dev-dependencies]
@@ -61,6 +65,7 @@ demo = [
     { name = "gradio" },
 ]
 dev = [
+    { name = "asr-engine", extra = ["deepgram"] },
     { name = "pyright" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
@@ -71,16 +76,18 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "deepgram-sdk" },
+    { name = "deepgram-sdk", marker = "extra == 'deepgram'" },
     { name = "mcp", extras = ["cli"] },
     { name = "numpy" },
     { name = "sounddevice" },
     { name = "soundfile" },
 ]
+provides-extras = ["deepgram"]
 
 [package.metadata.requires-dev]
 demo = [{ name = "gradio" }]
 dev = [
+    { name = "asr-engine", extras = ["deepgram"] },
     { name = "pyright", specifier = ">=1.1.411" },
     { name = "pytest" },
     { name = "pytest-asyncio" },

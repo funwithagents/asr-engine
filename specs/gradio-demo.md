@@ -85,7 +85,7 @@ class DemoController:
 The engine is built from a fixed `config.module` / `config.audio.device`, with no runtime module- or device-switch API. So:
 
 - `set_device` and `set_module` mutate the controller's pending `ASREngineConfig` and **discard any existing engine instance**. They raise `RuntimeError` (surfaced as a UI message) if called while the engine is running — the UI also disables those widgets while running.
-- The next `start()` (or `listen()`) constructs a fresh `ASREngine` from the current config. Module-specific fields (e.g. Deepgram's `api_key_env`, `model`, `language`) come from the loaded base config; switching `module.type` keeps the rest of the `module` block only if compatible, otherwise falls back to that module's own config defaults. Construction errors (unknown module, unsupported audio format, missing API key) are caught and shown in the UI, not raised past the handler.
+- The next `start()` (or `listen()`) constructs a fresh `ASREngine` from the current config. Module-specific fields (e.g. Deepgram's `api_key_env`, `model`, `language`) come from the loaded base config; switching `module.type` keeps the rest of the `module` block only if compatible, otherwise falls back to that module's own config defaults. Construction errors (unknown module, module extra not installed, unsupported audio format, missing API key) are caught and shown in the UI, not raised past the handler.
 
 ### `listen`
 
@@ -150,7 +150,11 @@ Enablement is derived from `ControllerState`; the controller is the single sourc
 
 ## Configuration
 
-The app takes a `--config` path to the same JSON schema the MCP server uses (see [configuration.md](configuration.md)); only the `engine` block is used (the `server` block is ignored). It builds the base `ASREngineConfig` from that block. With no `--config`, it falls back to a minimal built-in default (a `deepgram_v1` module reading `DEEPGRAM_API_KEY` via `api_key_env`, system default device).
+The app takes a **required** `--config` path to the same JSON schema the MCP server uses (see [configuration.md](configuration.md)); only the `engine` block is used (the `server` block is ignored). It builds the base `ASREngineConfig` from that block.
+
+There is **no built-in fallback config**: running without `--config` is an argparse usage error (exit 2). A fallback would have to pick a module, which would make that module the implicit default — exactly what [asr-module-interface.md](asr-module-interface.md) rules out (no backend is the default). The user chooses the backend, and installs its extra, in their config file.
+
+The module dropdown lists every registered type (`sorted(REGISTRY)`, which does not import anything), including modules whose extra is not installed and the `fake` test double. Selecting an uninstalled module is allowed; the registry's `ImportError` (naming the extra to install) is raised at the next engine build and shown as the UI message, like any other construction error.
 
 ## Dependencies and running
 
@@ -168,7 +172,7 @@ The examples directory is not built into the wheel (`[tool.uv_build].include` co
 
 ## Testing
 
-`app.py` (the Gradio wiring) has **no automated tests** — it's thin UI glue, verified manually by running the command above with a real input device and a provider API key, then exercising start/stop/listen and dictation.
+`app.py` (the Gradio wiring) has **no automated tests** — it's thin UI glue, verified manually by running the command above with a real input device, a config selecting an installed provider module, and that provider's API key, then exercising start/stop/listen and dictation.
 
 `controller.py` **is** tested. The `controller.py` / `app.py` split exists precisely so the demo's logic is testable without Gradio, and `tests/examples/test_gradio_controller.py` (fast tier) pins it by driving `DemoController`'s public methods against a **fake in-process engine** — no Gradio import, no real audio device, no ASR backend. It asserts on `state()` snapshots (public API, per [testing.md](testing.md)), covering:
 

@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from asr_engine import mcp_server_cli
+from asr_engine.modules import REGISTRY, LazyModule
 
 
 def write_config(tmp_path: Path, data: dict) -> str:
@@ -20,9 +21,7 @@ def write_config(tmp_path: Path, data: dict) -> str:
 
 def test_cli_runs_server(tmp_path: Path) -> None:
     """mcp_server_cli.main() calls asyncio.run(run_server(config)) with the loaded config."""
-    path = write_config(
-        tmp_path, {"engine": {"module": {"type": "deepgram_v1", "api_key": "x"}}}
-    )
+    path = write_config(tmp_path, {"engine": {"module": {"type": "fake"}}})
     sys.argv = ["asr-engine-mcp", "--config", path]
 
     mock_run_server = AsyncMock()
@@ -31,16 +30,14 @@ def test_cli_runs_server(tmp_path: Path) -> None:
 
     mock_run_server.assert_called_once()
     config_arg = mock_run_server.call_args[0][0]
-    assert config_arg.engine.module.type == "deepgram_v1"
+    assert config_arg.engine.module.type == "fake"
     # Default level is INFO and reaches run_server.
     assert mock_run_server.call_args.kwargs["log_level"] == "INFO"
 
 
 def test_cli_passes_log_level(tmp_path: Path) -> None:
     """--log-level is configured and forwarded to run_server."""
-    path = write_config(
-        tmp_path, {"engine": {"module": {"type": "deepgram_v1", "api_key": "x"}}}
-    )
+    path = write_config(tmp_path, {"engine": {"module": {"type": "fake"}}})
     sys.argv = ["asr-engine-mcp", "--config", path, "--log-level", "DEBUG"]
 
     mock_run_server = AsyncMock()
@@ -56,9 +53,7 @@ def test_cli_passes_log_level(tmp_path: Path) -> None:
 
 def test_cli_rejects_invalid_log_level(tmp_path: Path) -> None:
     """An unknown --log-level is rejected by argparse (exit code 2)."""
-    path = write_config(
-        tmp_path, {"engine": {"module": {"type": "deepgram_v1", "api_key": "x"}}}
-    )
+    path = write_config(tmp_path, {"engine": {"module": {"type": "fake"}}})
     sys.argv = ["asr-engine-mcp", "--config", path, "--log-level", "LOUD"]
     with pytest.raises(SystemExit) as exc_info:
         mcp_server_cli.main()
@@ -98,3 +93,22 @@ def test_cli_exits_on_unknown_asr_type(tmp_path: Path, capsys) -> None:
             mcp_server_cli.main()
     assert exc_info.value.code == 1
     assert "bogus" in capsys.readouterr().err
+
+
+def test_cli_exits_with_install_hint_when_module_extra_missing(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    """A module whose optional dependency isn't installed fails fast at startup,
+    through the real run_server/engine construction, naming the extra to install."""
+    (tmp_path / "needs_missing_sdk.py").write_text(
+        "import asr_engine_test_missing_sdk_xyz\n\nclass Module: ...\n"
+    )
+    monkeypatch.syspath_prepend(str(tmp_path))
+    path = write_config(tmp_path, {"engine": {"module": {"type": "acme_v1"}}})
+    sys.argv = ["asr-engine-mcp", "--config", path]
+    entry = LazyModule("needs_missing_sdk:Module", extra="acme")
+    with patch.dict(REGISTRY, {"acme_v1": entry}):
+        with pytest.raises(SystemExit) as exc_info:
+            mcp_server_cli.main()
+    assert exc_info.value.code == 1
+    assert "pip install 'asr-engine[acme]'" in capsys.readouterr().err

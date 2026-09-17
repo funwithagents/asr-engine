@@ -10,7 +10,7 @@ from asr_engine.audio import (
     FileAudioSource,
 )
 from asr_engine.config import ASREngineConfig
-from asr_engine.modules import REGISTRY
+from asr_engine.modules import resolve_module_class
 from asr_engine.modules.base import (
     SpeechUtterance,
     UtteranceCallback,
@@ -58,15 +58,10 @@ class ASREngine:
         on_speech_segment: SegmentCallback | None = None,
         audio_source: AudioSource | None = None,
     ) -> None:
-        if config.module.type not in REGISTRY:
-            available = ", ".join(sorted(REGISTRY)) or "(none)"
-            raise ValueError(
-                f"Unknown ASR type '{config.module.type}'. Available: {available}"
-            )
-
         self._config = config
         self._audio_config = config.audio
-        self._module_cls = REGISTRY[config.module.type]
+        # Raises ValueError (unknown type) or ImportError (provider extra missing).
+        self._module_cls = resolve_module_class(config.module.type)
         self._asr_module = self._module_cls(config=config.module.extra)
 
         # Reconcile the configured audio format against what the module supports.
