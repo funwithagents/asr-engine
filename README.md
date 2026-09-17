@@ -33,7 +33,7 @@ export DEEPGRAM_API_KEY="..."
 
 As a dependency, install the extra the same way: `pip install 'asr-engine[deepgram]'`. The examples in this README use Deepgram, the first available provider module.
 
-The bundled MCP server is optional too: its stack (the MCP SDK and `uvicorn`) ships in the `mcp` extra, so a program that only imports `asr_engine` never installs it. To run `asr-engine-mcp`, add the extra: `uv sync --extra deepgram --extra mcp` or `pip install 'asr-engine[mcp,deepgram]'`.
+The bundled MCP server is optional too: its stack (the MCP SDK and `uvicorn`) ships in the `mcp` extra, so a program that only imports `asr_engine` never installs it. To run `asr-engine-mcp`, add the extra: `uv sync --extra deepgram --extra mcp` or `pip install 'asr-engine[mcp,deepgram]'`. The `all` extra installs every provider and the server at once: `pip install 'asr-engine[all]'` / `uv sync --extra all`.
 
 ## Quick start
 

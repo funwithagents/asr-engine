@@ -28,6 +28,11 @@ mcp = [
     "mcp<2",
     "uvicorn",
 ]
+# Every provider and transport extra in one install (`pip install 'asr-engine[all]'`).
+# Add each new provider extra here; the dev group below follows automatically.
+all = [
+    "asr-engine[deepgram,mcp]",
+]
 
 [project.scripts]
 # The only console script. Client-side apps live in examples/ (outside the
@@ -77,9 +82,9 @@ default-groups = ["dev", "demo"]
 
 [dependency-groups]
 dev = [
-    # Every provider and transport extra, so pyright and the tests see all
-    # bundled modules and the MCP server.
-    "asr-engine[deepgram,mcp]",
+    # The `all` extra, so pyright and the tests see every bundled provider
+    # module and the MCP server.
+    "asr-engine[all]",
     "pyright>=1.1.411",
     "pytest",
     "pytest-asyncio",

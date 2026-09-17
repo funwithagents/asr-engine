@@ -55,6 +55,11 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+all = [
+    { name = "deepgram-sdk" },
+    { name = "mcp" },
+    { name = "uvicorn" },
+]
 deepgram = [
     { name = "deepgram-sdk" },
 ]
@@ -68,7 +73,7 @@ demo = [
     { name = "gradio" },
 ]
 dev = [
-    { name = "asr-engine", extra = ["deepgram", "mcp"] },
+    { name = "asr-engine", extra = ["all"] },
     { name = "pyright" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
@@ -79,6 +84,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "asr-engine", extras = ["deepgram", "mcp"], marker = "extra == 'all'" },
     { name = "deepgram-sdk", marker = "extra == 'deepgram'" },
     { name = "mcp", marker = "extra == 'mcp'", specifier = "<2" },
     { name = "numpy" },
@@ -86,12 +92,12 @@ requires-dist = [
     { name = "soundfile" },
     { name = "uvicorn", marker = "extra == 'mcp'" },
 ]
-provides-extras = ["deepgram", "mcp"]
+provides-extras = ["deepgram", "mcp", "all"]
 
 [package.metadata.requires-dev]
 demo = [{ name = "gradio" }]
 dev = [
-    { name = "asr-engine", extras = ["deepgram", "mcp"] },
+    { name = "asr-engine", extras = ["all"] },
     { name = "pyright", specifier = ">=1.1.411" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
