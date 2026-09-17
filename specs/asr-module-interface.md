@@ -153,6 +153,14 @@ Each real backend's third-party dependencies live in a `[project.optional-depend
 
 A module file may import its SDK at module top level — the lazy registry guarantees it is only imported when selected. Adding a backend with new dependencies means adding an extra and naming it in the `LazyModule` entry.
 
+### Adding a module (checklist)
+
+1. Create `src/asr_engine/modules/<name>.py` implementing `ASRModule` (declare its supported/default audio formats — see "Audio Format Contract").
+2. Register it lazily in `modules/__init__.py`: `REGISTRY["<name>"] = LazyModule("asr_engine.modules.<name>:<ClassName>", extra="<provider>")`. Put its third-party dependencies in a `<provider>` extra under `[project.optional-dependencies]` in `pyproject.toml` (never in core `dependencies`), and add `<provider>` to the `all` extra so `pip install 'asr-engine[all]'` and the `dev` group (which depends on `asr-engine[all]`) both pick it up.
+3. Document its config fields (the `engine.module` block accepts any fields beyond `type`); if it authenticates, resolve the key through `resolve_api_key` (`api_key` / `api_key_env`).
+4. Update [deepgram-module.md](deepgram-module.md) or add a new module spec, with its frontmatter `code:`/`tests:` lists.
+5. Add a row to the `MODULES` table in `tests-e2e/helpers.py` (module type, model, `api_key_env`, and a `silence_s` matching how long the backend needs to finalize an utterance) so `test_engine_modules.py` gives it e2e conformance coverage (see [e2e-testing.md](e2e-testing.md)). Verify with `zsh -ic 'uv run pytest tests-e2e -k <name>'`.
+
 ## Module Constructor Contract
 
 Each module is instantiated with the module-specific portion of the config:

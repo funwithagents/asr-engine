@@ -2,24 +2,7 @@
 
 Start at [specs/_index.md](specs/_index.md) for an overview of the specs and their status before making design decisions or writing code — it lists each spec and whether it's still open ("Draft"/"Not started"), design-validated ("Stable"), or built ("Implemented"). For what's been (or is being) built, see [plans/_index.md](plans/_index.md), which lists each implementation plan and its status ("Todo"/"In progress"/"Done").
 
-## What this project is
-
-A real-time Automatic Speech Recognition (ASR) MCP server written in Python.
-
-- Captures audio continuously from a system input device.
-- Streams audio to a pluggable ASR module. No backend is the default: real providers ship as optional extras (first: `deepgram`), and a scripted `fake` module exists for tests only.
-- Exposes transcription results as live MCP resources (`asr://utterance`, `asr://segment`) over StreamableHTTP. The server stack (`mcp`, `uvicorn`) is the optional `mcp` extra; `import asr_engine` never needs it.
-- Exposes tools to start, stop, query ASR state, and `listen` for a single utterance.
-- Ships `examples/` consumers (not part of the package): a demo client that subscribes to the resource and logs results, and an `asr-to-terminal` bridge that types transcripts into the focused window.
-
-### Key design decisions
-
-- **Always-on by default:** `engine.auto_start=true` (default) starts ASR at server startup. Set `auto_start=false` for on-demand use via the `start` or `listen` tool.
-- **Rolling resources:** `asr://utterance` holds only the latest utterance (interim or final); `asr://segment` holds the latest aggregated segment. Neither is a full transcript history.
-- **Engine-owned segmentation:** the `ASREngine`'s `Segmenter` aggregates utterances into segments (utterance/trigger_word/timeout modes); clients consume segments rather than re-implementing end-of-utterance logic.
-- **Pluggable modules:** one ASR module active at a time, selected via `engine.module.type` in config.
-- **StreamableHTTP transport:** enables remote access on a local network.
-- **asyncio throughout:** audio capture runs in a thread, everything else is async on one event loop.
+The spec index also opens with what this project is; the goals, constraints and system design live in [specs/overview.md](specs/overview.md) and [specs/architecture.md](specs/architecture.md). Don't restate design here — follow the spec links.
 
 ## Project map
 
@@ -32,14 +15,12 @@ Where things live. This is a coarse, module-level map — for the full file inve
 | `src/asr_engine/` | The library itself — one module per core concept (see below); pluggable backends in `modules/`, bundled cues in `sounds/` |
 | `specs/` | Pre-implementation design docs, one per concept, each with a `**Status:**` — indexed by [specs/_index.md](specs/_index.md) |
 | `plans/` | Implementation plans turning settled specs into buildable steps — indexed by [plans/_index.md](plans/_index.md) |
-| `tests/` | Fast, deterministic, no-network tests; mirrors the `src/asr_engine/` module structure |
-| `tests-e2e/` | Opt-in real-time pipeline tests: per-module conformance against live provider APIs, everything else keyless on the `fake` module (not collected by the fast dev loop) |
-| `examples/` | Runnable consumers of the library, not part of it and not built into the wheel. Three subpackages, each run via `python -m examples.<pkg>.<module>`: `gradio_demo/` (direct-import UI — [specs/gradio-demo.md](specs/gradio-demo.md)), `mcp_client/` (MCP subscription SDK `resource_subscriber`/`resource_client` + the `asr_resource_client` demo CLI — [specs/demo-client.md](specs/demo-client.md)), `asr_to_terminal/` (`terminal_typer` + the `asr_to_terminal` bridge — [specs/asr-to-terminal.md](specs/asr-to-terminal.md)). Examples may import each other (`asr_to_terminal` uses `mcp_client`). Their fast tests live in `tests/examples/`; e2e coverage in `tests-e2e/` |
+| `tests/` | Fast, deterministic, no-network tests; mirrors the `src/asr_engine/` module structure (`tests/examples/` covers `examples/`) |
+| `tests-e2e/` | Opt-in real-time pipeline tests: per-module conformance against live provider APIs, everything else keyless on the scripted `fake` module (not collected by default `pytest`) |
+| `examples/` | Runnable consumers of the library, not part of the wheel — `gradio_demo/`, `mcp_client/`, `asr_to_terminal/`, each run via `python -m examples.<pkg>.<module>`; see [examples/README.md](examples/README.md) and [specs/project.md](specs/project.md) "Repo shape" |
 | `scripts/` | Standalone debug/utility scripts (not part of the package) |
 
 ### `src/asr_engine/` modules
-
-<!-- One row per concept module. Keep this in sync with the code (a test enforces it). The modules/ subpackage (registry __init__.py, base.py, fake.py, deepgram_v1.py, deepgram_v2.py) and sounds/ assets are not top-level modules. -->
 
 | Module | Role | Spec |
 |---|---|---|
@@ -91,23 +72,21 @@ The mapping is **many-to-many**: a file can be governed by several specs, so the
 
 - Write functional tests: exercise what a feature/function actually does (inputs → outputs, state changes, side effects), not just that it runs or matches its signature.
 - Avoid trivial/tautological tests — e.g. asserting a constant, asserting an object is not `None`, asserting a mock was called. If a test would pass for a broken implementation, it's not worth writing.
-- Prefer driving the public API the way a real caller would over asserting on internals. The full strategy (two-tier split, scenario-not-field rules, speed rule) is specced in [specs/testing.md](specs/testing.md).
+- Prefer driving the public API the way a real caller would over asserting on internals.
+- The full strategy (two-tier split, scenario-not-field rules, the `fake` module as the downstream test double, speed rule) is specced in [specs/testing.md](specs/testing.md).
 
 ### Live/e2e tests
 
-`tests-e2e/` holds the slow, real-time pipeline tests (subprocess MCP servers, real-time audio), separate from `tests/` so the fast dev loop (`uv run pytest tests/`) stays fast and never needs network access or credentials. Run them explicitly (`uv run pytest tests-e2e`). Only the per-module conformance cases call live provider APIs; everything else runs on the scripted `fake` module and needs no credentials. The file-based e2e pipeline design is specced in [specs/e2e-testing.md](specs/e2e-testing.md).
+`tests-e2e/` holds the slow, real-time pipeline tests (subprocess MCP servers, real-time file audio), separate from `tests/` so the default `uv run pytest` never collects them. Only the per-module conformance cases (`test_engine_modules.py`) call live provider APIs; everything else runs keyless on the scripted `fake` module. What is parametrized per module, the `MODULES` table, `default_module()`, and credentials-by-name (`api_key_env`) are specced in [specs/e2e-testing.md](specs/e2e-testing.md).
 
-**Per-module vs default-module.** The e2e suite parametrizes only behavior that can change with the ASR module. `test_engine_modules.py` runs one lifecycle scenario per `MODULES` row: connect, interim/final utterances, silence finalization, a second utterance on the same stream, and clean stop. Shared direct-engine APIs (`test_engine_api.py`), MCP resources/tools, and asr-to-terminal run once on the scripted `fake` module selected by `helpers.default_module(script)` (script builders `script_blue` / `script_blue_validate`, delayed with `delay_s` when a server auto-starts before the client subscribes), and assert exact transcripts. Exhaustive segmentation and error matrices stay in the deterministic tier. To run one backend's conformance case, filter on its param id: `zsh -ic 'uv run pytest tests-e2e -k deepgram_v1'`.
-
-**Credentials.** Tests never read the literal key. Each module config carries `api_key_env` — the *name* of the env var it authenticates with (Deepgram's is `DEEPGRAM_API_KEY`, the `DEEPGRAM_API_KEY_ENV` constant in `helpers.py`; other modules name their own, and a module needing no key names none) — and the module's own `resolve_api_key` reads it, so no secret lives in the repo. `helpers.require_api_key(module_config)` **skips** a test when the env var that config names is unset (without it, `resolve_api_key` would raise and fail the test rather than skip it); a config without `api_key_env` is never skipped.
-
-**The keys live in `~/.zshrc`**, but the shell tool runs a non-interactive `bash`/`zsh` that doesn't source it — a plain `uv run pytest tests-e2e` in that shell sees no keys, so the per-module live cases skip (the `fake`-module scenarios still run). Source it explicitly in an interactive `zsh` invocation:
+A live case whose `api_key_env` variable is unset **skips**, not fails, so the tier is safe to run with only the keys you have. **The keys live in `~/.zshrc`**, which the shell tool's non-interactive shell doesn't source — a plain `uv run pytest tests-e2e` sees no keys and every live case skips (the `fake`-module scenarios still run). Source it via an interactive `zsh`:
 
 ```bash
-zsh -ic 'uv run pytest tests-e2e'
+zsh -ic 'uv run pytest tests-e2e'                  # all: live cases run where a key is set, else skip
+zsh -ic 'uv run pytest tests-e2e -k deepgram_v1'   # one backend, by its parametrize id
 ```
 
-**e2e terminal tests are self-contained:** `tests-e2e/test_asr_to_terminal.py` injects an in-memory `RecordingTyper` (a `KeystrokeSink`) into `AsrToTerminal`, so it drives the full pipeline without `xterm`, `xdotool`, or an X11 display — and, on the `fake` module, without an API key: it runs anywhere. Only the runtime `asr-to-terminal` CLI needs `xdotool` (X11), or `ydotool` plus a running `ydotoold` with access to `/dev/uinput` (Wayland).
+Never `echo`/print a key itself; when checking whether one is set, redact the value (e.g. `env | grep DEEPGRAM | sed -E 's/=.*/=<set>/'`).
 
 ## Implementation plans
 
@@ -123,40 +102,10 @@ After any code change, run linting, type checking, and tests, and fix any failur
 ## Commands
 
 ```bash
-uv sync                      # dev group incl. every provider extra and the mcp extra
-uv run ruff check .          # lint
-uv run ruff format .         # format
-uv run pyright               # type-check (src, tests, tests-e2e, examples)
-uv run pytest tests/         # fast, deterministic tier (no credentials)
-uv run pytest tests-e2e/     # opt-in live tier (needs the provider API key; configs are generated by the tests)
+uv sync --dev                # full contributor environment (dev depends on asr-engine[all]: every provider extra and the mcp extra)
+uv run ruff check .
+uv run ruff format .
+uv run pyright
+uv run pytest tests/
+uv run pytest tests-e2e/     # opt-in live tier — see Testing for the key-sourcing invocation
 ```
-
-### Entry points
-
-Quick reference for the runnable commands (the packaging rationale — why `asr-engine-mcp` is the only console script and the examples run via `python -m` — is in [specs/project.md](specs/project.md)):
-
-```bash
-uv run asr-engine-mcp --config config.json                              # Start the MCP server
-uv run python -m examples.mcp_client.asr_resource_client                # Demo resource client (default: http://127.0.0.1:8000/mcp)
-uv run python -m examples.asr_to_terminal.asr_to_terminal [--server URL] [--display-server x11|wayland]
-uv run python -m examples.gradio_demo.app --config config.json          # Gradio demo UI
-```
-
-## Conventions
-
-### Audio format contract
-
-The end-to-end `AudioFormat` contract (reconciled rate/channels/encoding, `linear16`/`mulaw`, ~100 ms chunks, `on_unsupported_format` fallback, who converts where) is specified in [specs/asr-module-interface.md](specs/asr-module-interface.md) and [specs/architecture.md](specs/architecture.md).
-
-### Logging
-
-- Every module that logs uses `log = logging.getLogger(__name__)` — variable name `log`, **not** `logger`.
-- The library-vs-application logging boundary (library modules configure nothing, the `NullHandler`, `setup_logging()`, the `--log-level` flag, uvicorn's `log_config`) is specified in [specs/project.md](specs/project.md) "Logging" and [specs/mcp-server.md](specs/mcp-server.md).
-
-### Adding a new ASR module
-
-1. Create `src/asr_engine/modules/<name>.py` implementing `ASRModule` from `modules/base.py`.
-2. Register it lazily in `modules/__init__.py`: `REGISTRY["<name>"] = LazyModule("asr_engine.modules.<name>:<ClassName>", extra="<provider>")`. Put its third-party dependencies in a `<provider>` extra under `[project.optional-dependencies]` in `pyproject.toml` (never in core `dependencies`), and add `<provider>` to the `dev` group's self-reference (`asr-engine[deepgram,mcp,…]`) so contributors get it.
-3. Document its config fields (the `engine.module` block accepts any fields beyond `type`).
-4. Update [specs/deepgram-module.md](specs/deepgram-module.md) or add a new spec, and its frontmatter `code:` list.
-5. Add a row to the `MODULES` table in `tests-e2e/helpers.py` (module type, model, and a `silence_s` matching how long the backend needs to finalize an utterance) so the new module gets e2e conformance coverage in `test_engine_modules.py`. Verify with `zsh -ic 'uv run pytest tests-e2e -k <name>'`.
