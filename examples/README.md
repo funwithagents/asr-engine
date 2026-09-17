@@ -20,7 +20,7 @@ MCP:            application ──▶ MCP server ──▶ ASREngine
 From the repository root:
 
 ```bash
-uv sync --extra deepgram --extra mcp   # the module's extra (as your config selects); mcp for the server and MCP examples
+uv sync   # the default groups already include every provider extra, the mcp extra and Gradio
 export DEEPGRAM_API_KEY="..."
 ```
 

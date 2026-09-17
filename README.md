@@ -27,13 +27,26 @@ Install the project from source:
 ```bash
 git clone <repo-url>
 cd asr-engine
-uv sync --extra deepgram   # the extra for the ASR module you will use
+uv sync --no-default-groups --extra deepgram   # the extra for the ASR module you will use
 export DEEPGRAM_API_KEY="..."
 ```
 
-As a dependency, install the extra the same way: `pip install 'asr-engine[deepgram]'`. The examples in this README use Deepgram, the first available provider module.
+`--no-default-groups` is what keeps that install minimal: `uv sync` syncs the `dev` and `demo` groups by default, and `dev` depends on `asr-engine[all]`, so a bare `uv sync` here builds the full contributor environment — every provider extra, the MCP server stack and Gradio (see [Development](#development-and-project-documentation)).
 
-The bundled MCP server is optional too: its stack (the MCP SDK and `uvicorn`) ships in the `mcp` extra, so a program that only imports `asr_engine` never installs it. To run `asr-engine-mcp`, add the extra: `uv sync --extra deepgram --extra mcp` or `pip install 'asr-engine[mcp,deepgram]'`. The `all` extra installs every provider and the server at once: `pip install 'asr-engine[all]'` / `uv sync --extra all`.
+The base installation contains the engine, `AsrTools` and the `fake` test module, but no speech provider and no server. Install the provider you want as an extra, and add the `mcp` extra to run the MCP server — its stack (the MCP SDK and `uvicorn`) is never pulled in by a program that only imports `asr_engine`:
+
+```bash
+uv sync --no-default-groups --extra deepgram               # Deepgram modules
+uv sync --no-default-groups --extra deepgram --extra mcp   # + the MCP server (asr-engine-mcp)
+uv sync --no-default-groups --extra all                    # every provider and the server
+
+# For an installed package:
+pip install 'asr-engine[deepgram]'
+pip install 'asr-engine[mcp,deepgram]'
+pip install 'asr-engine[all]'
+```
+
+The examples in this README use Deepgram, the first available provider module.
 
 ## Quick start
 
@@ -505,7 +518,7 @@ engine_config = server_config.engine
 Start the bundled server with the example configuration (requires the `mcp` extra; without it, `asr-engine-mcp` exits with the install hint):
 
 ```bash
-uv sync --extra deepgram --extra mcp
+uv sync --no-default-groups --extra deepgram --extra mcp
 cp config.example.json config.json
 uv run asr-engine-mcp --config config.json
 ```
@@ -556,7 +569,7 @@ See the [examples guide](examples/README.md) for setup and links to each example
 
 The repository keeps its design specifications alongside the code. The [specification index](specs/_index.md) describes the intended design and implementation status, while the [implementation plan index](plans/_index.md) records how each feature was built.
 
-Fast deterministic tests live in `tests/`; opt-in real-time pipeline tests live in `tests-e2e/` (live provider conformance, plus keyless scenarios on the `fake` module). The `dev` dependency group installs every provider extra and the `mcp` extra.
+Install the development environment and run all default checks:
 
 ```bash
 uv sync
@@ -565,6 +578,8 @@ uv run ruff format --check .
 uv run pyright
 uv run pytest tests/
 ```
+
+A bare `uv sync` syncs the default groups: `dev`, which depends on `asr-engine[all]` and so installs every provider extra and the `mcp` extra, and `demo`, which adds Gradio for the example UI. The whole suite then runs with nothing skipped for a missing extra. Fast deterministic tests live in `tests/`; opt-in real-time pipeline tests live in `tests-e2e/` (live provider conformance, plus keyless scenarios on the `fake` module) and must be invoked explicitly.
 
 ## License
 
