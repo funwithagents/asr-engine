@@ -5,7 +5,9 @@ import sys
 
 from asr_engine._logging import setup_logging
 from asr_engine.config import MCPServerConfig
-from asr_engine.server import run_server
+
+_MCP_EXTRA_MODULES = {"mcp", "uvicorn"}
+_MCP_EXTRA_HINT = "asr-engine-mcp requires the mcp extra: pip install 'asr-engine[mcp]'"
 
 _LOG_LEVELS = sorted(
     name for name in logging.getLevelNamesMapping() if name != "NOTSET"
@@ -28,6 +30,18 @@ def main() -> None:
         help=f"Logging level (default: INFO). One of: {', '.join(_LOG_LEVELS)}.",
     )
     args = parser.parse_args()
+
+    # The console script is installed even without the mcp extra, so the MCP
+    # stack is imported here: a missing extra becomes an install hint, not a
+    # traceback. Only a missing top-level package means the extra is absent; a
+    # missing submodule (e.g. an incompatible mcp version) or any other import
+    # error is a real problem and is re-raised.
+    try:
+        from asr_engine.server import run_server
+    except ModuleNotFoundError as exc:
+        if exc.name not in _MCP_EXTRA_MODULES:
+            raise
+        raise SystemExit(_MCP_EXTRA_HINT) from exc
 
     setup_logging(args.log_level)
 

@@ -20,7 +20,7 @@ MCP:            application ──▶ MCP server ──▶ ASREngine
 From the repository root:
 
 ```bash
-uv sync --extra deepgram   # or the extra for the ASR module your config selects
+uv sync --extra deepgram --extra mcp   # the module's extra (as your config selects); mcp for the server and MCP examples
 export DEEPGRAM_API_KEY="..."
 ```
 

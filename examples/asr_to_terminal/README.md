@@ -39,7 +39,7 @@ Use `timeout` instead of `trigger_word` when silence should submit the line. If 
 Start the configured server before the bridge:
 
 ```bash
-uv sync --extra deepgram   # or the extra for the ASR module your config selects
+uv sync --extra deepgram --extra mcp   # the module's extra (as your config selects) + the MCP server/SDK
 export DEEPGRAM_API_KEY="..."
 uv run asr-engine-mcp --config config.json
 ```

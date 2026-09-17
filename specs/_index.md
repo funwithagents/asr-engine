@@ -12,7 +12,7 @@ The pipeline is asynchronous: audio capture runs in a dedicated thread, while th
 
 | Spec | Description | Status |
 |---|---|---|
-| [project.md](project.md) | Project structure and tooling: Python version, packaging with uv, provider extras, layout conventions, ruff/pyright | Implemented |
+| [project.md](project.md) | Project structure and tooling: Python version, packaging with uv, provider + transport (`mcp`) extras, layout conventions, ruff/pyright | Implemented |
 | [testing.md](testing.md) | Testing strategy: two-tier `tests/`/`tests-e2e/` split, functional-test philosophy, `fake` module as the downstream test double | Implemented |
 | [overview.md](overview.md) | Goals, components, constraints, non-goals | Implemented |
 | [architecture.md](architecture.md) | System diagram, concurrency model, data flow | Implemented |
@@ -20,7 +20,7 @@ The pipeline is asynchronous: audio capture runs in a dedicated thread, while th
 | [engine.md](engine.md) | `ASREngine` (from `ASREngineConfig`) + `Segmenter`: callbacks, dictation (`start_dictation`/`stop_dictation`), `set_segmentation_params`, `segmentation_mode`/`dictating` getters, `listen` | Implemented |
 | [configuration.md](configuration.md) | Config file schema (`server` + nested `engine`/`ASREngineConfig`), fields, validation rules (no default module; extra-not-installed error) | Implemented |
 | [tools.md](tools.md) | Transport-agnostic `AsrTools` for direct in-process agent registration or MCP adaptation over an `ASREngine` | Implemented |
-| [mcp-server.md](mcp-server.md) | Resources `asr://utterance` + `asr://segment`, MCP adapter over the tools layer, server lifecycle | Implemented |
+| [mcp-server.md](mcp-server.md) | `mcp` extra + CLI install hint, resources `asr://utterance` + `asr://segment`, MCP adapter over the tools layer, server lifecycle | Implemented |
 | [asr-module-interface.md](asr-module-interface.md) | ABC, audio format contract, lazy registry + provider extras (no default backend), reconnection | Implemented |
 | [deepgram-module.md](deepgram-module.md) | `deepgram` extra, WebSocket details, config fields, message mapping | Implemented |
 | [fake-module.md](fake-module.md) | `fake` scripted test double: word-by-word interims evenly spaced over each utterance's window on an audio-time clock, final at end; `fake_engine_factory` fixture | Implemented |

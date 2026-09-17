@@ -8,7 +8,7 @@ A real-time Automatic Speech Recognition (ASR) MCP server written in Python.
 
 - Captures audio continuously from a system input device.
 - Streams audio to a pluggable ASR module. No backend is the default: real providers ship as optional extras (first: `deepgram`), and a scripted `fake` module exists for tests only.
-- Exposes transcription results as live MCP resources (`asr://utterance`, `asr://segment`) over StreamableHTTP.
+- Exposes transcription results as live MCP resources (`asr://utterance`, `asr://segment`) over StreamableHTTP. The server stack (`mcp`, `uvicorn`) is the optional `mcp` extra; `import asr_engine` never needs it.
 - Exposes tools to start, stop, query ASR state, and `listen` for a single utterance.
 - Ships `examples/` consumers (not part of the package): a demo client that subscribes to the resource and logs results, and an `asr-to-terminal` bridge that types transcripts into the focused window.
 
@@ -123,7 +123,7 @@ After any code change, run linting, type checking, and tests, and fix any failur
 ## Commands
 
 ```bash
-uv sync                      # dev group incl. every provider extra
+uv sync                      # dev group incl. every provider extra and the mcp extra
 uv run ruff check .          # lint
 uv run ruff format .         # format
 uv run pyright               # type-check (src, tests, tests-e2e, examples)
@@ -156,7 +156,7 @@ The end-to-end `AudioFormat` contract (reconciled rate/channels/encoding, `linea
 ### Adding a new ASR module
 
 1. Create `src/asr_engine/modules/<name>.py` implementing `ASRModule` from `modules/base.py`.
-2. Register it lazily in `modules/__init__.py`: `REGISTRY["<name>"] = LazyModule("asr_engine.modules.<name>:<ClassName>", extra="<provider>")`. Put its third-party dependencies in a `<provider>` extra under `[project.optional-dependencies]` in `pyproject.toml` (never in core `dependencies`), and add `asr-engine[<provider>]` to the `dev` group's self-reference so contributors get it.
+2. Register it lazily in `modules/__init__.py`: `REGISTRY["<name>"] = LazyModule("asr_engine.modules.<name>:<ClassName>", extra="<provider>")`. Put its third-party dependencies in a `<provider>` extra under `[project.optional-dependencies]` in `pyproject.toml` (never in core `dependencies`), and add `<provider>` to the `dev` group's self-reference (`asr-engine[deepgram,mcp,…]`) so contributors get it.
 3. Document its config fields (the `engine.module` block accepts any fields beyond `type`).
 4. Update [specs/deepgram-module.md](specs/deepgram-module.md) or add a new spec, and its frontmatter `code:` list.
 5. Add a row to the `MODULES` table in `tests-e2e/helpers.py` (module type, model, and a `silence_s` matching how long the backend needs to finalize an utterance) so the new module gets e2e conformance coverage in `test_engine_modules.py`. Verify with `zsh -ic 'uv run pytest tests-e2e -k <name>'`.

@@ -8,7 +8,6 @@ authors = [
 ]
 requires-python = ">=3.11"
 dependencies = [
-    "mcp[cli]",
     "sounddevice",
     "numpy",
     "soundfile",
@@ -20,6 +19,14 @@ dependencies = [
 # See specs/asr-module-interface.md "Optional dependencies (extras)".
 deepgram = [
     "deepgram-sdk",
+]
+# The MCP server (asr-engine-mcp). The plain SDK, not mcp[cli]: the cli extra
+# only serves the SDK's own `mcp dev` tooling. uvicorn is imported directly.
+# <2: mcp 2.x renamed FastMCP (mcp.server.fastmcp is gone).
+# See specs/project.md "Dependency strategy for transports".
+mcp = [
+    "mcp<2",
+    "uvicorn",
 ]
 
 [project.scripts]
@@ -70,8 +77,9 @@ default-groups = ["dev", "demo"]
 
 [dependency-groups]
 dev = [
-    # Every provider extra, so pyright and the tests see all bundled modules.
-    "asr-engine[deepgram]",
+    # Every provider and transport extra, so pyright and the tests see all
+    # bundled modules and the MCP server.
+    "asr-engine[deepgram,mcp]",
     "pyright>=1.1.411",
     "pytest",
     "pytest-asyncio",

@@ -33,6 +33,8 @@ export DEEPGRAM_API_KEY="..."
 
 As a dependency, install the extra the same way: `pip install 'asr-engine[deepgram]'`. The examples in this README use Deepgram, the first available provider module.
 
+The bundled MCP server is optional too: its stack (the MCP SDK and `uvicorn`) ships in the `mcp` extra, so a program that only imports `asr_engine` never installs it. To run `asr-engine-mcp`, add the extra: `uv sync --extra deepgram --extra mcp` or `pip install 'asr-engine[mcp,deepgram]'`.
+
 ## Quick start
 
 Create an `ASREngineConfig`, attach the callbacks your application needs, and control the engine lifecycle asynchronously:
@@ -500,9 +502,10 @@ server_config = MCPServerConfig.from_json_file("config.json")
 engine_config = server_config.engine
 ```
 
-Start the bundled server with the example configuration:
+Start the bundled server with the example configuration (requires the `mcp` extra; without it, `asr-engine-mcp` exits with the install hint):
 
 ```bash
+uv sync --extra deepgram --extra mcp
 cp config.example.json config.json
 uv run asr-engine-mcp --config config.json
 ```
@@ -553,7 +556,7 @@ See the [examples guide](examples/README.md) for setup and links to each example
 
 The repository keeps its design specifications alongside the code. The [specification index](specs/_index.md) describes the intended design and implementation status, while the [implementation plan index](plans/_index.md) records how each feature was built.
 
-Fast deterministic tests live in `tests/`; opt-in real-time pipeline tests live in `tests-e2e/` (live provider conformance, plus keyless scenarios on the `fake` module). The `dev` dependency group installs every provider extra.
+Fast deterministic tests live in `tests/`; opt-in real-time pipeline tests live in `tests-e2e/` (live provider conformance, plus keyless scenarios on the `fake` module). The `dev` dependency group installs every provider extra and the `mcp` extra.
 
 ```bash
 uv sync

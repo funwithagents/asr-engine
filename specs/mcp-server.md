@@ -5,6 +5,7 @@ code:
 tests:
   - tests/test_server.py
   - tests/test_mcp_server_cli.py
+  - tests/test_no_mcp_import.py
 ---
 
 # MCP Server Specification
@@ -39,6 +40,14 @@ class AsrTools:
 ```
 
 `AsrTools` owns the "a listen session is already in progress" lock and calls `engine.listen(mode, on_update=...)`, translating segment updates into a generic `on_progress(progress, total, message)` callback. It does **not** know about FastMCP, `Context`, or HTTP. The MCP server wraps each method as an MCP tool; a direct importer can call them as plain coroutines.
+
+## Installation
+
+The MCP server ships behind the **`mcp` extra** — `pip install 'asr-engine[mcp]'` / `uv sync --extra mcp` — which declares `mcp<2` (the SDK, without its `cli` extra; 2.x renamed `FastMCP`) and `uvicorn`. Neither is a core dependency: a program that imports `asr_engine` directly never installs the server stack (see [project.md](project.md), "Dependency strategy for transports"). A deployment combines it with a provider extra, e.g. `asr-engine[mcp,deepgram]`.
+
+- `server.py` is the only module that imports `mcp`/`uvicorn`/`pydantic`; `asr_engine/__init__.py` never imports it.
+- `mcp_server_cli.py` has no top-level import of `asr_engine.server`, because the `asr-engine-mcp` console script is installed even without the extra. `main` parses arguments, then imports `run_server`; if that raises `ModuleNotFoundError` whose missing module is exactly `mcp` or `uvicorn` (`exc.name in {"mcp", "uvicorn"}`), it exits with status 1 and `asr-engine-mcp requires the mcp extra: pip install 'asr-engine[mcp]'` on stderr, with no traceback. Any other import error is re-raised unchanged — including a missing *submodule* such as `mcp.server.fastmcp`, which means an incompatible `mcp` version is installed, not a missing extra — so neither a real bug in `server.py` nor a version mismatch is mislabelled as a missing extra.
+- `main` runs in this order: parse `--config`/`--log-level` → import the MCP stack (the check above, before the config file is read) → `setup_logging` → `MCPServerConfig.from_json_file` → `asyncio.run(run_server(...))`.
 
 ## Transport
 

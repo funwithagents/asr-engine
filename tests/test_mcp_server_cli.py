@@ -25,7 +25,7 @@ def test_cli_runs_server(tmp_path: Path) -> None:
     sys.argv = ["asr-engine-mcp", "--config", path]
 
     mock_run_server = AsyncMock()
-    with patch("asr_engine.mcp_server_cli.run_server", mock_run_server):
+    with patch("asr_engine.server.run_server", mock_run_server):
         mcp_server_cli.main()
 
     mock_run_server.assert_called_once()
@@ -42,7 +42,7 @@ def test_cli_passes_log_level(tmp_path: Path) -> None:
 
     mock_run_server = AsyncMock()
     with (
-        patch("asr_engine.mcp_server_cli.run_server", mock_run_server),
+        patch("asr_engine.server.run_server", mock_run_server),
         patch("asr_engine.mcp_server_cli.setup_logging") as mock_setup,
     ):
         mcp_server_cli.main()
@@ -86,7 +86,7 @@ def test_cli_exits_on_unknown_asr_type(tmp_path: Path, capsys) -> None:
     # the mock coroutine — patching asyncio.run would leave run_server's
     # coroutine (built as the call argument) unawaited.
     with patch(
-        "asr_engine.mcp_server_cli.run_server",
+        "asr_engine.server.run_server",
         new=AsyncMock(side_effect=ValueError("Unknown ASR type 'bogus'")),
     ):
         with pytest.raises(SystemExit) as exc_info:
@@ -112,3 +112,28 @@ def test_cli_exits_with_install_hint_when_module_extra_missing(
             mcp_server_cli.main()
     assert exc_info.value.code == 1
     assert "pip install 'asr-engine[acme]'" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    "missing",
+    [
+        # A broken server module is a bug, not a missing extra.
+        "asr_engine.server",
+        # mcp installed but without FastMCP (e.g. mcp 2.x): a version problem.
+        "mcp.server.fastmcp",
+    ],
+)
+def test_cli_reraises_import_errors_that_are_not_the_mcp_extra(
+    tmp_path: Path, missing: str
+) -> None:
+    """Only a missing top-level mcp/uvicorn becomes the install hint; anything
+    else surfaces as the real ModuleNotFoundError."""
+    path = write_config(tmp_path, {"engine": {"module": {"type": "fake"}}})
+    sys.argv = ["asr-engine-mcp", "--config", path]
+    with patch.dict(sys.modules):
+        # Force a fresh import of the server so the poisoned module is reached.
+        sys.modules.pop("asr_engine.server", None)
+        sys.modules[missing] = None  # type: ignore[assignment]
+        with pytest.raises(ModuleNotFoundError) as exc_info:
+            mcp_server_cli.main()
+    assert exc_info.value.name == missing
