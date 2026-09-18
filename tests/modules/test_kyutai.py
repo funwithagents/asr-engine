@@ -1,4 +1,4 @@
-"""Tests for the Kyutai local STT module (specs/kyutai-module.md).
+"""Tests for the Kyutai local STT module (specs/modules/kyutai.md).
 
 Every test drives ``KyutaiModule`` through a scripted fake backend injected at the
 ``KyutaiBackend`` seam, so nothing here needs a Kyutai extra or loads a model.
@@ -18,9 +18,10 @@ import numpy as np
 import pytest
 
 from asr_engine.audio import AudioFormat
-from asr_engine.modules import kyutai, resolve_module_class
+from asr_engine.modules import resolve_module_class
 from asr_engine.modules.base import SpeechUtterance, reconcile_audio_format
 from asr_engine.modules.kyutai import KyutaiModule, StepResult
+from asr_engine.modules.kyutai import module as kyutai
 
 FORMAT_24K = AudioFormat(sample_rate=24000)
 FRAME_SAMPLES = 1920

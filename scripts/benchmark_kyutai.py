@@ -2,7 +2,7 @@
 
 The `kyutai` module's whole backpressure design assumes the model keeps up with
 real time (RTF < 1: one 80 ms frame processed in under 80 ms). Run this on new
-hardware before trusting the module there (see specs/kyutai-module.md).
+hardware before trusting the module there (see specs/modules/kyutai.md).
 
 It loads the model exactly as the module's MLX backend does, feeds an audio file
 frame by frame, and reports wall-clock per step, the overall RTF, the transcript

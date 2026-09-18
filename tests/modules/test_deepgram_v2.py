@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from asr_engine.modules.base import SpeechUtterance
-from asr_engine.modules.deepgram_v2 import DeepgramV2Module
+from asr_engine.modules.deepgram.v2 import DeepgramV2Module
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -208,7 +208,7 @@ async def _run_with_messages(messages, module_config=None):
     conn = _make_mock_conn(messages)
     m = DeepgramV2Module(config=module_config or {"api_key": "sk-test"})
 
-    with patch("asr_engine.modules.deepgram_v2.AsyncDeepgramClient") as MockClient:
+    with patch("asr_engine.modules.deepgram.v2.AsyncDeepgramClient") as MockClient:
         mc = MockClient.return_value
         mc.listen.v2.connect.return_value.__aenter__ = AsyncMock(return_value=conn)
         mc.listen.v2.connect.return_value.__aexit__ = AsyncMock(return_value=False)

@@ -23,17 +23,17 @@ class LazyModule:
 
 
 REGISTRY: dict[str, LazyModule | type[ASRModule]] = {
-    # Scripted test double — for tests only, not an ASR backend (specs/fake-module.md).
-    "fake": LazyModule("asr_engine.modules.fake:FakeASRModule"),
+    # Scripted test double — for tests only, not an ASR backend (specs/modules/fake.md).
+    "fake": LazyModule("asr_engine.modules.fake.module:FakeASRModule"),
     "deepgram_v1": LazyModule(
-        "asr_engine.modules.deepgram_v1:DeepgramV1Module", extra="deepgram"
+        "asr_engine.modules.deepgram.v1:DeepgramV1Module", extra="deepgram"
     ),
     "deepgram_v2": LazyModule(
-        "asr_engine.modules.deepgram_v2:DeepgramV2Module", extra="deepgram"
+        "asr_engine.modules.deepgram.v2:DeepgramV2Module", extra="deepgram"
     ),
-    # No `extra`: kyutai.py imports nothing third-party, and the module raises its
+    # No `extra`: kyutai/module.py imports nothing third-party, and the module raises its
     # own install hint naming the backend's extra (kyutai-mlx / kyutai-torch).
-    "kyutai": LazyModule("asr_engine.modules.kyutai:KyutaiModule"),
+    "kyutai": LazyModule("asr_engine.modules.kyutai.module:KyutaiModule"),
 }
 
 

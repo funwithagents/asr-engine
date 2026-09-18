@@ -1,8 +1,10 @@
 ---
 code:
-  - src/asr_engine/modules/kyutai.py
-  - src/asr_engine/modules/_kyutai_mlx.py
-  - src/asr_engine/modules/_kyutai_torch.py
+  - src/asr_engine/modules/kyutai/__init__.py
+  - src/asr_engine/modules/kyutai/module.py
+  - src/asr_engine/modules/kyutai/backend.py
+  - src/asr_engine/modules/kyutai/mlx_backend.py
+  - src/asr_engine/modules/kyutai/torch_backend.py
   - src/asr_engine/modules/__init__.py
   - pyproject.toml
   - scripts/benchmark_kyutai.py
@@ -13,13 +15,13 @@ tests:
 
 # Kyutai STT Module
 
-**Status:** Stable
+**Status:** Implemented
 
 ## Purpose
 
-`kyutai` is the first **local, on-device** ASR module: a streaming speech-to-text model that runs in-process with no network, no API key, and no per-minute cost. Every other real backend in this repo is a cloud websocket ([deepgram-module.md](deepgram-module.md)); this one puts the model inside the process, which is why it stresses parts of the [module interface](asr-module-interface.md) that a cloud backend never touches — lifecycle cost, blocking compute, backpressure, and the absence of a server-side "final" signal.
+`kyutai` is the first **local, on-device** ASR module: a streaming speech-to-text model that runs in-process with no network, no API key, and no per-minute cost. Every other real backend in this repo is a cloud websocket ([deepgram.md](deepgram.md)); this one puts the model inside the process, which is why it stresses parts of the [module interface](../asr-module-interface.md) that a cloud backend never touches — lifecycle cost, blocking compute, backpressure, and the absence of a server-side "final" signal.
 
-It is the streaming-native member of the local-backend family sketched in `_todo.md` (whisper, faster-whisper, parakeet). Unlike those, it needs no VAD to chunk it: it consumes audio frame-by-frame and emits text frame-by-frame, so it plugs into the existing always-on pipeline directly. See [vad.md](vad.md) for the separate, orthogonal audio-gating work.
+It is the streaming-native member of the local-backend family sketched in `_todo.md` (whisper, faster-whisper, parakeet). Unlike those, it needs no VAD to chunk it: it consumes audio frame-by-frame and emits text frame-by-frame, so it plugs into the existing always-on pipeline directly. See [vad.md](../vad.md) for the separate, orthogonal audio-gating work.
 
 **Upstream:** [kyutai-labs/delayed-streams-modeling](https://github.com/kyutai-labs/delayed-streams-modeling). Model weights CC-BY 4.0, Python code MIT.
 
@@ -75,11 +77,16 @@ piece = tokenizer.id_to_piece(text_token).replace("▁", " ")  # skip tokens 0 a
 Everything else — re-blocking, float conversion, text accumulation, finalization, threading, lifecycle — is backend-independent. So the module splits at exactly that line:
 
 ```
-KyutaiModule  (modules/kyutai.py)          ← ASRModule; all shared behaviour
-      │  selects one of
-      ├── MlxKyutaiBackend   (_kyutai_mlx.py)    moshi_mlx
-      └── TorchKyutaiBackend (_kyutai_torch.py)  moshi
+src/asr_engine/modules/kyutai/
+  module.py          KyutaiModule ← ASRModule; all shared behaviour
+        │  drives a KyutaiBackend (backend.py: the protocol + StepResult)
+        │  and selects one of
+        ├── mlx_backend.py     MlxKyutaiBackend    moshi_mlx
+        └── torch_backend.py   TorchKyutaiBackend  moshi
+  __init__.py        re-exports KyutaiModule, KyutaiBackend, StepResult
 ```
+
+The protocol sits in its own file so that neither backend imports the module that selects it, and so the package `__init__` can re-export everything without touching a model package.
 
 ```python
 @dataclass(frozen=True)
@@ -126,7 +133,7 @@ This seam does triple duty: it is the MLX/PyTorch split, it is where a scripted 
 
 `backend: "auto"` resolves to `mlx` when `sys.platform == "darwin"` and `platform.machine() == "arm64"` **and** `moshi_mlx` imports; otherwise `torch`. `"mlx"` / `"torch"` force one and raise if unavailable.
 
-Because the registry's `LazyModule` carries a single `extra`, `kyutai` is registered with `extra=None` and `modules/kyutai.py` imports **neither** backend at top level. The module resolves the backend in `__init__` and raises its own `ImportError` naming the right extra:
+Because the registry's `LazyModule` carries a single `extra`, `kyutai` is registered with `extra=None` and `modules/kyutai/module.py` imports **neither** backend at top level. The module resolves the backend in `__init__` and raises its own `ImportError` naming the right extra:
 
 ```
 ASR module 'kyutai' with backend 'mlx' requires the optional dependency
@@ -153,7 +160,7 @@ DEFAULT_ENCODING = "linear16"
 - **Conversion.** s16 → float32 via `np.frombuffer(chunk, "<i2").astype(np.float32) / 32768.0`.
 - **Silence prefix.** At session start — and again after every `reset()` — the module feeds `stt_config.audio_silence_prefix_seconds` of zero frames (0 for the 1B model, 1.0 s = 12 frames for the 2.6B) and discards their results.
 
-**Config consequence:** `engine.audio.sample_rate` must be `24000`. The default is 16000, so a Kyutai config that omits it fails fast at engine construction with the reconciliation error — correct behaviour, and worth an explicit example in [configuration.md](configuration.md).
+**Config consequence:** `engine.audio.sample_rate` must be `24000`. The default is 16000, so a Kyutai config that omits it fails fast at engine construction with the reconciliation error — correct behaviour, and worth an explicit example in [configuration.md](../configuration.md).
 
 ## Lifecycle
 
@@ -170,7 +177,7 @@ This is where Kyutai departs most from the cloud modules, and the departures are
 
 **Loading happens off the event loop**, on the worker thread, with `on_connected(True)` fired only once warm-up completes. The audio queue is **drained while the model loads**: audio captured during a first-run download would otherwise be transcribed minutes late. A load interrupted by `stop()` carries on in the background and the next `start()` awaits that same load rather than starting another.
 
-A load failure (no network on first run, corrupt cache) is retried on the [standard backoff ladder](asr-module-interface.md#reconnection-contract) while the audio queue is drained, exactly as a cloud module retries a socket. A **`step()` failure** mid-session is treated the same way — the analogue of a dropped socket: `on_connected(False)`, the backend is `close()`d and discarded, and the retry loads a fresh one.
+A load failure (no network on first run, corrupt cache) is retried on the [standard backoff ladder](../asr-module-interface.md#reconnection-contract) while the audio queue is drained, exactly as a cloud module retries a socket. A **`step()` failure** mid-session is treated the same way — the analogue of a dropped socket: `on_connected(False)`, the backend is `close()`d and discarded, and the retry loads a fresh one.
 
 **`stop()` waits for the teardown.** The engine cancels the `start()` task as soon as `stop()` returns, so `stop()` blocks until `start()` has joined the worker and reset the session (bounded by a timeout).
 
@@ -223,7 +230,7 @@ The model emits one text token per 80 ms frame and **never revises** what it has
 
   **The final waits out the text delay.** The VAD head tracks the *audio*, while the text runs `audio_delay_seconds` behind it — so the edge arrives **before** the utterance's last words do. Measured on the fixtures: the edge lands at 2.24 s and `" validate."` at 2.32–2.48 s. Finalizing on the edge itself would cut every utterance's tail off and re-emit it as a stray second final once the silence timer expired. So the edge only *arms* the final, which is emitted `ceil(audio_delay_seconds / 0.08)` steps later (7 steps = 0.56 s for the 1B model): every piece arriving in that window is, by construction, text for audio before the edge. Upstream never hits this because its scripts only print an `[end of turn]` marker into a continuous stream.
 
-  **Both timers count steps, not seconds.** One step is always 80 ms of audio, so this is an audio-time clock like the [`fake` module](fake-module.md)'s — deterministic in tests, and immune to the model running faster or slower than real time.
+  **Both timers count steps, not seconds.** One step is always 80 ms of audio, so this is an audio-time clock like the [`fake` module](fake.md)'s — deterministic in tests, and immune to the model running faster or slower than real time.
 
 - After a final the accumulator resets. **An empty accumulator emits nothing** — matching the Deepgram modules, which discard empty transcripts.
 
@@ -262,7 +269,7 @@ Text for audio at time *t* arrives at *t + audio_delay_seconds*. On the VAD path
 
 **No `api_key` / `api_key_env`** — the module authenticates with nothing. This matters for e2e: `helpers.require_api_key` never skips a keyless module (see [Testing](#testing)).
 
-Validation in `__init__` (per the [constructor contract](asr-module-interface.md#module-constructor-contract)): unknown `backend`; unavailable backend (→ the `ImportError` above); empty `hf_repo`; non-boolean `vad`; non-integer or non-positive `max_steps`; `vad_threshold` outside `(0, 1)`; negative `finalize_after_silence_s`; unknown `device`; non-positive `lag_warn_s`; `lag_drop_s <= lag_warn_s`.
+Validation in `__init__` (per the [constructor contract](../asr-module-interface.md#module-constructor-contract)): unknown `backend`; unavailable backend (→ the `ImportError` above); empty `hf_repo`; non-boolean `vad`; non-integer or non-positive `max_steps`; `vad_threshold` outside `(0, 1)`; negative `finalize_after_silence_s`; unknown `device`; non-positive `lag_warn_s`; `lag_drop_s <= lag_warn_s`.
 
 ## Installation
 
@@ -282,17 +289,17 @@ dev = ["asr-engine[deepgram,mcp,kyutai-mlx]", ...]
 ```
 
 - The **environment marker is load-bearing**, not cosmetic: `mlx` publishes no Linux wheels, so an unmarked `kyutai-mlx` inside `all` would break `uv sync` on Linux outright. With the marker the extra resolves to nothing there.
-- **Both extras join `all`; only `kyutai-mlx` joins `dev`.** This is what the `all`-vs-`dev` split in [project.md](project.md) exists for: `pip install 'asr-engine[all]'` stays honest and ships the torch backend, while a plain `uv sync` does not drag ~2.5 GB of torch into every contributor's venv. On an Apple Silicon machine `dev` therefore gets a working, type-checked, e2e-runnable MLX path; on Linux the marker makes `kyutai-mlx` resolve to nothing, so a Linux contributor working on this module adds `--extra kyutai-torch` explicitly.
-- Consequence: `_kyutai_torch.py` is not type-checkable in a default dev environment and needs a file-level pyright suppression for the missing `moshi` import. The same is true of `_kyutai_mlx.py` on Linux, so **both** backend files carry one.
+- **Both extras join `all`; only `kyutai-mlx` joins `dev`.** This is what the `all`-vs-`dev` split in [project.md](../project.md) exists for: `pip install 'asr-engine[all]'` stays honest and ships the torch backend, while a plain `uv sync` does not drag ~2.5 GB of torch into every contributor's venv. On an Apple Silicon machine `dev` therefore gets a working, type-checked, e2e-runnable MLX path; on Linux the marker makes `kyutai-mlx` resolve to nothing, so a Linux contributor working on this module adds `--extra kyutai-torch` explicitly.
+- Consequence: `torch_backend.py` is not type-checkable in a default dev environment and needs a file-level pyright suppression for the missing `moshi` import. The same is true of `mlx_backend.py` on Linux, so **both** backend files carry one.
 - Both packages pin **`sounddevice==0.5`**, which this project depends on unpinned. It has bitten once already: 0.5.0's `query_devices()` types differently from 0.5.5's under pyright, so `AudioCapture.list_devices()` annotates the result as `Any`.
 - **The pins ripple through the dev venv.** `moshi-mlx` also caps `numpy` (< 2.3), `huggingface-hub` (< 1) and others, so adding it to the `dev` group moved the lock back on numpy, pydantic, starlette, websockets and gradio (6.26 → 5.38 in the synced venv). Every test tier passes on the older set; it is the price of type-checking and e2e-testing this module by default.
-- `moshi_mlx` ships `py.typed` without re-exporting its public names, and the `sentencepiece` / `rustymimi` stubs reject their documented constructor arguments, so `_kyutai_mlx.py`'s suppression also covers `reportPrivateImportUsage` and `reportCallIssue`.
+- `moshi_mlx` ships `py.typed` without re-exporting its public names, and the `sentencepiece` / `rustymimi` stubs reject their documented constructor arguments, so `mlx_backend.py`'s suppression also covers `reportPrivateImportUsage` and `reportCallIssue`.
 
 ## Testing
 
 ### Fast tier — `tests/modules/test_kyutai.py`
 
-The [speed rule](testing.md) forbids loading a real model here, so every test drives `KyutaiModule` with a **scripted fake backend** (a list of `StepResult`s) injected through the seam. That keeps the fast tier passing with *no* Kyutai extra installed — which is also what makes the seam worth having.
+The [speed rule](../testing.md) forbids loading a real model here, so every test drives `KyutaiModule` with a **scripted fake backend** (a list of `StepResult`s) injected through the seam. That keeps the fast tier passing with *no* Kyutai extra installed — which is also what makes the seam worth having.
 
 - **Re-blocking:** a sequence of 4800-byte chunks yields exactly-1920-sample frames with the remainder carried; a partial final chunk is not emitted.
 - **Conversion:** s16 extremes map to the expected float32 values.
@@ -308,7 +315,7 @@ The [speed rule](testing.md) forbids loading a real model here, so every test dr
 
 ### E2E tier
 
-A `MODULES` row in `tests-e2e/helpers.py` gives it the standard `test_engine_streams` conformance run, on the MLX backend. It needed two things from [e2e-testing.md](e2e-testing.md):
+A `MODULES` row in `tests-e2e/helpers.py` gives it the standard `test_engine_streams` conformance run, on the MLX backend. It needed two things from [e2e-testing.md](../e2e-testing.md):
 
 1. **24 kHz fixtures.** File sources are validated, not resampled, so `sample_24000_theskyisblue.wav` and `sample_24000_theskyisbluevalidate.wav` were resampled from the 44.1 kHz MP3s, and each `MODULES` row now names the `ModuleAudio` (format + fixtures) it is driven with.
 2. **A second skip axis.** `require_api_key` skips on a missing key; this module has no key, so it would never skip and would instead try to download gigabytes inside the per-test timeout. `require_local_model(...)` skips unless `ASR_ENGINE_E2E_KYUTAI=1` is set (the caller vouching the weights are pre-fetched) **and** the backend imports.
@@ -324,9 +331,11 @@ Its `silence_s` is 4.0 s: it must exceed `audio_delay_seconds + finalize_after_s
 
 | Path | Role |
 |---|---|
-| `src/asr_engine/modules/kyutai.py` | `KyutaiModule` + `KyutaiBackend` protocol + `StepResult` |
-| `src/asr_engine/modules/_kyutai_mlx.py` | MLX backend (`moshi_mlx`) |
-| `src/asr_engine/modules/_kyutai_torch.py` | PyTorch backend (`moshi`) — **unverified**, see Open questions |
+| `src/asr_engine/modules/kyutai/__init__.py` | Re-exports `KyutaiModule`, `KyutaiBackend`, `StepResult`; imports no model package |
+| `src/asr_engine/modules/kyutai/module.py` | `KyutaiModule` and backend resolution |
+| `src/asr_engine/modules/kyutai/backend.py` | The seam: `KyutaiBackend` protocol + `StepResult` |
+| `src/asr_engine/modules/kyutai/mlx_backend.py` | MLX backend (`moshi_mlx`) |
+| `src/asr_engine/modules/kyutai/torch_backend.py` | PyTorch backend (`moshi`) — **unverified**, see Open questions |
 | `scripts/benchmark_kyutai.py` | Real-time-factor benchmark (MLX); also pre-fetches the weights |
 | `tests/modules/test_kyutai.py` | Fast tier, on the scripted fake backend |
 | `tests-e2e/fixtures/sample_24000_*.wav` | 24 kHz conformance fixtures |
@@ -341,6 +350,6 @@ Its `silence_s` is 4.0 s: it must exceed `audio_delay_seconds + finalize_after_s
 ## Open questions
 
 - **Word-level timestamps.** The model returns them and `SpeechUtterance` has nowhere to put them. Adding fields touches every module and every consumer — deferred until something needs them.
-- **The PyTorch/Linux path ships unverified.** No Linux + CUDA machine was available, and `kyutai-torch` is not in the dev environment, so `_kyutai_torch.py` is written from upstream's reference script, type-checked only under suppression, and has never been run. Everything *above* the seam is covered (fast tier on a scripted backend, e2e on MLX); the file itself needs a real run by a Linux user. Older, slower Apple Silicon is likewise unmeasured — see [Measured](#measured-the-viability-gate).
+- **The PyTorch/Linux path ships unverified.** No Linux + CUDA machine was available, and `kyutai-torch` is not in the dev environment, so `torch_backend.py` is written from upstream's reference script, type-checked only under suppression, and has never been run. Everything *above* the seam is covered (fast tier on a scripted backend, e2e on MLX); the file itself needs a real run by a Linux user. Older, slower Apple Silicon is likewise unmeasured — see [Measured](#measured-the-viability-gate).
 - **Does `reset()` hurt accuracy?** Recycling the generator discards the model's context. Upstream never resets (it simply dies at `max_steps`). Recycles at a boundary showed no damage on the short fixtures; the cost of a forced mid-utterance reset, and any effect on long-form context, is unmeasured.
 - **Should a retracted end-of-turn cancel the armed final?** If the head crosses the threshold and falls back within `audio_delay_seconds` (the speaker resumed), the armed final still fires, splitting the utterance there. Cancelling on the fall would be the analogue of Flux's `TurnResumed`; deferred until real use shows the split is a problem.

@@ -9,7 +9,7 @@ natural speed.
 
 Use it in tests, as a fixture. For real speech recognition, install a provider
 extra (e.g. ``pip install 'asr-engine[deepgram]'``) and select that module.
-See specs/fake-module.md.
+See specs/modules/fake.md.
 """
 
 from __future__ import annotations

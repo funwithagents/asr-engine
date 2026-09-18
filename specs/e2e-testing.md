@@ -15,7 +15,7 @@ tests:
 
 ## Goal
 
-Provide an automated end-to-end test that exercises the full pipeline — from audio source through ASR module to MCP client — without human interaction or a live microphone. Audio is read from a pre-recorded fixture (WAV or MP3) at real-time pace. Per-module conformance feeds it to the real provider APIs; module-agnostic scenarios run on the scripted [`fake`](fake-module.md) module, so they need no credentials and are deterministic.
+Provide an automated end-to-end test that exercises the full pipeline — from audio source through ASR module to MCP client — without human interaction or a live microphone. Audio is read from a pre-recorded fixture (WAV or MP3) at real-time pace. Per-module conformance feeds it to the real provider APIs; module-agnostic scenarios run on the scripted [`fake`](modules/fake.md) module, so they need no credentials and are deterministic.
 
 ## Scope
 
@@ -146,7 +146,7 @@ owned by shared engine/API layers.
 
 ### Default module (`fake`)
 
-`helpers.default_module(script)` returns `("fake", {"utterances": script})`. The scripts come from builder functions in `helpers.py`, one per fixture, timed to fall **inside the audio actually fed** — the fixture plus any trailing silence (the fake's clock is audio time, so events past the end of the fed audio never fire — see [fake-module.md](fake-module.md) "Clock"):
+`helpers.default_module(script)` returns `("fake", {"utterances": script})`. The scripts come from builder functions in `helpers.py`, one per fixture, timed to fall **inside the audio actually fed** — the fixture plus any trailing silence (the fake's clock is audio time, so events past the end of the fed audio never fire — see [modules/fake.md](modules/fake.md) "Clock"):
 
 | Builder | Fixture | Script (at `delay_s=0`) |
 |---|---|---|

@@ -2,8 +2,8 @@
 — over ``moshi``.
 
 Ported from upstream's ``stt_from_file_pytorch.py`` (kyutai-labs/delayed-streams-modeling).
-Needs the ``kyutai-torch`` extra. Only ``modules/kyutai.py`` imports this file, and
-only once this backend is selected. See specs/kyutai-module.md.
+Needs the ``kyutai-torch`` extra. Only ``module.py`` imports this file, and only
+once this backend is selected. See specs/modules/kyutai.md.
 
 UNVERIFIED: written from the upstream reference script without a Linux + CUDA
 machine to run it on (the fast tier covers the module through a scripted backend,
@@ -25,7 +25,7 @@ import numpy as np
 import torch
 from moshi.models import LMGen, loaders
 
-from asr_engine.modules.kyutai import StepResult
+from asr_engine.modules.kyutai.backend import StepResult
 
 log = logging.getLogger(__name__)
 

@@ -18,7 +18,7 @@ tests:
 
 The ASR module interface decouples the engine (and the MCP server over it) from any specific speech recognition backend. The engine loads one module at construction based on the `engine.module.type` config field.
 
-**No backend is the default.** `engine.module.type` is required and has no fallback. Real backends ship as **optional extras** (e.g. `asr-engine[deepgram]`), so the core install depends on no provider SDK; the only always-available module is the [`fake`](fake-module.md) test double.
+**No backend is the default.** `engine.module.type` is required and has no fallback. Real backends ship as **optional extras** (e.g. `asr-engine[deepgram]`), so the core install depends on no provider SDK; the only always-available module is the [`fake`](modules/fake.md) test double.
 
 ## Abstract Base Class
 
@@ -120,14 +120,14 @@ class LazyModule:
 
 
 REGISTRY: dict[str, LazyModule | type[ASRModule]] = {
-    "fake": LazyModule("asr_engine.modules.fake:FakeASRModule"),
+    "fake": LazyModule("asr_engine.modules.fake.module:FakeASRModule"),
     "deepgram_v1": LazyModule(
-        "asr_engine.modules.deepgram_v1:DeepgramV1Module", extra="deepgram"
+        "asr_engine.modules.deepgram.v1:DeepgramV1Module", extra="deepgram"
     ),
     "deepgram_v2": LazyModule(
-        "asr_engine.modules.deepgram_v2:DeepgramV2Module", extra="deepgram"
+        "asr_engine.modules.deepgram.v2:DeepgramV2Module", extra="deepgram"
     ),
-    "kyutai": LazyModule("asr_engine.modules.kyutai:KyutaiModule"),  # see below
+    "kyutai": LazyModule("asr_engine.modules.kyutai.module:KyutaiModule"),  # see below
 }
 
 
@@ -156,14 +156,14 @@ Each real backend's third-party dependencies live in a `[project.optional-depend
 
 A module file may import its SDK at module top level — the lazy registry guarantees it is only imported when selected. Adding a backend with new dependencies means adding an extra and naming it in the `LazyModule` entry.
 
-**One module over several extras.** A `LazyModule` names a single `extra`, which cannot describe `kyutai`: one registry key over two interchangeable backends, each with its own extra. It is therefore registered with `extra=None`, its module file imports no third-party package, and it resolves its backend in `__init__`, raising its own `ImportError` worded like the registry's (see [kyutai-module.md](kyutai-module.md) "Backend selection"). The error still surfaces at engine construction, so the fail-fast behaviour is unchanged.
+**One module over several extras.** A `LazyModule` names a single `extra`, which cannot describe `kyutai`: one registry key over two interchangeable backends, each with its own extra. It is therefore registered with `extra=None`, its module file imports no third-party package, and it resolves its backend in `__init__`, raising its own `ImportError` worded like the registry's (see [modules/kyutai.md](modules/kyutai.md) "Backend selection"). The error still surfaces at engine construction, so the fail-fast behaviour is unchanged.
 
 ### Adding a module (checklist)
 
-1. Create `src/asr_engine/modules/<name>.py` implementing `ASRModule` (declare its supported/default audio formats — see "Audio Format Contract").
-2. Register it lazily in `modules/__init__.py`: `REGISTRY["<name>"] = LazyModule("asr_engine.modules.<name>:<ClassName>", extra="<provider>")`. Put its third-party dependencies in a `<provider>` extra under `[project.optional-dependencies]` in `pyproject.toml` (never in core `dependencies`), and **add `<provider>` to the `all` extra** — `all` means every extra, no exceptions. Then decide *separately* whether the `dev` group needs it: add it there too when contributors must have the module type-checked and tested (the usual case), or leave it out when it is heavy enough that not every contributor should pay for it (see [project.md](project.md) "`all` means every extra").
+1. Create a package `src/asr_engine/modules/<backend>/` — **one folder per backend**, never a loose file next to `base.py`. Put the `ASRModule` subclass in a file inside it (declare its supported/default audio formats — see "Audio Format Contract"): `module.py` for a single-module backend (`fake/`, `kyutai/`), or one file per module when a backend ships several (`deepgram/v1.py`, `deepgram/v2.py`). Its `__init__.py` may re-export the public names, but only when that imports nothing the registry is supposed to keep lazy — `deepgram/__init__.py` imports neither of its modules, so selecting `deepgram_v1` never imports `v2`.
+2. Register it lazily in `modules/__init__.py`: `REGISTRY["<name>"] = LazyModule("asr_engine.modules.<backend>.<file>:<ClassName>", extra="<provider>")`. Put its third-party dependencies in a `<provider>` extra under `[project.optional-dependencies]` in `pyproject.toml` (never in core `dependencies`), and **add `<provider>` to the `all` extra** — `all` means every extra, no exceptions. Then decide *separately* whether the `dev` group needs it: add it there too when contributors must have the module type-checked and tested (the usual case), or leave it out when it is heavy enough that not every contributor should pay for it (see [project.md](project.md) "`all` means every extra").
 3. Document its config fields (the `engine.module` block accepts any fields beyond `type`); if it authenticates, resolve the key through `resolve_api_key` (`api_key` / `api_key_env`).
-4. Update [deepgram-module.md](deepgram-module.md) or add a new module spec, with its frontmatter `code:`/`tests:` lists.
+4. Add the backend's spec as `specs/modules/<backend>.md` (or update the existing one, e.g. [modules/deepgram.md](modules/deepgram.md)), with its frontmatter `code:`/`tests:` lists, and a row in [_index.md](_index.md).
 5. Add a row to the `MODULES` table in `tests-e2e/helpers.py` (module type, model, `api_key_env`, a `silence_s` matching how long the backend needs to finalize an utterance, and the `ModuleAudio` — format + fixtures — to drive it with; a local-model module also gets a `LOCAL_MODEL_OPT_IN_ENV` entry) so `test_engine_modules.py` gives it e2e conformance coverage (see [e2e-testing.md](e2e-testing.md)). Verify with `zsh -ic 'uv run pytest tests-e2e -k <name>'`.
 
 ## Module Constructor Contract

@@ -136,7 +136,7 @@ The three format fields (`sample_rate`/`channels`/`encoding`) form the desired `
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `type` | string | yes | Identifies which ASR module to load (e.g. `"deepgram_v1"`). There is **no default module**. Provider modules need their extra installed (see [asr-module-interface.md](asr-module-interface.md) "Optional dependencies (extras)"); `"fake"` is a test double for tests only (see [fake-module.md](fake-module.md)). |
+| `type` | string | yes | Identifies which ASR module to load (e.g. `"deepgram_v1"`). There is **no default module**. Provider modules need their extra installed (see [asr-module-interface.md](asr-module-interface.md) "Optional dependencies (extras)"); `"fake"` is a test double for tests only (see [modules/fake.md](modules/fake.md)). |
 | *(other fields)* | any | depends | Module-specific configuration, parsed by the module. |
 
 **Default trigger words:**
@@ -180,7 +180,7 @@ Requires the `deepgram` extra (`pip install 'asr-engine[deepgram]'`).
 
 ## Example: Kyutai config (local model, 24 kHz)
 
-Requires the `kyutai-mlx` (Apple Silicon) or `kyutai-torch` extra. No key: the model runs on-device (see [kyutai-module.md](kyutai-module.md) for the module fields). A complete file ships as `config.kyutai.example.json`.
+Requires the `kyutai-mlx` (Apple Silicon) or `kyutai-torch` extra. No key: the model runs on-device (see [modules/kyutai.md](modules/kyutai.md) for the module fields). A complete file ships as `config.kyutai.example.json`.
 
 ```json
 {
@@ -205,7 +205,7 @@ Requires the `kyutai-mlx` (Apple Silicon) or `kyutai-torch` extra. No key: the m
 
 ## Example: test config (fake module)
 
-For tests only — a keyless, deterministic scripted module (see [fake-module.md](fake-module.md)):
+For tests only — a keyless, deterministic scripted module (see [modules/fake.md](modules/fake.md)):
 
 ```json
 {

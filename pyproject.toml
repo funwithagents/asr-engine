@@ -29,7 +29,7 @@ mcp = [
     "uvicorn",
 ]
 # Local on-device Kyutai STT (module type `kyutai`), one extra per backend — see
-# specs/kyutai-module.md. The marker is load-bearing: mlx publishes no Linux
+# specs/modules/kyutai.md. The marker is load-bearing: mlx publishes no Linux
 # wheels, so an unmarked entry would break `all` there; with it the extra
 # resolves to nothing off Apple Silicon.
 kyutai-mlx = [

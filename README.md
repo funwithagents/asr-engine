@@ -227,7 +227,7 @@ The core install also contains `fake`, a scripted module for **tests only**. It 
 }
 ```
 
-Do not use it for real speech recognition. See the [fake module specification](specs/fake-module.md).
+Do not use it for real speech recognition. See the [fake module specification](specs/modules/fake.md).
 
 #### Deepgram v1
 
@@ -297,7 +297,7 @@ Do not use it for real speech recognition. See the [fake module specification](s
 | `device` | `auto` | PyTorch backend only: `auto`, `cuda`, `mps`, or `cpu` |
 | `lag_warn_s` / `lag_drop_s` | `2.0` / `10.0` | If the model falls behind real time: warn, then drop the oldest audio |
 
-The first `start()` downloads the weights (~2 GB for the 1B model) and loads them; `connected` turns true once the model is warm. The model then stays in memory across `stop()`/`start()` and `listen()` calls. To check that a machine keeps up with real time, run `uv run python scripts/benchmark_kyutai.py` (Apple M5 Pro: real-time factor ≈ 0.45). See the [Kyutai module specification](specs/kyutai-module.md).
+The first `start()` downloads the weights (~2 GB for the 1B model) and loads them; `connected` turns true once the model is warm. The model then stays in memory across `stop()`/`start()` and `listen()` calls. To check that a machine keeps up with real time, run `uv run python scripts/benchmark_kyutai.py` (Apple M5 Pro: real-time factor ≈ 0.45). See the [Kyutai module specification](specs/modules/kyutai.md).
 
 ### Credentials
 

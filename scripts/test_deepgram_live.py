@@ -29,11 +29,11 @@ async def run(version: str, config: dict, device: str | None) -> None:
     from asr_engine.modules.base import SpeechUtterance
 
     if version == "v1":
-        from asr_engine.modules.deepgram_v1 import DeepgramV1Module
+        from asr_engine.modules.deepgram.v1 import DeepgramV1Module
 
         module = DeepgramV1Module(config=config)
     else:
-        from asr_engine.modules.deepgram_v2 import DeepgramV2Module
+        from asr_engine.modules.deepgram.v2 import DeepgramV2Module
 
         module = DeepgramV2Module(config=config)
 

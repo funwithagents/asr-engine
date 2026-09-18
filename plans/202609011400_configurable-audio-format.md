@@ -85,7 +85,7 @@ so explicitly (`SUPPORTED_SAMPLE_RATES = None`).
   to `AudioCapture(...)` and to `self._asr_module.start(..., audio_format=...)`.
 - Specs (Implemented → Updated → Implemented): `asr-module-interface.md` (audio
   format contract becomes module-declared + reconciled; `start()` signature),
-  `configuration.md` (new `engine.audio` fields), `deepgram-module.md` (declared
+  `configuration.md` (new `engine.audio` fields), `modules/deepgram.md` (declared
   formats), `architecture.md` (capture owns rate/channel conversion, pipeline
   owns encoding transcode), `engine.md` (reconciliation step).
 - Tests: `tests/test_audio.py` (format-parametrized capture/file sources;

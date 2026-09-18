@@ -1,7 +1,8 @@
 ---
 code:
-  - src/asr_engine/modules/deepgram_v1.py
-  - src/asr_engine/modules/deepgram_v2.py
+  - src/asr_engine/modules/deepgram/__init__.py
+  - src/asr_engine/modules/deepgram/v1.py
+  - src/asr_engine/modules/deepgram/v2.py
 tests:
   - tests/modules/test_deepgram_v1.py
   - tests/modules/test_deepgram_v2.py
@@ -20,7 +21,7 @@ Two Deepgram modules are provided, targeting different API versions and use case
 
 ## Installation
 
-Both modules ship in the `deepgram` extra (see [asr-module-interface.md](asr-module-interface.md) "Optional dependencies (extras)"), which pulls `deepgram-sdk`:
+Both modules ship in the `deepgram` extra (see [asr-module-interface.md](../asr-module-interface.md) "Optional dependencies (extras)"), which pulls `deepgram-sdk`:
 
 ```bash
 pip install 'asr-engine[deepgram]'
@@ -32,7 +33,7 @@ Without it, `deepgram_v1` / `deepgram_v2` still appear in the registry, but cons
 
 ## API key resolution
 
-Both modules resolve their API key via `resolve_api_key` (see [asr-module-interface.md](asr-module-interface.md)). Provide **either**:
+Both modules resolve their API key via `resolve_api_key` (see [asr-module-interface.md](../asr-module-interface.md)). Provide **either**:
 
 - `api_key` — a literal key, or
 - `api_key_env` — the **name** of an environment variable holding the key.
@@ -79,7 +80,7 @@ Uses the Deepgram Listen v1 WebSocket API with any v1-compatible model. `SpeechU
 - **Auth:** `Authorization: Token <api_key>` header
 - **Query params:** `model`, `encoding`, `sample_rate`, `channels`, `language`, `punctuate`, `interim_results` — `encoding`/`sample_rate`/`channels` come from the reconciled `AudioFormat` passed to `start()`, not hardcoded.
 - **SDK:** `async with client.listen.v1.connect(...) as conn:`
-- **Declared audio-format support:** `SUPPORTED_SAMPLE_RATES = {8000, 16000, 24000, 44100, 48000}`, `SUPPORTED_CHANNELS = {1}`, `SUPPORTED_ENCODINGS = {"linear16", "mulaw"}`; defaults 16000 / 1 / `linear16` (see [asr-module-interface.md](asr-module-interface.md)).
+- **Declared audio-format support:** `SUPPORTED_SAMPLE_RATES = {8000, 16000, 24000, 44100, 48000}`, `SUPPORTED_CHANNELS = {1}`, `SUPPORTED_ENCODINGS = {"linear16", "mulaw"}`; defaults 16000 / 1 / `linear16` (see [asr-module-interface.md](../asr-module-interface.md)).
 
 ### Message Handling
 

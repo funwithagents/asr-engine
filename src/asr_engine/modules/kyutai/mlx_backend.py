@@ -1,8 +1,8 @@
 """MLX backend for the ``kyutai`` module (Apple Silicon) — over ``moshi_mlx``.
 
 Ported from upstream's ``stt_from_mic_mlx.py`` (kyutai-labs/delayed-streams-modeling).
-Needs the ``kyutai-mlx`` extra. Only ``modules/kyutai.py`` imports this file, and
-only once this backend is selected. See specs/kyutai-module.md.
+Needs the ``kyutai-mlx`` extra. Only ``module.py`` imports this file, and only
+once this backend is selected. See specs/modules/kyutai.md.
 """
 
 # moshi_mlx / mlx publish no Linux wheels, so these imports don't resolve there;
@@ -25,7 +25,7 @@ import sentencepiece
 from huggingface_hub import hf_hub_download
 from moshi_mlx import models, utils
 
-from asr_engine.modules.kyutai import StepResult
+from asr_engine.modules.kyutai.backend import StepResult
 
 log = logging.getLogger(__name__)
 

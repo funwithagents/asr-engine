@@ -25,7 +25,7 @@ Provide a real-time Automatic Speech Recognition (ASR) **engine** that:
 | **ASR Engine** | The core: wires audio + module and owns segmentation and sound feedback; constructed from `ASREngineConfig`. Usable standalone. Logging remains the caller's concern. |
 | **Tools layer** | Transport-agnostic `AsrTools` lifecycle, `listen`, and dictation operations over an `ASREngine`; registerable directly by an in-process agent or wrapped by the MCP server |
 | **MCP Server** | StreamableHTTP server exposing the resources and the tools layer |
-| **ASR Module** | Pluggable backend implementing the ASR interface. No backend is the default: real providers ship as optional extras (first: `asr-engine[deepgram]`); the core install only carries the `fake` scripted test double (see [fake-module.md](fake-module.md)) |
+| **ASR Module** | Pluggable backend implementing the ASR interface. No backend is the default: real providers ship as optional extras (first: `asr-engine[deepgram]`); the core install only carries the `fake` scripted test double (see [modules/fake.md](modules/fake.md)) |
 | **Audio Capture** | Reads from system audio input (configurable) |
 
 The three components below are **not part of the library** — they live in `examples/` as runnable consumers (see [project.md](project.md) "Repo shape"), outside the wheel, and demonstrate the two usage patterns:

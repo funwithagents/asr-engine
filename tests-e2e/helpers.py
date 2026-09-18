@@ -131,7 +131,7 @@ async def wait_until(
     raise TimeoutError("condition not met within timeout")
 
 
-# Scripts for the ``fake`` module (specs/fake-module.md), one per fixture. The fake
+# Scripts for the ``fake`` module (specs/modules/fake.md), one per fixture. The fake
 # ignores the audio and emits these on its *audio-time* clock, so every event must
 # fall inside the audio actually fed (the file plus any trailing silence). Fixture
 # durations (soundfile): FIXTURE_BLUE 1.347 s, FIXTURE_BLUE_VALIDATE 1.904 s,

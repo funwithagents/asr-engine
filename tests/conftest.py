@@ -15,7 +15,7 @@ sys.modules.setdefault("sounddevice", _sd_mock)
 
 @pytest.fixture
 def fake_engine_factory():
-    """Build an ASREngine on the scripted ``fake`` module (specs/fake-module.md).
+    """Build an ASREngine on the scripted ``fake`` module (specs/modules/fake.md).
 
     ``fake_engine_factory(utterances, **overrides)`` returns an engine fed by a
     ``ScriptableAudioSource(real_time=False)``, so the script replays on the audio

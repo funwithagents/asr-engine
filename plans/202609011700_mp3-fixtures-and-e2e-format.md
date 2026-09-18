@@ -31,7 +31,7 @@ sample-rate-compatibility test.
   `trailing_silence_s` so Deepgram finalizes the trigger utterance).
 - `tests-e2e/fixtures/README.md` — documents the naming convention + file table.
 - Specs (editorial, stay Implemented): `project.md` (add `soundfile` dep),
-  `deepgram-module.md` (v2 support), `configuration.md` +
+  `modules/deepgram.md` (v2 support), `configuration.md` +
   `asr-module-interface.md` (file sources are WAV/MP3/… via libsndfile),
   `e2e-testing.md` (fixture set, explicit-format helpers, extra test).
 

@@ -1,4 +1,4 @@
-"""Tests for the scripted fake ASR module (specs/fake-module.md)."""
+"""Tests for the scripted fake ASR module (specs/modules/fake.md)."""
 
 from __future__ import annotations
 

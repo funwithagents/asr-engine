@@ -1,6 +1,7 @@
 ---
 code:
-  - src/asr_engine/modules/fake.py
+  - src/asr_engine/modules/fake/__init__.py
+  - src/asr_engine/modules/fake/module.py
   - src/asr_engine/modules/__init__.py
 tests:
   - tests/modules/test_fake.py
@@ -18,7 +19,7 @@ tests:
 
 It exists so that everything *downstream* of a module — the engine, the `Segmenter`, `listen`, dictation, `AsrTools`, the MCP server, and consumers like `asr-to-terminal` — can be exercised **deterministically, with no network and no credentials**, through the real module-selection path (config → registry → engine), including from a subprocess MCP server that can only be configured by file.
 
-**It is not an ASR backend and must never be presented as one.** It ignores the audio content entirely. Real use means selecting a real module installed from an extra (e.g. `pip install 'asr-engine[deepgram]'` → `deepgram_v1`; see [asr-module-interface.md](asr-module-interface.md) "Optional dependencies (extras)"). Every place it is documented — its docstring, the README module table, this spec — labels it a test double.
+**It is not an ASR backend and must never be presented as one.** It ignores the audio content entirely. Real use means selecting a real module installed from an extra (e.g. `pip install 'asr-engine[deepgram]'` → `deepgram_v1`; see [asr-module-interface.md](../asr-module-interface.md) "Optional dependencies (extras)"). Every place it is documented — its docstring, the README module table, this spec — labels it a test double.
 
 ## Why it ships in the package (not in `tests/`)
 
@@ -50,7 +51,7 @@ No `api_key` / `api_key_env`: the module authenticates with nothing, so `tests-e
 
 ### Validation (`ValueError` in `__init__`)
 
-Per the [module constructor contract](asr-module-interface.md#module-constructor-contract), each of these is its own error with a message naming the offending utterance index:
+Per the [module constructor contract](../asr-module-interface.md#module-constructor-contract), each of these is its own error with a message naming the offending utterance index:
 
 - `utterances` is not a list, or an entry is not an object;
 - `text` missing, not a string, or blank after stripping;
@@ -67,7 +68,7 @@ The module's clock is **audio time**, not wall time: elapsed seconds = bytes con
 
 - the module already must drain `audio_queue` (interface contract), so the clock costs nothing;
 - with a **real-time source** (`AudioCapture`, `FileAudioSource`, `ScriptableAudioSource()`), audio time tracks wall time, so a live mic or a subprocess server replays the script at natural speed;
-- with a **fast source** (`ScriptableAudioSource(real_time=False)`), audio time runs as fast as the loop drains, so fast-tier tests replay a multi-second script in milliseconds (the [testing.md](testing.md) speed rule);
+- with a **fast source** (`ScriptableAudioSource(real_time=False)`), audio time runs as fast as the loop drains, so fast-tier tests replay a multi-second script in milliseconds (the [testing.md](../testing.md) speed rule);
 - replay is deterministic regardless of scheduler jitter: the same bytes always produce the same events in the same order.
 
 Consequence: **the script only advances while audio flows.** If the source stops feeding (e.g. a `FileAudioSource` past its end plus `trailing_silence_s`), pending events are never emitted. Scripts must fit inside the audio the test provides. Wall-clock engine timers (`timeout` segmentation mode) still run on wall time, so timeout-mode tests should use a real-time source.
@@ -104,7 +105,7 @@ After each chunk is consumed the clock advances by that chunk's duration, then e
 
 - `start()` resets the clock and schedule, calls `on_connected(True)` immediately (there is no backend), then drains `audio_queue` — advancing the clock and emitting due events — until `stop()`. After the last event it keeps draining silently (the interface requires `start()` to run until stopped).
 - `stop()` makes `start()` return promptly even while blocked on an empty queue, and calls `on_connected(False)`.
-- No reconnection: there is no connection to lose, so the [reconnection contract](asr-module-interface.md#reconnection-contract) is vacuously satisfied.
+- No reconnection: there is no connection to lose, so the [reconnection contract](../asr-module-interface.md#reconnection-contract) is vacuously satisfied.
 
 ### Audio format
 

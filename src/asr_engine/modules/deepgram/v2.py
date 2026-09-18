@@ -30,7 +30,7 @@ class DeepgramV2Module(ASRModule):
     """
 
     # Same format support as deepgram_v1 — Flux accepts the raw encoding +
-    # sample_rate parameters the same way (see specs/deepgram-module.md).
+    # sample_rate parameters the same way (see specs/modules/deepgram.md).
     SUPPORTED_SAMPLE_RATES = frozenset({8000, 16000, 24000, 44100, 48000})
     SUPPORTED_CHANNELS = frozenset({1})
     SUPPORTED_ENCODINGS = frozenset({"linear16", "mulaw"})
