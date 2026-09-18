@@ -88,6 +88,12 @@ zsh -ic 'uv run pytest tests-e2e -k deepgram_v1'   # one backend, by its paramet
 
 Never `echo`/print a key itself; when checking whether one is set, redact the value (e.g. `env | grep DEEPGRAM | sed -E 's/=.*/=<set>/'`).
 
+**Local-model cases are opt-in, not key-gated.** The `kyutai` row runs a real on-device model, so it has no key to skip on; instead it skips unless `ASR_ENGINE_E2E_KYUTAI=1` is set, which also vouches that the weights are already downloaded (`uv run python scripts/benchmark_kyutai.py` fetches them):
+
+```bash
+zsh -ic 'ASR_ENGINE_E2E_KYUTAI=1 uv run pytest tests-e2e -k kyutai'
+```
+
 ## Implementation plans
 
 - Write implementation plans as files in the [plans](plans/) folder.
@@ -102,7 +108,7 @@ After any code change, run linting, type checking, and tests, and fix any failur
 ## Commands
 
 ```bash
-uv sync --dev                # full contributor environment (dev depends on asr-engine[all]: every provider extra and the mcp extra)
+uv sync --dev                # full contributor environment (dev names the extras it needs: deepgram, mcp, kyutai-mlx — not kyutai-torch, see specs/project.md)
 uv run ruff check .
 uv run ruff format .
 uv run pyright

@@ -178,6 +178,31 @@ Requires the `deepgram` extra (`pip install 'asr-engine[deepgram]'`).
 }
 ```
 
+## Example: Kyutai config (local model, 24 kHz)
+
+Requires the `kyutai-mlx` (Apple Silicon) or `kyutai-torch` extra. No key: the model runs on-device (see [kyutai-module.md](kyutai-module.md) for the module fields). A complete file ships as `config.kyutai.example.json`.
+
+```json
+{
+  "server": {
+    "host": "0.0.0.0",
+    "port": 8000
+  },
+  "engine": {
+    "auto_start": true,
+    "audio": { "device": null, "sample_rate": 24000 },
+    "module": {
+      "type": "kyutai",
+      "backend": "auto",
+      "hf_repo": "kyutai/stt-1b-en_fr-candle",
+      "vad": true
+    }
+  }
+}
+```
+
+**`engine.audio.sample_rate` must be `24000`.** The module declares a strict 24 kHz contract and the default is `16000`, so a Kyutai config that omits it fails fast at engine construction with the reconciliation error (see [Validation](#validation)) — unless `on_unsupported_format` is `"fallback"`, which resolves to the module's 24 kHz default with a warning.
+
 ## Example: test config (fake module)
 
 For tests only — a keyless, deterministic scripted module (see [fake-module.md](fake-module.md)):

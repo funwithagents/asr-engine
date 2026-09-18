@@ -8,6 +8,7 @@ import logging
 import os
 import re
 import tempfile
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
@@ -19,18 +20,38 @@ log = logging.getLogger(__name__)
 
 # Shared audio fixtures (see fixtures/README.md for the naming convention). The
 # default e2e input is the 44.1 kHz mono MP3s; the 16 kHz WAV drives the
-# sample-rate-compatibility tests. Because file sources are validated, not
-# resampled, each fixture is paired with the AudioFormat it must be played at.
+# sample-rate-compatibility tests; the 24 kHz WAVs feed modules with a strict
+# 24 kHz contract (kyutai). Because file sources are validated, not resampled,
+# each fixture is paired with the AudioFormat it must be played at.
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
 FORMAT_MP3_44100 = AudioFormat(sample_rate=44100)
 FORMAT_WAV_16000 = AudioFormat(sample_rate=16000)
+FORMAT_WAV_24000 = AudioFormat(sample_rate=24000)
 
 FIXTURE_BLUE = FIXTURES_DIR / "sample_44100_theskyisblue.mp3"  # "the sky is blue"
 FIXTURE_BLUE_VALIDATE = (  # "the sky is blue validate" (trigger word)
     FIXTURES_DIR / "sample_44100_theskyisbluevalidate.mp3"
 )
 FIXTURE_BLUE_WAV_16000 = FIXTURES_DIR / "sample_16000_theskyisblue.wav"
+FIXTURE_BLUE_WAV_24000 = FIXTURES_DIR / "sample_24000_theskyisblue.wav"
+FIXTURE_BLUE_VALIDATE_WAV_24000 = FIXTURES_DIR / "sample_24000_theskyisbluevalidate.wav"
+
+
+@dataclass(frozen=True)
+class ModuleAudio:
+    """The audio a ``MODULES`` row is driven with: a format its module supports,
+    and the two conformance fixtures recorded in that format."""
+
+    audio_format: AudioFormat
+    blue: Path  # "the sky is blue"
+    blue_validate: Path  # "the sky is blue validate"
+
+
+AUDIO_MP3_44100 = ModuleAudio(FORMAT_MP3_44100, FIXTURE_BLUE, FIXTURE_BLUE_VALIDATE)
+AUDIO_WAV_24000 = ModuleAudio(
+    FORMAT_WAV_24000, FIXTURE_BLUE_WAV_24000, FIXTURE_BLUE_VALIDATE_WAV_24000
+)
 
 # Deepgram's key env var. This name is Deepgram-specific: other modules declare their
 # own via ``api_key_env`` in their ``MODULES`` row / provider config, and a module that
@@ -57,6 +78,36 @@ def require_api_key(module_config: dict) -> None:
             f"e2e: environment variable '{env_name}' is not set — "
             f"see AGENTS.md 'Live/e2e tests'"
         )
+
+
+# Local-model modules, by type → the env var that opts their e2e case in. They need
+# no API key, so ``require_api_key`` never skips them — and an unguarded run would
+# try to download gigabytes of weights inside the per-test timeout.
+LOCAL_MODEL_OPT_IN_ENV = {"kyutai": "ASR_ENGINE_E2E_KYUTAI"}
+
+
+def require_local_model(module_type: str, module_config: dict) -> None:
+    """Skip the calling test unless this local-model module is opted in and usable.
+
+    The second skip axis, next to ``require_api_key``: a module listed in
+    ``LOCAL_MODEL_OPT_IN_ENV`` runs only when its env var is set to ``1`` (the
+    caller vouching that the weights are already downloaded) **and** its backend
+    dependency is installed. Any other module is never skipped here.
+    """
+    env_name = LOCAL_MODEL_OPT_IN_ENV.get(module_type)
+    if env_name is None:
+        return
+    if os.environ.get(env_name) != "1":
+        pytest.skip(
+            f"e2e: local model '{module_type}' is opt-in — pre-fetch its weights, "
+            f"then set {env_name}=1 (see specs/e2e-testing.md)"
+        )
+    from asr_engine.modules import resolve_module_class
+
+    try:
+        resolve_module_class(module_type)(config=module_config)
+    except ImportError as exc:
+        pytest.skip(f"e2e: {exc}")
 
 
 def normalize_transcript(text: str) -> str:
@@ -122,21 +173,34 @@ def default_module(script: list[dict]) -> tuple[str, dict]:
 # Per-module param table for the parametrized engine conformance test
 # (``test_engine_modules.py``). Each entry carries the model, a per-module
 # ``silence_s`` (the gap the backend needs to finalize an utterance — Flux/EndOfTurn
-# needs longer than nova-3/is_final), and ``api_key_env`` (the module's own key env var,
-# omitted for a module needing no key). Add a row here when adding a new ASR module so
-# it gets e2e conformance coverage.
+# needs longer than nova-3/is_final), ``api_key_env`` (the module's own key env var,
+# omitted for a module needing no key), and the ``ModuleAudio`` to drive it with (a
+# format the module supports). Add a row here when adding a new ASR module so it
+# gets e2e conformance coverage.
 MODULES = [
     pytest.param(
         "deepgram_v1",
         {"model": "nova-3", "api_key_env": DEEPGRAM_API_KEY_ENV},
         3.0,
+        AUDIO_MP3_44100,
         id="deepgram_v1",
     ),
     pytest.param(
         "deepgram_v2",
         {"model": "flux-general-en", "api_key_env": DEEPGRAM_API_KEY_ENV},
         3.0,
+        AUDIO_MP3_44100,
         id="deepgram_v2",
+    ),
+    # Local model: no key; opt-in via ASR_ENGINE_E2E_KYUTAI=1 (require_local_model).
+    # silence_s must exceed the model's 0.5 s text delay + the 2.0 s fallback
+    # finalize timer, so the default 3.0 s would be marginal.
+    pytest.param(
+        "kyutai",
+        {"hf_repo": "kyutai/stt-1b-en_fr-candle"},
+        4.0,
+        AUDIO_WAV_24000,
+        id="kyutai",
     ),
 ]
 

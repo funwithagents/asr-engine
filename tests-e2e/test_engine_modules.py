@@ -7,19 +7,19 @@ the default module elsewhere.
 
 Run one module with ``-k``, e.g. ``uv run pytest tests-e2e -k deepgram_v1``.
 Needs each module's API key env var set (see helpers); modules lacking one skip.
+Local-model modules (kyutai) are opt-in instead: see ``helpers.require_local_model``.
 """
 
 from __future__ import annotations
 
 import pytest
 from helpers import (
-    FIXTURE_BLUE,
-    FIXTURE_BLUE_VALIDATE,
-    FORMAT_MP3_44100,
     MODULES,
+    ModuleAudio,
     build_engine,
     normalize_transcript,
     require_api_key,
+    require_local_model,
     wait_until,
 )
 
@@ -27,23 +27,24 @@ from asr_engine import ScriptableAudioSource, SpeechUtterance
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("module_type, module_config, silence_s", MODULES)
+@pytest.mark.parametrize("module_type, module_config, silence_s, audio", MODULES)
 async def test_engine_streams(
-    module_type: str, module_config: dict, silence_s: float
+    module_type: str, module_config: dict, silence_s: float, audio: ModuleAudio
 ) -> None:
     """A module completes the live start/stream/finalize/reuse/stop lifecycle."""
     require_api_key(module_config)
+    require_local_model(module_type, module_config)
     utterances: list[SpeechUtterance] = []
 
     async def on_utt(u: SpeechUtterance) -> None:
         utterances.append(u)
 
-    source = ScriptableAudioSource(audio_format=FORMAT_MP3_44100)
+    source = ScriptableAudioSource(audio_format=audio.audio_format)
     engine = build_engine(
         source,
         module_type,
         module_config,
-        audio_format=FORMAT_MP3_44100,
+        audio_format=audio.audio_format,
         on_speech_utterance=on_utt,
     )
     try:
@@ -51,7 +52,7 @@ async def test_engine_streams(
         await wait_until(lambda: engine.status()["connected"])
 
         # Silence after the first fixture must make the module commit a final.
-        await source.play(FIXTURE_BLUE, trailing_silence_s=silence_s)
+        await source.play(audio.blue, trailing_silence_s=silence_s)
         await wait_until(
             lambda: any(
                 u.is_final and "the sky is blue" in normalize_transcript(u.transcript)
@@ -63,7 +64,7 @@ async def test_engine_streams(
         assert engine.status() == {"running": True, "connected": True}
 
         # The same connection remains usable after the first final utterance.
-        await source.play(FIXTURE_BLUE_VALIDATE, trailing_silence_s=silence_s)
+        await source.play(audio.blue_validate, trailing_silence_s=silence_s)
         await wait_until(
             lambda: any(
                 u.is_final and "validate" in normalize_transcript(u.transcript)

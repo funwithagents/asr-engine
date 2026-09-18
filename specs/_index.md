@@ -23,6 +23,7 @@ The pipeline is asynchronous: audio capture runs in a dedicated thread, while th
 | [mcp-server.md](mcp-server.md) | `mcp` extra + CLI install hint, resources `asr://utterance` + `asr://segment`, MCP adapter over the tools layer, server lifecycle | Implemented |
 | [asr-module-interface.md](asr-module-interface.md) | ABC, audio format contract, lazy registry + provider extras (no default backend), reconnection | Implemented |
 | [deepgram-module.md](deepgram-module.md) | `deepgram` extra, WebSocket details, config fields, message mapping | Implemented |
+| [kyutai-module.md](kyutai-module.md) | Local on-device streaming STT: one `kyutai` key over MLX/PyTorch backends, semantic-VAD finalization (deferred by the text delay), 24 kHz contract, resident-model lifecycle | Stable |
 | [fake-module.md](fake-module.md) | `fake` scripted test double: word-by-word interims evenly spaced over each utterance's window on an audio-time clock, final at end; `fake_engine_factory` fixture | Implemented |
 | [demo-client.md](demo-client.md) | CLI, log format, behavior | Implemented |
 | [e2e-testing.md](e2e-testing.md) | File-based e2e pipeline: audio source abstraction, fixture format, assertions; module-agnostic scenarios on the `fake` module | Implemented |

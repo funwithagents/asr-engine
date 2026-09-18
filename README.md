@@ -31,18 +31,21 @@ uv sync --no-default-groups --extra deepgram   # the extra for the ASR module yo
 export DEEPGRAM_API_KEY="..."
 ```
 
-`--no-default-groups` is what keeps that install minimal: `uv sync` syncs the `dev` and `demo` groups by default, and `dev` depends on `asr-engine[all]`, so a bare `uv sync` here builds the full contributor environment — every provider extra, the MCP server stack and Gradio (see [Development](#development-and-project-documentation)).
+`--no-default-groups` is what keeps that install minimal: `uv sync` syncs the `dev` and `demo` groups by default, and `dev` pulls in the extras contributors need, so a bare `uv sync` here builds the full contributor environment — the Deepgram SDK, the MCP server stack, the Kyutai MLX backend (on Apple Silicon) and Gradio (see [Development](#development-and-project-documentation)).
 
 The base installation contains the engine, `AsrTools` and the `fake` test module, but no speech provider and no server. Install the provider you want as an extra, and add the `mcp` extra to run the MCP server — its stack (the MCP SDK and `uvicorn`) is never pulled in by a program that only imports `asr_engine`:
 
 ```bash
 uv sync --no-default-groups --extra deepgram               # Deepgram modules
 uv sync --no-default-groups --extra deepgram --extra mcp   # + the MCP server (asr-engine-mcp)
+uv sync --no-default-groups --extra kyutai-mlx             # local Kyutai STT, Apple Silicon (MLX)
+uv sync --no-default-groups --extra kyutai-torch           # local Kyutai STT, elsewhere (PyTorch)
 uv sync --no-default-groups --extra all                    # every provider and the server
 
 # For an installed package:
 pip install 'asr-engine[deepgram]'
 pip install 'asr-engine[mcp,deepgram]'
+pip install 'asr-engine[kyutai-mlx]'     # or 'asr-engine[kyutai-torch]'
 pip install 'asr-engine[all]'
 ```
 
@@ -211,6 +214,7 @@ Provider modules are optional: each one ships in an extra, and none is a default
 |---|---|---|---|---|
 | `deepgram_v1` | `deepgram` | Deepgram Listen v1 | General and multilingual transcription | `nova-3` |
 | `deepgram_v2` | `deepgram` | Deepgram Listen v2 | English conversational transcription with integrated turn detection | `flux-general-en` |
+| `kyutai` | `kyutai-mlx` or `kyutai-torch` | None — runs on-device | Local English + French transcription: no network, no API key, no per-minute cost | `kyutai/stt-1b-en_fr-candle` |
 
 #### `fake` — test double, not an ASR backend
 
@@ -263,9 +267,41 @@ Do not use it for real speech recognition. See the [fake module specification](s
 | `eot_threshold` | `0.7` | End-of-turn confidence threshold |
 | `eot_timeout_ms` | `2000` | Silence before a forced turn end, in milliseconds |
 
+#### Kyutai (local, on-device)
+
+[Kyutai's streaming STT](https://github.com/kyutai-labs/delayed-streams-modeling) runs inside the process: no network, no API key. One module type covers two interchangeable backends — MLX on Apple Silicon (`kyutai-mlx` extra) and PyTorch elsewhere (`kyutai-torch` extra); `"backend": "auto"` picks MLX when it is available, so the same config works on both. The PyTorch backend has not yet been verified on real hardware.
+
+```json
+{
+  "engine": {
+    "audio": { "sample_rate": 24000 },
+    "module": {
+      "type": "kyutai",
+      "backend": "auto",
+      "hf_repo": "kyutai/stt-1b-en_fr-candle"
+    }
+  }
+}
+```
+
+**`engine.audio.sample_rate` must be `24000`** — the model's only rate; with the 16000 default, engine construction fails with the format-reconciliation error. A complete server config is in [`config.kyutai.example.json`](config.kyutai.example.json).
+
+| Field | Default | Description |
+|---|---|---|
+| `backend` | `auto` | `auto`, `mlx`, or `torch` |
+| `hf_repo` | `kyutai/stt-1b-en_fr-candle` | Hugging Face repo to load. Only the `-candle` 1B repo carries the semantic VAD heads |
+| `vad` | `true` | Close utterances on the model's end-of-turn (semantic VAD) head |
+| `vad_threshold` | `0.5` | End-of-turn probability above which an utterance closes |
+| `finalize_after_silence_s` | `2.0` | Fallback: close an utterance after this long with no new text |
+| `max_steps` | `4096` | Model step budget (~5.5 min) before the session is recycled at an utterance boundary |
+| `device` | `auto` | PyTorch backend only: `auto`, `cuda`, `mps`, or `cpu` |
+| `lag_warn_s` / `lag_drop_s` | `2.0` / `10.0` | If the model falls behind real time: warn, then drop the oldest audio |
+
+The first `start()` downloads the weights (~2 GB for the 1B model) and loads them; `connected` turns true once the model is warm. The model then stays in memory across `stop()`/`start()` and `listen()` calls. To check that a machine keeps up with real time, run `uv run python scripts/benchmark_kyutai.py` (Apple M5 Pro: real-time factor ≈ 0.45). See the [Kyutai module specification](specs/kyutai-module.md).
+
 ### Credentials
 
-Both bundled modules accept either a literal API key or the name of an environment variable containing it:
+Both Deepgram modules accept either a literal API key or the name of an environment variable containing it:
 
 ```json
 {
@@ -453,7 +489,7 @@ You can also inject an `AudioSource` when constructing the engine. An injected s
 | `error` | Engine construction fails with the module's supported values; this is the default |
 | `fallback` | The unsupported dimension uses the module's declared default and a warning is logged |
 
-The resolved format is exposed as `engine.audio_format` and is given to both the audio source and the ASR module. The bundled Deepgram modules support sample rates of 8000, 16000, 24000, 44100, and 48000 Hz; mono audio; and `linear16` or `mulaw` encoding.
+The resolved format is exposed as `engine.audio_format` and is given to both the audio source and the ASR module. The bundled Deepgram modules support sample rates of 8000, 16000, 24000, 44100, and 48000 Hz; mono audio; and `linear16` or `mulaw` encoding. The `kyutai` module supports exactly 24000 Hz mono `linear16`.
 
 ## Optional tools and MCP server
 

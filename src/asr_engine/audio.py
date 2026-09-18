@@ -4,7 +4,7 @@ import asyncio
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol
+from typing import Any, Protocol
 
 import numpy as np
 import sounddevice as sd
@@ -394,5 +394,7 @@ class AudioCapture:
     @staticmethod
     def list_devices() -> list[str]:
         """Return names of available audio input devices."""
-        devices = sd.query_devices()
+        # Any: sounddevice's inferred return type varies across versions (the
+        # Kyutai extras pin 0.5.0, whose DeviceList pyright reads as a plain tuple).
+        devices: Any = sd.query_devices()
         return [d["name"] for d in devices if d["max_input_channels"] > 0]

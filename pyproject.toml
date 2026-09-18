@@ -28,10 +28,21 @@ mcp = [
     "mcp<2",
     "uvicorn",
 ]
+# Local on-device Kyutai STT (module type `kyutai`), one extra per backend — see
+# specs/kyutai-module.md. The marker is load-bearing: mlx publishes no Linux
+# wheels, so an unmarked entry would break `all` there; with it the extra
+# resolves to nothing off Apple Silicon.
+kyutai-mlx = [
+    "moshi-mlx>=0.3; sys_platform == 'darwin' and platform_machine == 'arm64'",
+]
+kyutai-torch = [
+    "moshi>=0.2.11",
+]
 # Every provider and transport extra in one install (`pip install 'asr-engine[all]'`).
-# Add each new provider extra here; the dev group below follows automatically.
+# Add each new extra here — no exceptions — and *separately* decide whether the
+# dev group below needs it (see specs/project.md).
 all = [
-    "asr-engine[deepgram,mcp]",
+    "asr-engine[deepgram,mcp,kyutai-mlx,kyutai-torch]",
 ]
 
 [project.scripts]
@@ -82,9 +93,12 @@ default-groups = ["dev", "demo"]
 
 [dependency-groups]
 dev = [
-    # The `all` extra, so pyright and the tests see every bundled provider
-    # module and the MCP server.
-    "asr-engine[all]",
+    # The extras contributors need, named explicitly rather than via `all`, so
+    # pyright and the tests see every provider module and the MCP server without
+    # every contributor paying for a heavy backend. `all` stays the public
+    # "everything" target. See specs/project.md. kyutai-mlx is in (a no-op off
+    # Apple Silicon); kyutai-torch is not — it drags in ~2.5 GB of torch.
+    "asr-engine[deepgram,mcp,kyutai-mlx]",
     "pyright>=1.1.411",
     "pytest",
     "pytest-asyncio",
