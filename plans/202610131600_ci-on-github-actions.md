@@ -1,6 +1,6 @@
 # CI on GitHub Actions
 
-**Status:** In progress
+**Status:** Done
 
 Implements [specs/ci.md](../specs/ci.md) in full, the "Platforms" decision of [specs/project.md](../specs/project.md), and the UTF-8 config read of [specs/configuration.md](../specs/configuration.md) ("Constructors"). It delivers the workflow — the static gate on Linux, the fast tier on Linux, macOS and Windows, the live tier on Linux — and fixes what the first runs on each platform surface. It leaves out a Kyutai live run in CI (local opt-in, [ci.md](../specs/ci.md) open question 1), setting the `DEEPGRAM_API_KEY` repository secret and requiring the status checks on `main` (repository settings, the owner's step).
 
@@ -36,3 +36,7 @@ What the runners found that the Mac never had — one line per change: the sympt
 - **Linux fast tier: `test_no_mcp_import` failed with `PortAudio library not found`.** Its subprocess imports `asr_engine` for real, outside `tests/conftest.py`'s `sounddevice` stub, and the Linux runner has no system PortAudio. Fix: the subprocess stubs `sounddevice` itself, as `tests/modules/test_registry.py`'s subprocess already did — the fast tier stays free of system packages on every OS. No spec change (`ci.md` already says the tier stubs `sounddevice`).
 - **Linux and Windows fast tier: `test_idle_session_recycles_before_the_budget_runs_out` saw `30 < 30`.** The test fed 40 frames in one burst; the module's idle-recycle request travels on the frame queue, so it landed behind every queued frame and the budget ran out first (the module's exhaustion fallback then recycled at 30). Faster than real time is not the scenario the test names: fed one frame at a time, as a real-time source delivers them, the recycle lands inside the margin on every platform. Test-only fix; no spec change — under a real backlog the exhaustion fallback is the designed path ([modules/kyutai.md](../specs/modules/kyutai.md)).
 - **What needed no fix on the first run:** the static gate, `uv sync --locked` on all three OSes, the macOS fast tier, and the live tier (11 passed; skips exactly the expected table — the two Deepgram cases on the unset secret, `kyutai` on the opt-in).
+
+## Measurements
+
+Run `38399535112`, the first all-green run (cold caches): `check` 17 s, `fast-tier` 21 s (Linux), 21 s (macOS), 31 s (Windows), `live tier` 62 s (pytest 41 s: 11 passed, 3 skipped — the expected table). The run end to end: about a minute.
