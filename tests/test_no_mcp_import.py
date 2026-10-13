@@ -17,9 +17,13 @@ _SCRIPT = textwrap.dedent(
     import asyncio
     import sys
 
+    from unittest.mock import MagicMock
+
     # As in a core install without the mcp extra.
     for name in ("mcp", "uvicorn"):
         sys.modules[name] = None
+    # Stub sounddevice as tests/conftest.py does, so PortAudio isn't needed.
+    sys.modules["sounddevice"] = MagicMock()
 
     from asr_engine import ASREngine, AsrTools, ScriptableAudioSource
     from asr_engine.config import MCPServerConfig
