@@ -27,7 +27,7 @@ Both config classes expose the same three-rung constructor ladder — pick the r
 |---|---|---|
 | `from_dict(d)` | an already-parsed dict | where all validation lives |
 | `from_json(text)` | a JSON string | parses `text`, then `from_dict` |
-| `from_json_file(path)` | a path to a JSON file | reads the file, then `from_json` |
+| `from_json_file(path)` | a path to a JSON file | reads the file as UTF-8 (on every platform, not the locale default), then `from_json` |
 
 `MCPServerConfig`'s constructors take the **whole-file** shape (`{server, engine}`); `ASREngineConfig`'s take the **`engine` block** shape (`module`, `segmentation`, … at top level) — *not* a whole config file. `MCPServerConfig.from_dict` parses the `server` block itself and delegates the `engine` block to `ASREngineConfig.from_dict`, so both paths run identical engine validation and produce identical engine configs. `MCPServerConfig.from_json_file` is the MCP server's load path (`asr-engine-mcp --config …`).
 

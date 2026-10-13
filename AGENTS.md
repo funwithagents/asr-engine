@@ -19,6 +19,7 @@ Where things live. This is a coarse, module-level map — for the full file inve
 | `tests-e2e/` | Opt-in real-time pipeline tests: per-module conformance against live provider APIs, everything else keyless on the scripted `fake` module (not collected by default `pytest`) |
 | `examples/` | Runnable consumers of the library, not part of the wheel — `gradio_demo/`, `mcp_client/`, `asr_to_terminal/`, each run via `python -m examples.<pkg>.<module>`; see [examples/README.md](examples/README.md) and [specs/project.md](specs/project.md) "Repo shape" |
 | `scripts/` | Standalone debug/utility scripts (not part of the package) |
+| `.github/workflows/` | The CI workflow (`ci.yml`) — static gate, fast tier on Linux/macOS/Windows, live tier on Linux; see [specs/ci.md](specs/ci.md) |
 
 ### `src/asr_engine/` modules
 
@@ -103,7 +104,7 @@ zsh -ic 'ASR_ENGINE_E2E_KYUTAI=1 uv run pytest tests-e2e -k kyutai'
 
 ## Verification
 
-After any code change, run linting, type checking, and tests, and fix any failures before considering the work done. The fast tier plus lint + type-check is the gate; `tests-e2e/` is opt-in and only when verifying against the live service.
+After any code change, run linting, type checking, and tests, and fix any failures before considering the work done. The fast tier plus lint + type-check is the gate; `tests-e2e/` is opt-in and only when verifying against the live service. CI ([specs/ci.md](specs/ci.md)) runs the same gate on every pull request and push to `main` — the fast tier on Linux, macOS and Windows, the live tier on Linux — so a change that is green only on macOS is not done; a live-tier skip outside the spec's expected-skips table is a regression to read.
 
 ## Commands
 

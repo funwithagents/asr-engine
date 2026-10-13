@@ -22,7 +22,7 @@ Tests split into two directories, and the split is structural — a directory bo
 | Unit / integration | `tests/` | never | yes | normal dev loop |
 | Real-time / e2e | `tests-e2e/` | per-module scenarios only (real provider APIs) | module-agnostic scenarios yes (`fake` module); per-module no | full pipeline at natural speed: subprocess server, real-time audio, live backends |
 
-- **`tests/` is the normal dev loop.** Fast, deterministic, no real network, no credentials — this is what runs on every change and what any contributor or CI can run with zero secrets. `pyproject.toml`'s `testpaths = ["tests"]` points the default `uv run pytest` here. It mirrors the `src/asr_engine/` module layout (`test_<module>.py`, plus the `tests/modules/` subpackage and the `test_project_map.py` drift-guard).
+- **`tests/` is the normal dev loop.** Fast, deterministic, no real network, no credentials — this is what runs on every change and what any contributor or CI can run with zero secrets; CI runs it on Linux, macOS and Windows ([ci.md](ci.md)). `pyproject.toml`'s `testpaths = ["tests"]` points the default `uv run pytest` here. It mirrors the `src/asr_engine/` module layout (`test_<module>.py`, plus the `tests/modules/` subpackage and the `test_project_map.py` drift-guard).
 - **`tests-e2e/` is opt-in.** It drives the full pipeline at natural speed — a real `asr-engine-mcp` subprocess, real-time file audio — which takes seconds per scenario, so it is deliberately *not* collected by the default run. Because `testpaths` already excludes it, no marker or flag is needed: the physical separation is the whole mechanism. Run it explicitly (`uv run pytest tests-e2e`). It has two halves (see [e2e-testing.md](e2e-testing.md)):
   - **Per-module conformance** — one streaming-lifecycle scenario parametrized over the real ASR modules, against the live provider APIs (network, credentials, non-deterministic output). This is the only live-network part of the suite.
   - **Module-agnostic scenarios** — shared engine API, MCP, and consumer scenarios, run once on the [`fake`](modules/fake.md) module: keyless and deterministic, so they run for any contributor and may assert exact transcripts.
@@ -58,4 +58,4 @@ Live scenarios that wait for asynchronous callbacks or state transitions share
 
 ## Open questions
 
-1. **CI wiring.** Nothing here sets up continuous integration. The `tests/` tier is CI-ready (deterministic, no credentials); actually running it on a hosted runner is unbuilt.
+None currently. (CI — both tiers on hosted runners — is specced in [ci.md](ci.md).)

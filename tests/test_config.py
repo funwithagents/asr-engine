@@ -72,6 +72,18 @@ def test_load_config_full(tmp_path: Path) -> None:
     assert cfg.engine.module.extra == {"api_key": "secret", "language": "fr"}
 
 
+def test_load_config_reads_non_ascii_values_as_utf8(tmp_path: Path) -> None:
+    """A UTF-8 file with non-ASCII trigger words loads intact on every platform —
+    not decoded with the locale's code page (cp1252 on Windows)."""
+    path = tmp_path / "config.json"
+    data = _min({"segmentation": {"trigger_words": ["validé", "arrête"]}})
+    path.write_bytes(json.dumps(data, ensure_ascii=False).encode("utf-8"))
+
+    cfg = MCPServerConfig.from_json_file(str(path))
+
+    assert cfg.engine.segmentation.trigger_words == ["validé", "arrête"]
+
+
 def test_load_config_defaults(tmp_path: Path) -> None:
     """Omitting optional blocks applies defaults."""
     cfg = MCPServerConfig.from_json_file(write_config(tmp_path, _min()))

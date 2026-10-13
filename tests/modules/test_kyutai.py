@@ -380,8 +380,12 @@ async def test_idle_session_recycles_before_the_budget_runs_out():
     backend = ScriptedBackend([], max_steps=30)
     h = _Harness(backend, {"max_steps": 30, "finalize_after_silence_s": 0.16})
     await h.start()
-    await h.feed_frames(40)  # silence only: more steps than one session allows
-    await _until(lambda: len(backend.frames) == 40)
+    # Silence only, more steps than one session allows — fed one frame at a time as
+    # a real-time source would. A burst would queue every frame ahead of the recycle
+    # request, so on a fast worker the budget runs out before the request is seen.
+    for n in range(1, 41):
+        await h.feed_frames(1)
+        await _until(lambda: len(backend.frames) == n)
     await h.stop()
 
     assert backend.reset_after_frames[0] < 30  # recycled while idle, never hit 0
