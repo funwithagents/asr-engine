@@ -25,9 +25,13 @@ _UNSUPPORTED_FORMAT_POLICIES = ("error", "fallback")
 
 
 def _read_file(path: str) -> str:
-    """Read *path*, re-raising a missing file with a config-flavored message."""
+    """Read *path* as UTF-8, re-raising a missing file with a config-flavored message.
+
+    UTF-8 explicitly, not the locale default: on Windows that is a legacy code page,
+    which would garble non-ASCII values such as trigger words.
+    """
     try:
-        with open(path) as f:
+        with open(path, encoding="utf-8") as f:
             return f.read()
     except FileNotFoundError:
         raise FileNotFoundError(f"Config file not found: {path}")

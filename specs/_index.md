@@ -14,13 +14,14 @@ Per-backend ASR module specs live in [`modules/`](modules/), one file per backen
 
 | Spec | Description | Status |
 |---|---|---|
-| [project.md](project.md) | Project structure and tooling: Python version, packaging with uv, provider + transport (`mcp`) extras, layout conventions, ruff/pyright | Implemented |
+| [project.md](project.md) | Project structure and tooling: Python version, supported platforms (Linux/macOS/Windows), packaging with uv, provider + transport (`mcp`) extras, layout conventions, ruff/pyright | Updated |
 | [testing.md](testing.md) | Testing strategy: two-tier `tests/`/`tests-e2e/` split, functional-test philosophy, `fake` module as the downstream test double | Implemented |
+| [ci.md](ci.md) | GitHub Actions: static gate on Linux, fast tier on Linux/macOS/Windows, live tier on Linux (Deepgram via secret, kyutai local-only), expected skips | Stable |
 | [overview.md](overview.md) | Goals, components, constraints, non-goals | Implemented |
 | [architecture.md](architecture.md) | System diagram, concurrency model, data flow | Implemented |
 | [audio-source.md](audio-source.md) | `AudioSource` injection seam: public/stable extension point, chunk contract, `audio_format` pre-`start()`, `stop()`/queue lifecycle | Implemented |
 | [engine.md](engine.md) | `ASREngine` (from `ASREngineConfig`) + `Segmenter`: callbacks, dictation (`start_dictation`/`stop_dictation`), `set_segmentation_params`, `segmentation_mode`/`dictating` getters, `listen` | Implemented |
-| [configuration.md](configuration.md) | Config file schema (`server` + nested `engine`/`ASREngineConfig`), fields, validation rules (no default module; extra-not-installed error) | Implemented |
+| [configuration.md](configuration.md) | Config file schema (`server` + nested `engine`/`ASREngineConfig`), fields, validation rules (no default module; extra-not-installed error) | Updated |
 | [tools.md](tools.md) | Transport-agnostic `AsrTools` for direct in-process agent registration or MCP adaptation over an `ASREngine` | Implemented |
 | [mcp-server.md](mcp-server.md) | `mcp` extra + CLI install hint, resources `asr://utterance` + `asr://segment`, MCP adapter over the tools layer, server lifecycle | Implemented |
 | [asr-module-interface.md](asr-module-interface.md) | ABC, audio format contract, lazy registry + provider extras (no default backend), reconnection | Implemented |

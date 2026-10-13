@@ -237,5 +237,5 @@ sequences where the scenario defines them, since the script fixes the output.
 
 - Mocking a provider's API — per-module conformance must hit the real backend. (The `fake` module is not a mock of any provider: it replaces the module entirely, and is only used where the module is irrelevant to what is tested.)
 - Testing lifecycle races or backend reconnection logic.
-- Running the per-module live scenarios in CI without a real API key. (The `fake` scenarios need none.)
+- Running the per-module live scenarios in CI without a real API key. (The `fake` scenarios need none; CI runs the tier on Linux and the Deepgram cases only where the repository holds the key — see [ci.md](ci.md).)
 - Downloading model weights from a test: local-model cases are opt-in and assume pre-fetched weights.

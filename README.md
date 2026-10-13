@@ -17,7 +17,7 @@ The engine owns audio capture, backend selection, audio-format negotiation, prov
 
 ### Requirements
 
-- Python 3.11+
+- Python 3.11+, on Linux, macOS or Windows (Linux needs the system PortAudio for live capture — `libportaudio2` on Debian/Ubuntu)
 - [`uv`](https://docs.astral.sh/uv/)
 - An ASR module installed from its extra, plus that provider's credentials — no provider is installed or selected by default (see [ASR modules](#asr-modules))
 - An available system input device for live capture

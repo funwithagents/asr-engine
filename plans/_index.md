@@ -40,6 +40,7 @@ Implementation plans for ASR MCP — each plan turns a settled part of a spec (s
 | [202609171831_e2e-default-module-fake.md](202609171831_e2e-default-module-fake.md) | `helpers.default_module(script)` → `fake`: direct-engine, MCP, and asr-to-terminal e2e scenarios run keyless with exact assertions; only per-module conformance stays live | Done |
 | [202609171900_mcp-transport-extra.md](202609171900_mcp-transport-extra.md) | MCP server stack → `mcp` extra (`mcp` + `uvicorn`, no `[cli]`); lazy stack import in `asr-engine-mcp` with install hint; `test_no_mcp_import.py` subprocess guard; install docs | Done |
 | [202609181231_kyutai-module.md](202609181231_kyutai-module.md) | Local on-device STT: one `kyutai` key over MLX/PyTorch backends behind a `KyutaiBackend` seam; 24 kHz re-blocking, worker-thread inference, semantic-VAD finalization with a silence-timer fallback, step-budget recycling and backpressure; 24 kHz e2e fixtures + `require_local_model` skip axis | Done |
+| [202610131600_ci-on-github-actions.md](202610131600_ci-on-github-actions.md) | GitHub Actions CI: static gate on Linux, fast tier on Linux/macOS/Windows, live tier on Linux (Deepgram via secret); supported-platforms statement; UTF-8 config read | In progress |
 
 ## Status legend
 
