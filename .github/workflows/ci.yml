@@ -1,11 +1,12 @@
 # Continuous integration — specs/ci.md.
 #
 # Both test tiers on GitHub's hosted runners, on every pull request and push to main,
-# five jobs side by side: `check` (lint, format, types) on Linux; `fast-tier` once per
-# supported platform — Linux, macOS, Windows — since the fast tier needs no network,
+# six jobs side by side: `check` (lint, format, types) on Linux; `fast-tier` once per
+# supported platform — Linux (x86_64 and arm64), macOS, Windows — since the fast tier needs no network,
 # no credentials and no sound device, and is where a platform's own code paths (file
 # encodings, paths, the event loop, the lock's markers) meet a machine of that
-# platform; and `e2e`, the live tier on Linux, whose scenarios are platform-independent.
+# platform, and each architecture is where the lock's prebuilt wheels are proven to
+# exist; and `e2e`, the live tier on Linux, whose scenarios are platform-independent.
 # None waits on another: a run takes as long as its slowest job. No secret is needed:
 # without DEEPGRAM_API_KEY the per-module cases skip, and the spec's expected-skips
 # table says which.
@@ -47,12 +48,13 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     strategy:
-      # One entry per supported platform (specs/project.md "Platforms"); one platform's
+      # One entry per supported platform (specs/project.md "Platforms") — arm64 Linux for
+      # the Raspberry Pi / Jetson class of host, macos-15 is Apple Silicon; one platform's
       # failure leaves the others running. The tier stubs sounddevice, so no entry needs
       # PortAudio or any other system package.
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04, macos-15, windows-2025]
+        os: [ubuntu-24.04, ubuntu-24.04-arm, macos-15, windows-2025]
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v7

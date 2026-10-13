@@ -14,9 +14,9 @@ Per-backend ASR module specs live in [`modules/`](modules/), one file per backen
 
 | Spec | Description | Status |
 |---|---|---|
-| [project.md](project.md) | Project structure and tooling: Python version, supported platforms (Linux/macOS/Windows), packaging with uv, provider + transport (`mcp`) extras, layout conventions, ruff/pyright | Implemented |
+| [project.md](project.md) | Project structure and tooling: Python version, supported platforms (Linux x86_64/arm64, macOS, Windows), packaging with uv, provider + transport (`mcp`) extras, layout conventions, ruff/pyright | Updated |
 | [testing.md](testing.md) | Testing strategy: two-tier `tests/`/`tests-e2e/` split, functional-test philosophy, `fake` module as the downstream test double | Implemented |
-| [ci.md](ci.md) | GitHub Actions: static gate on Linux, fast tier on Linux/macOS/Windows, live tier on Linux (Deepgram via secret, kyutai local-only), expected skips | Implemented |
+| [ci.md](ci.md) | GitHub Actions: static gate on Linux, fast tier on Linux (x86_64 + arm64)/macOS/Windows, live tier on Linux (Deepgram via secret, kyutai local-only), expected skips | Updated |
 | [overview.md](overview.md) | Goals, components, constraints, non-goals | Implemented |
 | [architecture.md](architecture.md) | System diagram, concurrency model, data flow | Implemented |
 | [audio-source.md](audio-source.md) | `AudioSource` injection seam: public/stable extension point, chunk contract, `audio_format` pre-`start()`, `stop()`/queue lifecycle | Implemented |
