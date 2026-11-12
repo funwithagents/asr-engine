@@ -467,3 +467,98 @@ def test_validate_asr_type_unknown_lists_available() -> None:
 def test_validate_asr_type_empty_registry() -> None:
     with pytest.raises(ValueError, match="none"):
         validate_asr_type(_cfg("deepgram"), {})
+
+
+# ---------------------------------------------------------------------------
+# engine.vad — the optional VAD block (specs/vad.md)
+# ---------------------------------------------------------------------------
+
+
+def _engine_with_vad(vad: object) -> dict:
+    return {"module": {"type": "fake"}, "vad": vad}
+
+
+def test_vad_is_off_when_the_block_is_omitted_or_null() -> None:
+    assert ASREngineConfig.from_dict({"module": {"type": "fake"}}).vad is None
+    assert ASREngineConfig.from_dict(_engine_with_vad(None)).vad is None
+
+
+def test_vad_block_gets_the_documented_defaults() -> None:
+    vad = ASREngineConfig.from_dict(_engine_with_vad({"type": "silero"})).vad
+    assert vad is not None
+    assert vad.type == "silero"
+    assert vad.threshold == 0.5
+    assert vad.min_speech_duration_ms == 250
+    assert vad.min_silence_duration_ms == 500
+    assert vad.speech_pad_ms == 300
+    assert vad.extra == {}
+
+
+def test_vad_block_carries_gate_fields_and_passes_the_rest_to_the_module() -> None:
+    vad = ASREngineConfig.from_dict(
+        _engine_with_vad(
+            {
+                "type": "silero",
+                "threshold": 0.3,
+                "min_speech_duration_ms": 0,
+                "min_silence_duration_ms": 1500,
+                "speech_pad_ms": 0,
+                "model_variant": "tiny",
+            }
+        )
+    ).vad
+    assert vad is not None
+    assert (vad.threshold, vad.min_speech_duration_ms) == (0.3, 0)
+    assert (vad.min_silence_duration_ms, vad.speech_pad_ms) == (1500, 0)
+    assert vad.extra == {"model_variant": "tiny"}
+
+
+@pytest.mark.parametrize(
+    "block, field",
+    [
+        ({}, "engine.vad.type"),
+        ({"type": ""}, "engine.vad.type"),
+        ({"type": 3}, "engine.vad.type"),
+        ({"type": "silero", "threshold": 0}, "engine.vad.threshold"),
+        ({"type": "silero", "threshold": 1}, "engine.vad.threshold"),
+        ({"type": "silero", "threshold": "0.5"}, "engine.vad.threshold"),
+        ({"type": "silero", "threshold": True}, "engine.vad.threshold"),
+        (
+            {"type": "silero", "min_speech_duration_ms": -1},
+            "engine.vad.min_speech_duration_ms",
+        ),
+        (
+            {"type": "silero", "min_speech_duration_ms": 2.5},
+            "engine.vad.min_speech_duration_ms",
+        ),
+        (
+            {"type": "silero", "min_silence_duration_ms": 0},
+            "engine.vad.min_silence_duration_ms",
+        ),
+        (
+            {"type": "silero", "min_silence_duration_ms": True},
+            "engine.vad.min_silence_duration_ms",
+        ),
+        ({"type": "silero", "speech_pad_ms": -5}, "engine.vad.speech_pad_ms"),
+        ("silero", "engine.vad"),
+    ],
+)
+def test_vad_block_validation_names_the_field(block: object, field: str) -> None:
+    with pytest.raises(ValueError, match=field.replace(".", r"\.")):
+        ASREngineConfig.from_dict(_engine_with_vad(block))
+
+
+def test_vad_type_is_not_checked_against_the_registry_at_parse_time() -> None:
+    """Like module.type: an unknown VAD surfaces at engine construction."""
+    vad = ASREngineConfig.from_dict(_engine_with_vad({"type": "not_a_vad"})).vad
+    assert vad is not None and vad.type == "not_a_vad"
+
+
+def test_vad_block_is_parsed_from_a_whole_server_config_file(tmp_path: Path) -> None:
+    path = tmp_path / "config.json"
+    path.write_text(
+        json.dumps({"engine": _engine_with_vad({"type": "silero", "threshold": 0.6})}),
+        encoding="utf-8",
+    )
+    vad = MCPServerConfig.from_json_file(str(path)).engine.vad
+    assert vad is not None and vad.threshold == 0.6

@@ -49,6 +49,8 @@ The fake is a test double only — never a user-facing default (see [asr-module-
 
 The full unit suite (`pytest tests/`) must complete in a few seconds. If it doesn't, treat it as a bug: find the slow tests with `pytest --durations=10` and fix the root cause (usually a real timer firing in production code that needs to be made patchable, or a missing stop signal).
 
+**No network, with one bounded exception.** The fast tier calls no service. The single exception is the Silero VAD model (`tests/vad/test_silero.py`): the tests that run the real model read it from the user cache and download it on a machine's first run (2.3 MB, from a pinned URL, hash-checked). They **skip** when it cannot be obtained, so an offline run stays green; the download logic itself is tested against a local `file://` URL. See [vad.md](vad.md) "Testing".
+
 ## Test isolation
 
 If the package holds process-global or singleton state (a module-level registry, a cached client, a configured logger, a background timer/thread), reset it before and after each test via an `autouse` fixture in the tier's `conftest.py`, so no state leaks across tests.

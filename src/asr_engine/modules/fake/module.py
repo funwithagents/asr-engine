@@ -17,9 +17,14 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from asr_engine.audio import DEFAULT_AUDIO_FORMAT, AudioFormat
+from asr_engine.audio import (
+    DEFAULT_AUDIO_FORMAT,
+    AudioFormat,
+    EndOfSpeech,
+)
 from asr_engine.modules.base import (
     ASRModule,
+    AudioQueue,
     ConnectedCallback,
     SpeechUtterance,
     UtteranceCallback,
@@ -97,6 +102,9 @@ class FakeASRModule(ASRModule):
     DEFAULT_SAMPLE_RATE = 16000
     DEFAULT_CHANNELS = 1
     DEFAULT_ENCODING = "linear16"
+    # Works behind a VAD gate: its clock then counts gated audio only, and it
+    # ignores the end-of-speech marker (the script, not the audio, decides finals).
+    VAD_GATING = "supported"
 
     def __init__(self, config: dict) -> None:
         super().__init__(config)
@@ -105,7 +113,7 @@ class FakeASRModule(ASRModule):
 
     async def start(
         self,
-        audio_queue: asyncio.Queue[bytes],
+        audio_queue: AudioQueue,
         on_utterance: UtteranceCallback,
         on_connected: ConnectedCallback | None = None,
         *,
@@ -126,6 +134,8 @@ class FakeASRModule(ASRModule):
                 chunk = await self._next_chunk(audio_queue)
                 if chunk is None:
                     break
+                if isinstance(chunk, EndOfSpeech):
+                    continue
                 consumed += len(chunk)
                 clock = consumed / byte_rate
                 while (
@@ -138,8 +148,8 @@ class FakeASRModule(ASRModule):
             if on_connected:
                 on_connected(False)
 
-    async def _next_chunk(self, audio_queue: asyncio.Queue[bytes]) -> bytes | None:
-        """Wait for the next chunk, or return None once stop() is called."""
+    async def _next_chunk(self, audio_queue: AudioQueue) -> bytes | EndOfSpeech | None:
+        """Wait for the next queue item, or return None once stop() is called."""
         get_task = asyncio.ensure_future(audio_queue.get())
         stop_task = asyncio.ensure_future(self._stop_event.wait())
         try:

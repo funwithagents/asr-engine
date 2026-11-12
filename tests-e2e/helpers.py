@@ -216,6 +216,46 @@ MODULES = [
 ]
 
 
+def _vad_cases() -> list:
+    """``MODULES`` crossed with the VAD settings each row is run under.
+
+    Every row runs once with Silero's defaults. ``deepgram_v2`` runs twice,
+    because Flux has two end-of-utterance paths behind a gate (specs/vad.md
+    "Letting the backend end the turn first"): with the recommended 1500 ms
+    hangover Flux hears the silence and ends the turn itself; with a 300 ms one
+    the gate closes first and the module's injected silence ends it.
+    """
+    variants = {
+        "deepgram_v2": [
+            ("flux_ends_turn", {"min_silence_duration_ms": 1500}),
+            ("marker_ends_turn", {"min_silence_duration_ms": 300}),
+        ]
+    }
+    cases = []
+    for row in MODULES:
+        row_id = str(row.id)
+        for suffix, vad in variants.get(row_id, [("", {})]):
+            case_id = f"{row_id}-{suffix}" if suffix else row_id
+            cases.append(
+                pytest.param(*row.values, {"type": "silero", **vad}, id=case_id)
+            )
+    return cases
+
+
+# Param table for ``test_engine_modules_vad``: (module_type, module_config,
+# silence_s, audio, vad_block).
+MODULES_VAD = _vad_cases()
+
+
+def require_vad_runtime() -> None:
+    """Skip the calling test where the Silero VAD cannot run.
+
+    ``onnxruntime`` publishes no Intel macOS wheel, so the ``silero`` extra
+    installs without it there (see specs/project.md).
+    """
+    pytest.importorskip("onnxruntime", reason="e2e: the silero VAD needs onnxruntime")
+
+
 def build_engine(
     audio_source,
     module_type: str,
@@ -229,8 +269,12 @@ def build_engine(
     end_of_speech_timeout_s: float = 5.0,
     on_speech_utterance=None,
     on_speech_segment=None,
+    vad: dict | None = None,
 ):
     """Build an ASREngine driven by *audio_source* (no MCP server).
+
+    ``vad`` is an ``engine.vad`` block (e.g. ``{"type": "silero"}``); omitted, the
+    engine runs ungated.
 
     Sound feedback is disabled. ``audio_source`` is any object matching the
     ``AudioSource`` protocol — e.g. a ``FileAudioSource`` (see
@@ -266,6 +310,11 @@ def build_engine(
         ),
         module=ModuleConfig(type=module_type, extra=module_config),
     )
+    if vad is not None:
+        # Through from_dict so the block is validated as a config file's would be.
+        config.vad = ASREngineConfig.from_dict(
+            {"module": {"type": module_type}, "vad": vad}
+        ).vad
     return ASREngine(
         config,
         on_speech_utterance=on_speech_utterance,

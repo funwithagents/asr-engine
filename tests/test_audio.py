@@ -19,7 +19,9 @@ from asr_engine.audio import (
     AudioFormat,
     FileAudioSource,
     ScriptableAudioSource,
+    _silence,
     linear16_to_mulaw,
+    mulaw_to_linear16,
 )
 
 # ---------------------------------------------------------------------------
@@ -502,3 +504,53 @@ class TestFileAudioSourceFormat:
         # One chunk, μ-law: one byte per sample (half of s16) and silence is 0xFF.
         assert len(chunks) == 1
         assert chunks[0] == b"\xff" * frames
+
+
+# ---------------------------------------------------------------------------
+# mulaw_to_linear16 / _silence (used by the VAD gate and the modules' flush)
+# ---------------------------------------------------------------------------
+
+
+class TestMulawToLinear16:
+    def test_round_trips_within_g711_quantization(self) -> None:
+        rng = np.random.default_rng(0)
+        samples = np.concatenate(
+            [
+                rng.integers(-32768, 32768, 4000),  # the whole range
+                rng.integers(-300, 300, 2000),  # the fine steps near zero
+                np.array([0, 1, -1, 32767, -32768, 32635, -32635]),
+            ]
+        ).astype("<i2")
+        decoded = np.frombuffer(
+            mulaw_to_linear16(linear16_to_mulaw(samples.tobytes())), dtype="<i2"
+        )
+
+        assert decoded.shape == samples.shape
+        clipped = np.clip(samples.astype(np.int32), -32635, 32635)
+        error = np.abs(decoded.astype(np.int32) - clipped)
+        # G.711's step doubles per segment: at most 4 near zero, ~3% at the top.
+        assert np.all(error <= np.maximum(4, np.abs(clipped) // 30 + 4))
+        loud = np.abs(samples) > 8
+        assert np.all(np.sign(decoded[loud]) == np.sign(samples[loud]))
+
+    def test_decoding_is_stable_under_reencoding(self) -> None:
+        """Every μ-law code decodes to a value that encodes back to itself (apart
+        from negative zero, which has no linear16 counterpart)."""
+        codes = bytes(range(256))
+        again = linear16_to_mulaw(mulaw_to_linear16(codes))
+        assert [a for a, c in zip(again, codes) if c != 0x7F] == [
+            c for c in codes if c != 0x7F
+        ]
+
+    def test_mulaw_silence_decodes_to_zero(self) -> None:
+        assert mulaw_to_linear16(b"\xff" * 4) == b"\x00" * 8
+
+
+class TestSilence:
+    def test_linear16_silence_has_the_requested_duration(self) -> None:
+        fmt = AudioFormat(sample_rate=44100)
+        assert _silence(fmt, 2.5) == b"\x00" * round(44100 * 2.5) * 2
+
+    def test_mulaw_stereo_silence_is_encoded_not_zero_bytes(self) -> None:
+        fmt = AudioFormat(sample_rate=8000, channels=2, encoding="mulaw")
+        assert _silence(fmt, 0.5) == b"\xff" * 4000 * 2

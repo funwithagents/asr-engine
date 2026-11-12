@@ -44,11 +44,21 @@ kyutai-torch = [
 mistral = [
     "websockets>=14",
 ]
+# Silero VAD (engine.vad.type `silero`) — see specs/vad.md. onnxruntime runs
+# upstream's ONNX model, downloaded on first use (the silero-vad package itself
+# depends on torch); soxr
+# resamples the gate's analysis copy when the pipeline rate is not 8/16 kHz.
+# onnxruntime publishes no Intel macOS wheel, hence the marker (best-effort
+# platform, see specs/project.md).
+silero = [
+    "onnxruntime; sys_platform != 'darwin' or platform_machine != 'x86_64'",
+    "soxr",
+]
 # Every provider and transport extra in one install (`pip install 'asr-engine[all]'`).
 # Add each new extra here — no exceptions — and *separately* decide whether the
 # dev group below needs it (see specs/project.md).
 all = [
-    "asr-engine[deepgram,mcp,kyutai-mlx,kyutai-torch,mistral]",
+    "asr-engine[deepgram,mcp,kyutai-mlx,kyutai-torch,mistral,silero]",
 ]
 
 [project.scripts]
@@ -103,8 +113,9 @@ dev = [
     # pyright and the tests see every provider module and the MCP server without
     # every contributor paying for a heavy backend. `all` stays the public
     # "everything" target. See specs/project.md. kyutai-mlx is in (a no-op off
-    # Apple Silicon); kyutai-torch is not — it drags in ~2.5 GB of torch.
-    "asr-engine[deepgram,mcp,kyutai-mlx,mistral]",
+    # Apple Silicon); kyutai-torch is not — it drags in ~2.5 GB of torch. silero
+    # is light (onnxruntime + soxr), so the fast tier runs the real VAD model.
+    "asr-engine[deepgram,mcp,kyutai-mlx,mistral,silero]",
     "pyright>=1.1.411",
     "pytest",
     "pytest-asyncio",

@@ -19,7 +19,7 @@ import pytest
 
 from asr_engine.audio import AudioFormat
 from asr_engine.modules import resolve_module_class
-from asr_engine.modules.base import SpeechUtterance, reconcile_audio_format
+from asr_engine.modules.base import AudioQueue, SpeechUtterance, reconcile_audio_format
 from asr_engine.modules.kyutai import KyutaiModule, StepResult
 from asr_engine.modules.kyutai import module as kyutai
 
@@ -155,7 +155,7 @@ class _Harness:
             return self.backend
 
         self.module = KyutaiModule(config or {}, backend_factory=factory)
-        self.queue: asyncio.Queue[bytes] = asyncio.Queue()
+        self.queue: AudioQueue = asyncio.Queue()
         self.events: list[tuple[str, bool, float | None]] = []
         self.connected: list[bool] = []
         self.task: asyncio.Task | None = None
@@ -435,6 +435,129 @@ async def test_lag_past_the_drop_threshold_drops_oldest_frames_and_keeps_newest(
     assert [round(float(f[0]) * 32768) for f in backend.frames] == [0, 500, 600, 700]
 
 
+# ------------------------------------------------------------------ VAD gating
+
+
+async def test_end_of_speech_pads_the_partial_frame_flushes_and_finalizes():
+    from asr_engine.audio import END_OF_SPEECH
+
+    assert KyutaiModule.VAD_GATING == "supported"
+    # audio_delay_s 0.16 = 2 steps → 2 + 2 = 4 silent flush frames.
+    script = [T(" hello"), T(" world")]
+    h = _Harness(ScriptedBackend(script, audio_delay_s=0.16))
+    await h.start()
+
+    # One and a half frames of audio, then the gate closes.
+    await h.queue.put(_pcm([1000] * (FRAME_SAMPLES + FRAME_SAMPLES // 2)))
+    await h.queue.put(END_OF_SPEECH)
+    await _until(lambda: any(final for _, final, _ in h.events))
+    await _settle()
+
+    frames = h.backend.frames
+    assert len(frames) == 1 + 1 + 4  # whole frame, padded partial, flush frames
+    half = FRAME_SAMPLES // 2
+    assert np.all(frames[1][:half] != 0) and not frames[1][half:].any()
+    assert all(not f.any() for f in frames[2:])
+    assert h.events == [
+        ("hello", False, None),
+        ("hello world", False, None),
+        ("hello world", True, None),
+    ]
+    await h.stop()
+
+
+async def test_text_arriving_during_the_flush_belongs_to_the_final():
+    from asr_engine.audio import END_OF_SPEECH
+
+    # The last word is still inside the model's delay when the gate closes: it
+    # comes out on the third flush frame.
+    script = [T(" The"), PAD, PAD, T(" end")]
+    h = _Harness(ScriptedBackend(script, audio_delay_s=0.16))
+    await h.start()
+    await h.feed_frames(1)
+    await h.queue.put(END_OF_SPEECH)
+    await _until(lambda: any(final for _, final, _ in h.events))
+
+    assert h.events[-1] == ("The end", True, None)
+
+    # The next utterance starts clean on the same session.
+    h.backend._script.extend([T(" Next")])
+    await h.feed_frames(1)
+    await _until(lambda: h.events[-1] == ("Next", False, None))
+    assert h.backend.calls.count("reset") == 0  # no session reset for a flush
+    await h.stop()
+
+
+async def test_end_of_speech_with_nothing_accumulated_emits_nothing():
+    from asr_engine.audio import END_OF_SPEECH
+
+    h = _Harness(ScriptedBackend(audio_delay_s=0.08))  # 1 + 2 = 3 flush frames
+    await h.start()
+    await h.feed_frames(2)
+    await h.queue.put(END_OF_SPEECH)
+    await _until(lambda: len(h.backend.frames) == 2 + 3)
+    await _settle()
+    await h.stop()
+    assert h.events == []
+
+
+async def test_a_semantic_vad_final_before_the_marker_is_not_repeated():
+    from asr_engine.audio import END_OF_SPEECH
+
+    # The model's own end-of-turn fires during the gate's hangover; the marker
+    # then finds nothing accumulated.
+    script = [T(" Done"), V(0.9), PAD]
+    h = _Harness(ScriptedBackend(script, audio_delay_s=0.0))
+    await h.start()
+    await h.run_script(n_events=2)
+    await h.queue.put(END_OF_SPEECH)
+    await _until(lambda: len(h.backend.frames) == 3 + 2)
+    await _settle()
+    await h.stop()
+
+    assert h.events == [("Done", False, None), ("Done", True, 0.9)]
+
+
+async def test_the_flush_survives_frames_dropped_for_lag():
+    from asr_engine.audio import END_OF_SPEECH
+
+    gate = threading.Event()
+    backend = ScriptedBackend([T(" kept")], step_gate=gate, audio_delay_s=0.0)
+    # warn above 2 queued frames, drop above 5 (as in the lag test above).
+    h = _Harness(backend, {"lag_warn_s": 0.2, "lag_drop_s": 0.45})
+    await h.start()
+
+    await h.feed_frames(1)
+    await _until(lambda: len(backend.frames) == 1)  # stuck in step(): model stalled
+    await h.queue.put(END_OF_SPEECH)  # 2 flush frames + the flush marker queued
+    await h.feed_frames(8)  # the next utterance piles up past the drop threshold
+    await _until(h.queue.empty)
+    await _settle()
+    gate.set()
+
+    # Frames were dropped, but the flush marker was not: the final still comes.
+    await _until(lambda: ("kept", True, None) in h.events)
+    assert len(backend.frames) < 1 + 2 + 8
+    await h.stop()
+
+
+async def test_end_of_speech_while_the_model_loads_is_discarded():
+    from asr_engine.audio import END_OF_SPEECH
+
+    load_gate = threading.Event()
+    h = _Harness(ScriptedBackend(load_gate=load_gate, audio_delay_s=0.08))
+    await h.start(wait_connected=False)
+    await h.feed_frames(2)
+    await h.queue.put(END_OF_SPEECH)
+    await _until(h.queue.empty)  # drained while loading
+    load_gate.set()
+    await _until(lambda: h.connected == [True])
+    await _settle()
+    await h.stop()
+
+    assert h.backend.frames == [] and h.events == []
+
+
 # ------------------------------------------------------------------- lifecycle
 
 
@@ -520,7 +643,7 @@ async def test_failed_load_is_retried_with_a_fresh_backend():
 
     module = KyutaiModule({}, backend_factory=factory)
     module._BACKOFF_S = (0.01,)
-    queue: asyncio.Queue[bytes] = asyncio.Queue()
+    queue: AudioQueue = asyncio.Queue()
     connected: list[bool] = []
     events: list[str] = []
 
@@ -553,7 +676,7 @@ async def test_step_failure_disconnects_then_reloads_and_resumes():
 
     module = KyutaiModule({"vad": False}, backend_factory=factory)
     module._BACKOFF_S = (0.01,)
-    queue: asyncio.Queue[bytes] = asyncio.Queue()
+    queue: AudioQueue = asyncio.Queue()
     connected: list[bool] = []
     events: list[str] = []
 

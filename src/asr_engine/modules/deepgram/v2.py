@@ -7,9 +7,15 @@ from deepgram import AsyncDeepgramClient
 from deepgram.core.events import EventType
 from deepgram.listen.v2.types.listen_v2turn_info import ListenV2TurnInfo
 
-from asr_engine.audio import DEFAULT_AUDIO_FORMAT, AudioFormat
+from asr_engine.audio import (
+    DEFAULT_AUDIO_FORMAT,
+    AudioFormat,
+    EndOfSpeech,
+    _silence,
+)
 from asr_engine.modules.base import (
     ASRModule,
+    AudioQueue,
     ConnectedCallback,
     SpeechUtterance,
     UtteranceCallback,
@@ -37,6 +43,11 @@ class DeepgramV2Module(ASRModule):
     DEFAULT_SAMPLE_RATE = 16000
     DEFAULT_CHANNELS = 1
     DEFAULT_ENCODING = "linear16"
+    VAD_GATING = "supported"
+
+    # Silence sent past eot_timeout_ms when a gated utterance leaves a turn open,
+    # so Flux's timeout path is certain to be reached.
+    _FLUSH_MARGIN_S = 0.5
 
     def __init__(self, config: dict) -> None:
         super().__init__(config)
@@ -47,15 +58,26 @@ class DeepgramV2Module(ASRModule):
 
         self._stop_event = asyncio.Event()
 
+        # VAD gating (specs/vad.md). Flux has no flush message: a turn ends only
+        # on silence it hears. These track whether the gate closed on an open turn.
+        self._conn: object | None = None
+        self._flush_silence = b""
+        self._turn_open = False  # a transcript arrived since the last EndOfTurn
+        self._gated = False  # a marker arrived and no audio has followed it
+        self._flushed = False  # the silence for this gap has been sent
+
     async def start(
         self,
-        audio_queue: asyncio.Queue[bytes],
+        audio_queue: AudioQueue,
         on_utterance: UtteranceCallback,
         on_connected: ConnectedCallback | None = None,
         *,
         audio_format: AudioFormat = DEFAULT_AUDIO_FORMAT,
     ) -> None:
         self._stop_event.clear()
+        self._flush_silence = _silence(
+            audio_format, self._eot_timeout_ms / 1000 + self._FLUSH_MARGIN_S
+        )
         client = AsyncDeepgramClient(api_key=self._api_key)
         attempt = 0
 
@@ -69,6 +91,8 @@ class DeepgramV2Module(ASRModule):
                     eot_timeout_ms=str(self._eot_timeout_ms),
                 ) as conn:
                     attempt = 0
+                    self._conn = conn
+                    self._turn_open = self._gated = self._flushed = False
                     if on_connected:
                         on_connected(True)
                     try:
@@ -76,10 +100,17 @@ class DeepgramV2Module(ASRModule):
                         async def on_message(msg: object) -> None:
                             if not isinstance(msg, ListenV2TurnInfo):
                                 return
+                            is_final = msg.event == "EndOfTurn"
                             transcript = msg.transcript
+                            if is_final:
+                                self._turn_open = False
+                            elif transcript:
+                                self._turn_open = True
+                                # The gate may have closed before Flux reported
+                                # this turn: flush now that it is known to be open.
+                                await self._flush_open_turn()
                             if not transcript:
                                 return
-                            is_final = msg.event == "EndOfTurn"
                             await on_utterance(
                                 SpeechUtterance(
                                     transcript=transcript,
@@ -115,6 +146,7 @@ class DeepgramV2Module(ASRModule):
                             if exc is not None:
                                 raise exc
                     finally:
+                        self._conn = None
                         if on_connected:
                             on_connected(False)
 
@@ -133,9 +165,10 @@ class DeepgramV2Module(ASRModule):
     async def _audio_loop(
         self,
         conn: object,
-        audio_queue: asyncio.Queue[bytes],
+        audio_queue: AudioQueue,
     ) -> None:
-        """Send audio chunks; send KeepAlive JSON on silence. Exits immediately on stop()."""
+        """Send audio chunks; flush on an end-of-speech marker; send KeepAlive
+        JSON on silence. Exits immediately on stop()."""
         stop_task = asyncio.create_task(self._stop_event.wait())
         try:
             while True:
@@ -153,7 +186,12 @@ class DeepgramV2Module(ASRModule):
                         pass
                     break
                 if get_task in done:
-                    await conn.send_media(get_task.result())  # type: ignore[union-attr]
+                    item = get_task.result()
+                    if isinstance(item, EndOfSpeech):
+                        await self.finalize()
+                    else:
+                        self._gated = self._flushed = False
+                        await conn.send_media(item)  # type: ignore[union-attr]
                 else:
                     # No audio for _KEEPALIVE_TIMEOUT seconds — keep the connection alive.
                     # The v2 SDK has no public send_keep_alive(); use the internal
@@ -171,12 +209,34 @@ class DeepgramV2Module(ASRModule):
             except (asyncio.CancelledError, Exception):
                 pass
 
+    async def finalize(self) -> None:
+        """End of a VAD-gated utterance: make sure Flux ends the turn.
+
+        No turn open — Flux already ended it on the silence the gate let through
+        (the recommended longer hangover): nothing to do, nothing billed. Turn
+        open: send one burst of silence covering ``eot_timeout_ms`` plus a margin,
+        so the turn ends on Flux's timeout path at the latest (measured: a burst
+        sent faster than real time ends the turn in about half a second). See
+        specs/vad.md "Per-module finalize()".
+        """
+        self._gated = True
+        await self._flush_open_turn()
+
+    async def _flush_open_turn(self) -> None:
+        conn = self._conn
+        if conn is None or not (self._gated and self._turn_open) or self._flushed:
+            return
+        self._flushed = True
+        await conn.send_media(self._flush_silence)  # type: ignore[attr-defined]
+
     async def _drain_queue_for(
         self,
-        audio_queue: asyncio.Queue[bytes],
+        audio_queue: AudioQueue,
         duration: float,
     ) -> None:
-        """Drain audio_queue for *duration* seconds to prevent unbounded growth."""
+        """Drain audio_queue for *duration* seconds to prevent unbounded growth.
+
+        End-of-speech markers are discarded with the audio they follow."""
         loop = asyncio.get_event_loop()
         deadline = loop.time() + duration
         while True:

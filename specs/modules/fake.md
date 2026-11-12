@@ -107,6 +107,10 @@ After each chunk is consumed the clock advances by that chunk's duration, then e
 - `stop()` makes `start()` return promptly even while blocked on an empty queue, and calls `on_connected(False)`.
 - No reconnection: there is no connection to lose, so the [reconnection contract](../asr-module-interface.md#reconnection-contract) is vacuously satisfied.
 
+### VAD gating
+
+`VAD_GATING = "supported"` ([vad.md](../vad.md)), so the fake can stand in for a real module behind the VAD gate in tests. It **ignores** the `END_OF_SPEECH` marker: its script, not the audio, decides its finals, and a marker neither emits anything nor moves the clock. Its audio-time clock then counts gated audio only, so a script advances with the speech the gate lets through, not with the silence it drops.
+
 ### Audio format
 
 Declares support for **any** format: `SUPPORTED_SAMPLE_RATES = SUPPORTED_CHANNELS = SUPPORTED_ENCODINGS = None`, defaults 16000 / 1 / `linear16`. It never inspects sample values, so any reconciled format works; it uses the format only to convert bytes to seconds (`mulaw` = 1 byte/sample, `linear16` = 2).

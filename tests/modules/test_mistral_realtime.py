@@ -18,7 +18,7 @@ import pytest
 
 from asr_engine.audio import AudioFormat
 from asr_engine.modules import resolve_module_class
-from asr_engine.modules.base import SpeechUtterance
+from asr_engine.modules.base import AudioQueue, SpeechUtterance
 from asr_engine.modules.mistral.realtime import MistralRealtimeModule
 
 # --------------------------------------------------------------------------- fakes
@@ -141,7 +141,7 @@ class Harness:
             {"api_key": "test-key", **config}, connect=self.connector
         )
         self.module._BACKOFF_S = (0.01,)
-        self.queue: asyncio.Queue[bytes] = asyncio.Queue()
+        self.queue: AudioQueue = asyncio.Queue()
         self.utterances: list[SpeechUtterance] = []
         self.connected: list[bool] = []
         self.task: asyncio.Task | None = None
@@ -570,6 +570,107 @@ def test_api_key_resolves_from_the_named_env_var(monkeypatch) -> None:
 
 async def _noop_utterance(_: SpeechUtterance) -> None:
     return None
+
+
+# ---------------------------------------------------------------------- VAD gating
+
+
+async def test_end_of_speech_flushes_with_silence_then_finalizes_locally(
+    harnesses,
+) -> None:
+    from asr_engine.audio import END_OF_SPEECH
+
+    assert MistralRealtimeModule.VAD_GATING == "supported"
+    # Flush wait = streaming delay (80 ms) + margin (20 ms) with no new text.
+    h = harnesses({"streaming_delay_ms": 80, "final_margin_ms": 20})
+    await h.start()
+    h.queue.put_nowait(b"\x01\x02" * 800)
+    h.conn.push(_delta("The sky"))
+    await _until(lambda: h.interims() == ["The sky"])
+
+    h.queue.put_nowait(END_OF_SPEECH)
+    # The text still behind the streaming delay only arrives once the server gets
+    # more audio: one burst of silence covering the delay plus 200 ms.
+    await _until(lambda: len(h.conn.audio()) == 2)
+    assert h.conn.audio()[1] == b"\x00" * round(16000 * 0.28) * 2
+    assert h.finals() == []  # not yet: the tail may still be on its way
+
+    # The tail arrives inside the wait and belongs to this final.
+    await asyncio.sleep(0.05)
+    h.conn.push(_delta(" is blue."))
+    await _until(lambda: h.finals() != [])
+    assert h.finals() == ["The sky is blue."]
+
+    # The session was kept (no input_audio.end), and the next utterance goes out
+    # on it and gets its own final.
+    assert "input_audio.end" not in h.conn.types()
+    h.queue.put_nowait(b"\x03\x04" * 800)
+    h.conn.push(_delta(" Validate"))
+    h.queue.put_nowait(END_OF_SPEECH)
+    await _until(lambda: len(h.finals()) == 2)
+    assert h.finals() == ["The sky is blue.", "Validate"]
+    assert len(h.connector.connections) == 1
+
+
+async def test_text_still_arriving_after_the_marker_holds_the_final(harnesses) -> None:
+    from asr_engine.audio import END_OF_SPEECH
+
+    h = harnesses({"streaming_delay_ms": 80, "final_margin_ms": 20})  # 0.1 s wait
+    await h.start()
+    h.queue.put_nowait(b"\x00" * 3200)
+    h.queue.put_nowait(END_OF_SPEECH)
+    await _until(lambda: len(h.conn.audio()) == 2)
+    # Deltas 60 ms apart for longer than the wait: each one restarts it.
+    for word in ("One", " two", " three", " four"):
+        h.conn.push(_delta(word))
+        await asyncio.sleep(0.06)
+        assert h.finals() == []
+    await _until(lambda: h.finals() != [])
+    assert h.finals() == ["One two three four"]
+
+
+async def test_end_of_speech_with_nothing_transcribed_emits_nothing(harnesses) -> None:
+    from asr_engine.audio import END_OF_SPEECH
+
+    h = harnesses({"streaming_delay_ms": 80, "final_margin_ms": 0})
+    await h.start()
+    h.queue.put_nowait(b"\x00" * 3200)
+    h.queue.put_nowait(END_OF_SPEECH)
+    await _until(lambda: len(h.conn.audio()) == 2)
+    await asyncio.sleep(0.15)
+    assert h.utterances == []
+
+
+async def test_end_of_speech_while_reconnecting_is_discarded(harnesses) -> None:
+    from asr_engine.audio import END_OF_SPEECH
+
+    h = harnesses({}, ConnectionError("down"))
+    # Queued before the first (failing) connect: drained during the backoff.
+    h.queue.put_nowait(b"stale")
+    h.queue.put_nowait(END_OF_SPEECH)
+    await h.start()
+    assert h.queue.empty()
+
+    h.queue.put_nowait(b"fresh")
+    await _until(lambda: h.conn.audio() == [b"fresh"])
+    await asyncio.sleep(0.02)
+    assert h.conn.audio() == [b"fresh"]  # no flush silence for the dropped marker
+    assert h.utterances == []
+
+
+async def test_a_marker_does_not_reopen_a_parked_session(harnesses) -> None:
+    from asr_engine.audio import END_OF_SPEECH
+
+    h = harnesses({"idle_close_s": 0.05})
+    await h.start()
+    await _until(lambda: "input_audio.end" in h.conn.types())  # parked
+    h.queue.put_nowait(END_OF_SPEECH)
+    await asyncio.sleep(0.05)
+    assert len(h.connector.connections) == 1  # nothing to finalize: still parked
+
+    h.queue.put_nowait(b"speech")
+    await _until(lambda: len(h.connector.connections) == 2)
+    await _until(lambda: h.conn.audio() == [b"speech"])
 
 
 def test_registry_resolves_mistral_realtime() -> None:
