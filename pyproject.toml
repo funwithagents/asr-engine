@@ -38,11 +38,17 @@ kyutai-mlx = [
 kyutai-torch = [
     "moshi>=0.2.11",
 ]
+# Mistral Voxtral realtime (module type `voxtral_realtime`) — see specs/modules/mistral.md.
+# The module speaks the WebSocket protocol directly; >=14 for websockets.connect's
+# asyncio client with `additional_headers`.
+mistral = [
+    "websockets>=14",
+]
 # Every provider and transport extra in one install (`pip install 'asr-engine[all]'`).
 # Add each new extra here — no exceptions — and *separately* decide whether the
 # dev group below needs it (see specs/project.md).
 all = [
-    "asr-engine[deepgram,mcp,kyutai-mlx,kyutai-torch]",
+    "asr-engine[deepgram,mcp,kyutai-mlx,kyutai-torch,mistral]",
 ]
 
 [project.scripts]
@@ -98,7 +104,7 @@ dev = [
     # every contributor paying for a heavy backend. `all` stays the public
     # "everything" target. See specs/project.md. kyutai-mlx is in (a no-op off
     # Apple Silicon); kyutai-torch is not — it drags in ~2.5 GB of torch.
-    "asr-engine[deepgram,mcp,kyutai-mlx]",
+    "asr-engine[deepgram,mcp,kyutai-mlx,mistral]",
     "pyright>=1.1.411",
     "pytest",
     "pytest-asyncio",

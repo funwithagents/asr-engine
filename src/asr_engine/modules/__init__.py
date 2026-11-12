@@ -31,6 +31,9 @@ REGISTRY: dict[str, LazyModule | type[ASRModule]] = {
     "deepgram_v2": LazyModule(
         "asr_engine.modules.deepgram.v2:DeepgramV2Module", extra="deepgram"
     ),
+    "voxtral_realtime": LazyModule(
+        "asr_engine.modules.mistral.realtime:VoxtralRealtimeModule", extra="mistral"
+    ),
     # No `extra`: kyutai/module.py imports nothing third-party, and the module raises its
     # own install hint naming the backend's extra (kyutai-mlx / kyutai-torch).
     "kyutai": LazyModule("asr_engine.modules.kyutai.module:KyutaiModule"),

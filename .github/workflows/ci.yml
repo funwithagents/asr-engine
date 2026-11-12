@@ -8,8 +8,8 @@
 # platform, and each architecture is where the lock's prebuilt wheels are proven to
 # exist; and `e2e`, the live tier on Linux, whose scenarios are platform-independent.
 # None waits on another: a run takes as long as its slowest job. No secret is needed:
-# without DEEPGRAM_API_KEY the per-module cases skip, and the spec's expected-skips
-# table says which.
+# without DEEPGRAM_API_KEY / MISTRAL_API_KEY the per-module cases skip, and the
+# spec's expected-skips table says which.
 
 name: CI
 
@@ -85,10 +85,11 @@ jobs:
       - name: Sync (default groups, against the lock)
         run: uv sync --locked
       - name: Live tier
-        # The Deepgram key, when the repository holds it as a secret: the two Deepgram
-        # conformance cases run; absent (or on a fork's pull request, which never
-        # receives a secret) the variable is empty and they skip. kyutai always skips:
-        # local models are opt-in (specs/ci.md "Expected skips").
+        # Provider keys, when the repository holds them as secrets: the Deepgram and
+        # Voxtral conformance cases run; absent (or on a fork's pull request, which
+        # never receives a secret) the variable is empty and they skip. kyutai always
+        # skips: local models are opt-in (specs/ci.md "Expected skips").
         env:
           DEEPGRAM_API_KEY: ${{ secrets.DEEPGRAM_API_KEY }}
+          MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
         run: uv run pytest tests-e2e -rs

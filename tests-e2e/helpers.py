@@ -59,6 +59,8 @@ AUDIO_WAV_24000 = ModuleAudio(
 # name does. Tests pass the name to modules via the ``api_key_env`` config field and let
 # ``resolve_api_key`` read the value; they never read the literal key themselves.
 DEEPGRAM_API_KEY_ENV = "DEEPGRAM_API_KEY"
+# Mistral's, for the voxtral_realtime row (same rules).
+MISTRAL_API_KEY_ENV = "MISTRAL_API_KEY"
 
 
 def require_api_key(module_config: dict) -> None:
@@ -191,6 +193,15 @@ MODULES = [
         3.0,
         AUDIO_MP3_44100,
         id="deepgram_v2",
+    ),
+    # Voxtral closes a turn ~1.2-2.3 s after speech ends (measured, see
+    # specs/modules/mistral.md); its silence fallback is delay + 2.0 s ≈ 2.5 s.
+    pytest.param(
+        "voxtral_realtime",
+        {"api_key_env": MISTRAL_API_KEY_ENV},
+        3.0,
+        AUDIO_MP3_44100,
+        id="voxtral_realtime",
     ),
     # Local model: no key; opt-in via ASR_ENGINE_E2E_KYUTAI=1 (require_local_model).
     # silence_s must exceed the model's 0.5 s text delay + the 2.0 s fallback
