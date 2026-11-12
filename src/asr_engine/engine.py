@@ -29,7 +29,7 @@ from asr_engine.sound_feedback import NoOpSoundFeedback, SoundFeedback
 
 if TYPE_CHECKING:
     from asr_engine.vad.base import VADModule
-    from asr_engine.vad.gate import VadGate
+    from asr_engine.vad.gate import VadGate, VadState
 
 log = logging.getLogger(__name__)
 
@@ -85,6 +85,7 @@ class ASREngine:
             on_unsupported=config.audio.on_unsupported_format,
         )
         self._vad_module, self._vad_loaded = self._build_vad(), False
+        self._vad_gate: VadGate | None = None  # the last run's gate, for vad_state
 
         self.on_speech_utterance: UtteranceCallback = (
             on_speech_utterance or _noop_utterance
@@ -279,6 +280,7 @@ class ASREngine:
                 emit_end_of_speech=True,
             )
             # Stopping the gate stops the source it wraps.
+            self._vad_gate = gate
             self._audio_capture = gate
             audio_queue = gate.start()
         else:
@@ -407,6 +409,23 @@ class ASREngine:
         they end). Complements ``status()``.
         """
         return self._segment_mode
+
+    @property
+    def vad_state(self) -> VadState | None:
+        """The VAD gate's live state, or ``None`` when no VAD is configured.
+
+        ``speaking`` says whether audio is reaching the ASR module right now; the
+        counters (utterances closed, audio received and forwarded) cover the
+        current run, and keep the last run's totals once stopped. Before the
+        first start every field is zero. Meant to be polled, e.g. by a UI.
+        """
+        if self._vad_module is None:
+            return None
+        if self._vad_gate is None:
+            from asr_engine.vad.gate import VadState
+
+            return VadState()
+        return self._vad_gate.state()
 
     def status(self) -> dict:
         """Return current engine state."""

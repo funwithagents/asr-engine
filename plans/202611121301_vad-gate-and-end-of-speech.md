@@ -17,6 +17,7 @@ Built as planned, with these results and deviations:
 - **Step 9:** a turn first reported after the marker is flushed when its transcript arrives.
 - **Tests:** the shared VAD test doubles live in `tests/vad/scripted.py` (importable from `tests/test_engine.py`), not in a `conftest.py`.
 - **Example configs, changed after review:** moved from the repo root to `examples/config/`, one file per ASR module named after it (`deepgram_v1.json` is new; the old `config.example.json` is `deepgram_v2.json`). The three cloud configs enable the gate with their recommended setting; `kyutai.json` has `"vad": null`. `tests/examples/test_configs.py` keeps them valid.
+- **Added after review:** `ASREngine.vad_state` (gate state and sent/captured counters) and a VAD row in the Gradio demo showing the configured gate, live voice activity and the audio sent to the module ([gradio-demo.md](../specs/gradio-demo.md)).
 - **Live tier:** `test_engine_modules_vad` passed on `deepgram_v1`, both `deepgram_v2` cases, `mistral_realtime` and (locally, `ASR_ENGINE_E2E_KYUTAI=1`) `kyutai`.
 
 ## Scope

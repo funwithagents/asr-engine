@@ -17,11 +17,12 @@ from dataclasses import dataclass
 from typing import Literal
 
 from asr_engine.audio import AudioCapture
-from asr_engine.config import ASREngineConfig
+from asr_engine.config import ASREngineConfig, VadConfig
 from asr_engine.engine import ASREngine
 from asr_engine.modules import REGISTRY
 from asr_engine.modules.base import SpeechUtterance
 from asr_engine.segmenter import SpeechSegment
+from asr_engine.vad.gate import VadState
 
 log = logging.getLogger(__name__)
 
@@ -49,6 +50,47 @@ def format_segment(segment: SpeechSegment) -> str:
     return f"[{reason}] {segment.transcript}"
 
 
+def format_vad_config(vad: VadConfig | None) -> str:
+    """The configured VAD gate, in one line (or why there is none)."""
+    if vad is None:
+        return "off (no engine.vad in the config): all audio is sent"
+    return (
+        f"{vad.type} · threshold {vad.threshold:g} · opens after "
+        f"{vad.min_speech_duration_ms} ms of speech · closes after "
+        f"{vad.min_silence_duration_ms} ms of silence · "
+        f"{vad.speech_pad_ms} ms pre-roll"
+    )
+
+
+def format_voice_activity(state: VadState | None, capturing: bool) -> str:
+    """What the gate is doing right now."""
+    if state is None:
+        return "no VAD"
+    if not capturing:
+        return "idle (not capturing)"
+    if state.failed_open:
+        return "FAILED OPEN: the VAD raised, all audio is sent"
+    if state.speaking:
+        return "SPEECH: audio is sent to the module"
+    return "silence: audio is held back"
+
+
+def format_vad_traffic(state: VadState | None) -> str:
+    """How much of the captured audio reached the module, this run."""
+    if state is None:
+        return "no VAD: all audio is sent"
+    share = (
+        f" ({100 * state.forwarded_s / state.received_s:.0f}%)"
+        if state.received_s
+        else ""
+    )
+    plural = "" if state.utterances == 1 else "s"
+    return (
+        f"sent {state.forwarded_s:.1f} s of {state.received_s:.1f} s{share} · "
+        f"{state.utterances} utterance{plural} closed"
+    )
+
+
 @dataclass(frozen=True)
 class ControllerState:
     """Immutable snapshot the UI renders. Built by ``DemoController.state()``."""
@@ -61,6 +103,9 @@ class ControllerState:
     end_of_speech_timeout_s: float
     device: str | None
     module_type: str
+    vad: str  # the configured gate, one line
+    voice_activity: str  # what the gate is doing right now
+    vad_traffic: str  # audio sent to the module vs captured, this run
     utterance_log: list[str]
     segment_log: list[str]
     last_listen: str
@@ -371,6 +416,9 @@ class DemoController:
     def state(self) -> ControllerState:
         connected = self._engine.status()["connected"] if self._engine else False
         dictating = bool(self._engine and self._engine.dictating)
+        vad_state = self._engine.vad_state if self._engine else None
+        if self._engine is None and self._config.vad is not None:
+            vad_state = VadState()  # configured, but no engine built yet
         with self._lock:
             last_listen = self._last_listen
             message = self._message
@@ -391,6 +439,9 @@ class DemoController:
             end_of_speech_timeout_s=seg.end_of_speech_timeout_s,
             device=self._config.audio.device,
             module_type=self._config.module.type,
+            vad=format_vad_config(self._config.vad),
+            voice_activity=format_voice_activity(vad_state, capturing=not stopped),
+            vad_traffic=format_vad_traffic(vad_state),
             utterance_log=utterance_log,
             segment_log=segment_log,
             last_listen=format_segment(last_listen) if last_listen else "",

@@ -289,6 +289,7 @@ Update the stored default mode that `start_dictation(segmentation_mode=None)` / 
 - `async start()` — `await self._start_with_segmentation_mode("utterance")`: the always-on stream is `utterance`. The caller applies `auto_start_dictation` by calling `start_dictation` *after* `start()`.
 - `async stop()` — stops the module, audio capture, and the segmenter's timers, clears any dictation state (a stopped engine is never dictating), and resets the stored segment mode to `utterance` so the `segmentation_mode` getter reads `utterance` at rest (the next `_start_with_segmentation_mode` sets the mode again anyway).
 - `status() -> dict` — `{"running": bool, "connected": bool, "vad": str | None}`. `vad` is the configured `engine.vad.type`, or `None` when the engine runs ungated.
+- `vad_state -> VadState | None` (read-only property) — `None` without `engine.vad`. Otherwise a snapshot of the gate, meant to be polled by a UI: `speaking` (audio is reaching the module right now), `failed_open`, `utterances` (closed by the gate), `received_s` and `forwarded_s` (audio captured and audio sent to the module). The counters cover the current run and keep the last run's totals once stopped; all zero before the first start. See [vad.md](vad.md) "Engine integration".
 
 ### `listen`
 

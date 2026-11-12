@@ -705,3 +705,24 @@ def test_no_vad_configured_imports_nothing_vad_related():
         [sys.executable, "-c", code], capture_output=True, text=True
     )
     assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.asyncio
+async def test_vad_state_is_none_without_vad_and_follows_the_gate_with_it():
+    assert _vad_engine(vad=None).vad_state is None
+
+    source = HandFedSource()
+    engine = _vad_engine(source=source)
+    state = engine.vad_state
+    assert state is not None and state.received_s == 0  # before the first start
+
+    await engine.start()
+    source.queue.put_nowait(pcm(quiet(200), loud(100), quiet(300, seed=3)))
+    await settle()
+    await engine.stop()
+
+    state = engine.vad_state
+    assert state is not None
+    assert (state.utterances, state.speaking) == (1, False)
+    assert state.received_s == pytest.approx(0.6)
+    assert state.forwarded_s == pytest.approx(0.17)

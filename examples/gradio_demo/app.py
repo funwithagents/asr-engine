@@ -21,7 +21,9 @@ from asr_engine.config import MCPServerConfig
 from .controller import ControllerState, DemoController
 
 _SEG_MODES = ["utterance", "trigger_word", "timeout"]
-_POLL_INTERVAL_S = 0.5
+# Also how fast the voice-activity box follows the gate; 0.25 s keeps a short
+# utterance (the gate stays open at least min_silence_duration_ms) visible.
+_POLL_INTERVAL_S = 0.25
 
 
 def build_ui(controller: DemoController) -> gr.Blocks:
@@ -79,6 +81,25 @@ def build_ui(controller: DemoController) -> gr.Blocks:
             )
 
         with gr.Row():
+            vad_config_box = gr.Textbox(
+                value=initial.vad,
+                label="VAD gate",
+                info="engine.vad from the config",
+                interactive=False,
+                scale=2,
+            )
+            voice_activity_box = gr.Textbox(
+                label="Voice activity",
+                info="is audio reaching the ASR module right now?",
+                interactive=False,
+            )
+            vad_traffic_box = gr.Textbox(
+                label="Audio sent to the module",
+                info="this run: sent vs captured (what a cloud module bills)",
+                interactive=False,
+            )
+
+        with gr.Row():
             with gr.Row():
                 seg_mode_dd = gr.Dropdown(
                     choices=_SEG_MODES,
@@ -128,6 +149,9 @@ def build_ui(controller: DemoController) -> gr.Blocks:
             stop_dict_btn,
             state_box,
             connected_box,
+            vad_config_box,
+            voice_activity_box,
+            vad_traffic_box,
             message_box,
             utt_log,
             seg_log,
@@ -224,6 +248,9 @@ def _render(state: ControllerState) -> list:
         gr.update(interactive=state.dictating),  # stop_dict_btn
         gr.update(value=phase_display),  # state_box
         gr.update(value="yes" if state.connected else "no"),
+        gr.update(value=state.vad),
+        gr.update(value=state.voice_activity),
+        gr.update(value=state.vad_traffic),
         gr.update(value=state.message),
         gr.update(value="\n".join(state.utterance_log)),
         gr.update(value="\n".join(state.segment_log)),

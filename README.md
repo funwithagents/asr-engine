@@ -459,6 +459,7 @@ Pass `segmentation_mode=None` or omit it to use `dictation_default_segmentation_
 | API | Purpose |
 |---|---|
 | `status()` | Return the engine's `running` and backend `connected` state, and the configured `vad` type (`None` when ungated) |
+| `vad_state` | With a VAD configured: whether speech is reaching the module right now, and how much audio was sent vs captured this run (`None` without one) |
 | `dictating` | Report whether a dictation session is active |
 | `segmentation_mode` | Inspect the currently active mode |
 | `audio_format` | Inspect the audio format reconciled with the active module |

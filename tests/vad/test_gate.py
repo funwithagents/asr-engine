@@ -12,7 +12,7 @@ import numpy as np
 import pytest
 
 from asr_engine.audio import END_OF_SPEECH, AudioFormat, linear16_to_mulaw
-from asr_engine.vad.gate import VadGate, analysis_sample_rate
+from asr_engine.vad.gate import VadGate, VadState, analysis_sample_rate
 from tests.vad.scripted import (
     FORMAT_16K,
     HandFedSource,
@@ -296,4 +296,39 @@ async def test_a_failure_mid_utterance_keeps_the_speech_already_forwarded():
     await rig.feed(UTTERANCE)
     # From the pre-roll (180 ms) to the end, each byte exactly once.
     assert audio_of(rig.items()) == UTTERANCE[180 * BYTES_PER_MS :]
+    rig.gate.stop()
+
+
+# ------------------------------------------------------------------- state()
+
+
+async def test_state_reports_speech_and_counts_received_and_forwarded_audio():
+    rig = Rig()
+    assert rig.gate.state() == VadState()
+
+    await rig.feed(pcm(quiet(200), loud(100)))  # open, mid-utterance
+    st = rig.gate.state()
+    assert st.speaking and not st.failed_open and st.utterances == 0
+    assert st.received_s == pytest.approx(0.3)
+    assert st.forwarded_s == pytest.approx(0.12)  # from 180 ms (pre-roll) to 300 ms
+
+    await rig.feed(pcm(quiet(300, seed=3)))  # closes at 350 ms
+    st = rig.gate.state()
+    assert not st.speaking and st.utterances == 1
+    assert st.received_s == pytest.approx(0.6)
+    assert st.forwarded_s == pytest.approx(0.17)
+    assert st.forwarded_s == pytest.approx(len(audio_of(rig.items())) / 32000)
+
+    rig.gate.stop()
+    assert rig.gate.state().utterances == 1  # totals kept after stop
+    rig.out = rig.gate.start()
+    assert rig.gate.state() == VadState()  # and reset by the next run
+
+
+async def test_state_after_a_failure_reports_failed_open_and_counts_everything():
+    rig = Rig(vad=ScriptedVAD({"fail_at_frame": 25}))
+    await rig.feed(pcm(quiet(1000)))
+    st = rig.gate.state()
+    assert st.failed_open and st.speaking
+    assert st.forwarded_s == pytest.approx(0.75)  # from the failing frame on
     rig.gate.stop()

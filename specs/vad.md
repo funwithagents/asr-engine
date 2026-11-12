@@ -304,6 +304,7 @@ One visible difference: with VAD on, the number and boundaries of finals follow 
 - **Stop** and `listen()` teardown stop the gate, which stops the inner source. The VAD module stays loaded.
 - `engine.audio_format` is unchanged by VAD.
 - `status()` gains `"vad": <type> | None`.
+- `vad_state` (read-only property) exposes the gate for display: `None` without VAD, else a frozen `VadState` (`gate.py`) with `speaking`, `failed_open`, `utterances`, `received_s` and `forwarded_s`. The gate maintains the counters as it forwards; they reset on `start()` and are kept after `stop()`. The Gradio demo polls it ([gradio-demo.md](gradio-demo.md)).
 
 ## Configuration
 
@@ -430,7 +431,7 @@ The contract and each module's side of it are also recorded where a reader of th
 Deferrals only.
 
 - **VAD as a segmentation signal.** Delivering the gate's boundaries to the `Segmenter` (a new `end_reason`, or "whichever of VAD and ASR ends first"). Revisit with the first batch module.
-- **Voice-activity callback.** An `on_voice_activity(bool)` engine callback for a "speaking" indicator in a UI. The gate knows the state; nothing consumes it yet.
+- **Voice-activity callback.** An `on_voice_activity(bool)` engine callback, pushed on each gate transition. The polled `vad_state` covers a UI indicator; a callback waits for a consumer that cannot poll (an MCP resource, for instance).
 - **A custom source emitting `END_OF_SPEECH`.** A push-to-talk source could force a final by putting the marker on its queue. That widens the public `AudioSource` contract, so it waits for a caller who needs it.
 - **An onset marker.** No backend needs to be told that speech started. The marker channel makes a `START_OF_SPEECH` a small addition if one does.
 - **`max_speech_duration_s`** and **Smart Turn**: see [Fit with planned modules](#fit-with-planned-modules).
