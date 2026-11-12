@@ -127,6 +127,9 @@ REGISTRY: dict[str, LazyModule | type[ASRModule]] = {
     "deepgram_v2": LazyModule(
         "asr_engine.modules.deepgram.v2:DeepgramV2Module", extra="deepgram"
     ),
+    "mistral_realtime": LazyModule(
+        "asr_engine.modules.mistral.realtime:MistralRealtimeModule", extra="mistral"
+    ),
     "kyutai": LazyModule("asr_engine.modules.kyutai.module:KyutaiModule"),  # see below
 }
 
@@ -152,6 +155,7 @@ Each real backend's third-party dependencies live in a `[project.optional-depend
 | `deepgram` | `deepgram_v1`, `deepgram_v2` | `deepgram-sdk` |
 | `kyutai-mlx` | `kyutai` (MLX backend) | `moshi-mlx`, marker-guarded to Apple Silicon |
 | `kyutai-torch` | `kyutai` (PyTorch backend) | `moshi` |
+| `mistral` | `mistral_realtime` | `websockets` |
 | *(core)* | `fake` | — |
 
 A module file may import its SDK at module top level — the lazy registry guarantees it is only imported when selected. Adding a backend with new dependencies means adding an extra and naming it in the `LazyModule` entry.

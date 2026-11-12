@@ -178,6 +178,29 @@ Requires the `deepgram` extra (`pip install 'asr-engine[deepgram]'`).
 }
 ```
 
+## Example: Voxtral config
+
+Requires the `mistral` extra (`pip install 'asr-engine[mistral]'`). See [modules/mistral.md](modules/mistral.md) for the module fields. A complete file ships as `config.mistral.example.json`.
+
+```json
+{
+  "server": {
+    "host": "0.0.0.0",
+    "port": 8000
+  },
+  "engine": {
+    "auto_start": true,
+    "audio": { "device": null },
+    "module": {
+      "type": "mistral_realtime",
+      "api_key_env": "MISTRAL_API_KEY",
+      "language": "en",
+      "context_bias": ["validate"]
+    }
+  }
+}
+```
+
 ## Example: Kyutai config (local model, 24 kHz)
 
 Requires the `kyutai-mlx` (Apple Silicon) or `kyutai-torch` extra. No key: the model runs on-device (see [modules/kyutai.md](modules/kyutai.md) for the module fields). A complete file ships as `config.kyutai.example.json`.

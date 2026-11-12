@@ -160,6 +160,8 @@ all = [
     { name = "moshi" },
     { name = "moshi-mlx", marker = "platform_machine == 'arm64' and sys_platform == 'darwin'" },
     { name = "uvicorn" },
+    { name = "websockets", version = "15.0.1", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform != 'emscripten' and sys_platform != 'win32'" },
+    { name = "websockets", version = "16.0", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform == 'emscripten' or sys_platform == 'win32'" },
 ]
 deepgram = [
     { name = "deepgram-sdk" },
@@ -174,6 +176,10 @@ mcp = [
     { name = "mcp" },
     { name = "uvicorn" },
 ]
+mistral = [
+    { name = "websockets", version = "15.0.1", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform != 'emscripten' and sys_platform != 'win32'" },
+    { name = "websockets", version = "16.0", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform == 'emscripten' or sys_platform == 'win32'" },
+]
 
 [package.dev-dependencies]
 demo = [
@@ -181,7 +187,7 @@ demo = [
     { name = "gradio", version = "6.17.3", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform == 'emscripten' or sys_platform == 'win32'" },
 ]
 dev = [
-    { name = "asr-engine", extra = ["deepgram", "kyutai-mlx", "mcp"] },
+    { name = "asr-engine", extra = ["deepgram", "kyutai-mlx", "mcp", "mistral"] },
     { name = "pyright" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
@@ -192,7 +198,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "asr-engine", extras = ["deepgram", "mcp", "kyutai-mlx", "kyutai-torch"], marker = "extra == 'all'" },
+    { name = "asr-engine", extras = ["deepgram", "mcp", "kyutai-mlx", "kyutai-torch", "mistral"], marker = "extra == 'all'" },
     { name = "deepgram-sdk", marker = "extra == 'deepgram'" },
     { name = "mcp", marker = "extra == 'mcp'", specifier = "<2" },
     { name = "moshi", marker = "extra == 'kyutai-torch'", specifier = ">=0.2.11" },
@@ -201,13 +207,14 @@ requires-dist = [
     { name = "sounddevice" },
     { name = "soundfile" },
     { name = "uvicorn", marker = "extra == 'mcp'" },
+    { name = "websockets", marker = "extra == 'mistral'", specifier = ">=14" },
 ]
-provides-extras = ["deepgram", "mcp", "kyutai-mlx", "kyutai-torch", "all"]
+provides-extras = ["deepgram", "mcp", "kyutai-mlx", "kyutai-torch", "mistral", "all"]
 
 [package.metadata.requires-dev]
 demo = [{ name = "gradio" }]
 dev = [
-    { name = "asr-engine", extras = ["deepgram", "mcp", "kyutai-mlx"] },
+    { name = "asr-engine", extras = ["deepgram", "mcp", "kyutai-mlx", "mistral"] },
     { name = "pyright", specifier = ">=1.1.411" },
     { name = "pytest" },
     { name = "pytest-asyncio" },

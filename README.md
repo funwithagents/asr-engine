@@ -38,6 +38,7 @@ The base installation contains the engine, `AsrTools` and the `fake` test module
 ```bash
 uv sync --no-default-groups --extra deepgram               # Deepgram modules
 uv sync --no-default-groups --extra deepgram --extra mcp   # + the MCP server (asr-engine-mcp)
+uv sync --no-default-groups --extra mistral                # Mistral Voxtral realtime
 uv sync --no-default-groups --extra kyutai-mlx             # local Kyutai STT, Apple Silicon (MLX)
 uv sync --no-default-groups --extra kyutai-torch           # local Kyutai STT, elsewhere (PyTorch)
 uv sync --no-default-groups --extra all                    # every provider and the server
@@ -45,6 +46,7 @@ uv sync --no-default-groups --extra all                    # every provider and 
 # For an installed package:
 pip install 'asr-engine[deepgram]'
 pip install 'asr-engine[mcp,deepgram]'
+pip install 'asr-engine[mistral]'
 pip install 'asr-engine[kyutai-mlx]'     # or 'asr-engine[kyutai-torch]'
 pip install 'asr-engine[all]'
 ```
@@ -214,6 +216,7 @@ Provider modules are optional: each one ships in an extra, and none is a default
 |---|---|---|---|---|
 | `deepgram_v1` | `deepgram` | Deepgram Listen v1 | General and multilingual transcription | `nova-3` |
 | `deepgram_v2` | `deepgram` | Deepgram Listen v2 | English conversational transcription with integrated turn detection | `flux-general-en` |
+| `mistral_realtime` | `mistral` | Mistral Voxtral 3 realtime | Multilingual transcription (45 languages, auto-detected) with turn detection and phrase boosting | `voxtral-mini-transcribe-realtime-3` |
 | `kyutai` | `kyutai-mlx` or `kyutai-torch` | None — runs on-device | Local English + French transcription: no network, no API key, no per-minute cost | `kyutai/stt-1b-en_fr-candle` |
 
 #### `fake` — test double, not an ASR backend
@@ -266,6 +269,28 @@ Do not use it for real speech recognition. See the [fake module specification](s
 | `model` | `flux-general-en` | Deepgram Flux-family model |
 | `eot_threshold` | `0.7` | End-of-turn confidence threshold |
 | `eot_timeout_ms` | `2000` | Silence before a forced turn end, in milliseconds |
+
+#### Mistral Voxtral realtime
+
+```json
+{
+  "type": "mistral_realtime",
+  "api_key_env": "MISTRAL_API_KEY",
+  "language": "en",
+  "context_bias": ["validate"]
+}
+```
+
+| Field | Default | Description |
+|---|---|---|
+| `model` | `voxtral-mini-transcribe-realtime-3` | Voxtral realtime model |
+| `language` | `null` | Two-letter ISO 639-1 code; `null` auto-detects |
+| `streaming_delay_ms` | `480` | Text delay behind the audio: 80–1200, or 2400. Lower is faster, higher is more accurate |
+| `context_bias` | `[]` | Words and phrases to favour, such as your trigger words |
+| `turn_detection` | `true` | Close utterances on Voxtral's end-of-turn events; `false` relies on the silence timer. An object overrides the server's thresholds |
+| `finalize_after_silence_s` | `2.0` | Fallback: close an utterance after this long with no new text |
+
+Supported sample rates are 16, 24 and 44.1 kHz. Voxtral bills per audio minute ($0.008), silence included, so the cost follows how long the engine runs, not how much is said. A session left without audio for 20 s is closed and reopened on the next chunk. To check the live API's behaviour, run `zsh -ic 'uv run python scripts/probe_mistral_realtime.py'`. A complete server config is in [`config.mistral.example.json`](config.mistral.example.json). See the [Mistral module specification](specs/modules/mistral.md) for every field.
 
 #### Kyutai (local, on-device)
 

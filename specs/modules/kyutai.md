@@ -21,7 +21,7 @@ tests:
 
 `kyutai` is the first **local, on-device** ASR module: a streaming speech-to-text model that runs in-process with no network, no API key, and no per-minute cost. Every other real backend in this repo is a cloud websocket ([deepgram.md](deepgram.md)); this one puts the model inside the process, which is why it stresses parts of the [module interface](../asr-module-interface.md) that a cloud backend never touches — lifecycle cost, blocking compute, backpressure, and the absence of a server-side "final" signal.
 
-It is the streaming-native member of the local-backend family sketched in `_todo.md` (whisper, faster-whisper, parakeet). Unlike those, it needs no VAD to chunk it: it consumes audio frame-by-frame and emits text frame-by-frame, so it plugs into the existing always-on pipeline directly. See [vad.md](../vad.md) for the separate, orthogonal audio-gating work.
+It is the streaming-native member of a possible local-backend family (whisper, faster-whisper, parakeet). Unlike those batch models, it needs no VAD to chunk it: it consumes audio frame-by-frame and emits text frame-by-frame, so it plugs into the existing always-on pipeline directly.
 
 **Upstream:** [kyutai-labs/delayed-streams-modeling](https://github.com/kyutai-labs/delayed-streams-modeling). Model weights CC-BY 4.0, Python code MIT.
 
