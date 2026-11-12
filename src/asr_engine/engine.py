@@ -414,10 +414,9 @@ class ASREngine:
     def vad_state(self) -> VadState | None:
         """The VAD gate's live state, or ``None`` when no VAD is configured.
 
-        ``speaking`` says whether audio is reaching the ASR module right now; the
-        counters (utterances closed, audio received and forwarded) cover the
-        current run, and keep the last run's totals once stopped. Before the
-        first start every field is zero. Meant to be polled, e.g. by a UI.
+        ``speaking`` says whether audio is reaching the ASR module right now, and
+        ``failed_open`` whether that is because the VAD failed. Both are false
+        before the first start and once stopped. Meant to be polled, e.g. by a UI.
         """
         if self._vad_module is None:
             return None

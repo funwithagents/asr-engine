@@ -302,33 +302,24 @@ async def test_a_failure_mid_utterance_keeps_the_speech_already_forwarded():
 # ------------------------------------------------------------------- state()
 
 
-async def test_state_reports_speech_and_counts_received_and_forwarded_audio():
+async def test_state_follows_the_gate_open_and_closed():
     rig = Rig()
     assert rig.gate.state() == VadState()
 
     await rig.feed(pcm(quiet(200), loud(100)))  # open, mid-utterance
-    st = rig.gate.state()
-    assert st.speaking and not st.failed_open and st.utterances == 0
-    assert st.received_s == pytest.approx(0.3)
-    assert st.forwarded_s == pytest.approx(0.12)  # from 180 ms (pre-roll) to 300 ms
+    assert rig.gate.state() == VadState(speaking=True)
 
-    await rig.feed(pcm(quiet(300, seed=3)))  # closes at 350 ms
-    st = rig.gate.state()
-    assert not st.speaking and st.utterances == 1
-    assert st.received_s == pytest.approx(0.6)
-    assert st.forwarded_s == pytest.approx(0.17)
-    assert st.forwarded_s == pytest.approx(len(audio_of(rig.items())) / 32000)
+    await rig.feed(pcm(quiet(300, seed=3)))  # closed at 350 ms
+    assert rig.gate.state() == VadState()
 
+    await rig.feed(pcm(loud(100, seed=4)))  # open again
+    assert rig.gate.state().speaking
     rig.gate.stop()
-    assert rig.gate.state().utterances == 1  # totals kept after stop
-    rig.out = rig.gate.start()
-    assert rig.gate.state() == VadState()  # and reset by the next run
+    assert rig.gate.state() == VadState()  # not speaking once stopped
 
 
-async def test_state_after_a_failure_reports_failed_open_and_counts_everything():
+async def test_state_after_a_failure_reports_failed_open():
     rig = Rig(vad=ScriptedVAD({"fail_at_frame": 25}))
     await rig.feed(pcm(quiet(1000)))
-    st = rig.gate.state()
-    assert st.failed_open and st.speaking
-    assert st.forwarded_s == pytest.approx(0.75)  # from the failing frame on
+    assert rig.gate.state() == VadState(speaking=True, failed_open=True)
     rig.gate.stop()

@@ -304,7 +304,7 @@ One visible difference: with VAD on, the number and boundaries of finals follow 
 - **Stop** and `listen()` teardown stop the gate, which stops the inner source. The VAD module stays loaded.
 - `engine.audio_format` is unchanged by VAD.
 - `status()` gains `"vad": <type> | None`.
-- `vad_state` (read-only property) exposes the gate for display: `None` without VAD, else a frozen `VadState` (`gate.py`) with `speaking`, `failed_open`, `utterances`, `received_s` and `forwarded_s`. The gate maintains the counters as it forwards; they reset on `start()` and are kept after `stop()`. The Gradio demo polls it ([gradio-demo.md](gradio-demo.md)).
+- `vad_state` (read-only property) exposes the gate for display: `None` without VAD, else a frozen `VadState` (`gate.py`) with `speaking` (the gate is open) and `failed_open`. The Gradio demo polls it ([gradio-demo.md](gradio-demo.md)).
 
 ## Configuration
 

@@ -237,13 +237,12 @@ def test_start_dictation_before_running_is_rejected():
 # --- VAD view -----------------------------------------------------------------
 
 
-def test_without_vad_the_view_says_everything_is_sent():
+def test_without_vad_the_view_says_there_is_none():
     with make_controller() as c:
         c.start()
         st = c.state()
         assert st.vad.startswith("off")
         assert st.voice_activity == "no VAD"
-        assert st.vad_traffic == "no VAD: all audio is sent"
 
 
 def test_vad_view_shows_the_configured_gate_before_any_engine_exists():
@@ -253,7 +252,6 @@ def test_vad_view_shows_the_configured_gate_before_any_engine_exists():
         assert st.vad.startswith("silero")
         assert "closes after 1500 ms of silence" in st.vad
         assert st.voice_activity == "idle (not capturing)"
-        assert st.vad_traffic == "sent 0.0 s of 0.0 s · 0 utterances closed"
 
 
 def test_vad_view_follows_the_engines_gate_while_running():
@@ -261,22 +259,14 @@ def test_vad_view_follows_the_engines_gate_while_running():
         c.start()
         engine = FakeEngine.instances[-1]
 
-        engine.vad_state = VadState(received_s=10.0, forwarded_s=0.0)
+        engine.vad_state = VadState()
         assert c.state().voice_activity == "silence: audio is held back"
 
-        engine.vad_state = VadState(
-            speaking=True, utterances=1, received_s=20.0, forwarded_s=5.0
-        )
-        st = c.state()
-        assert st.voice_activity == "SPEECH: audio is sent to the module"
-        assert st.vad_traffic == "sent 5.0 s of 20.0 s (25%) · 1 utterance closed"
+        engine.vad_state = VadState(speaking=True)
+        assert c.state().voice_activity == "SPEECH: audio is sent to the module"
 
-        engine.vad_state = VadState(
-            speaking=True, failed_open=True, received_s=30.0, forwarded_s=15.0
-        )
+        engine.vad_state = VadState(speaking=True, failed_open=True)
         assert c.state().voice_activity.startswith("FAILED OPEN")
 
         c.stop()
-        st = c.state()
-        assert st.voice_activity == "idle (not capturing)"
-        assert "50%" in st.vad_traffic  # the last run's totals stay visible
+        assert c.state().voice_activity == "idle (not capturing)"

@@ -711,18 +711,17 @@ def test_no_vad_configured_imports_nothing_vad_related():
 async def test_vad_state_is_none_without_vad_and_follows_the_gate_with_it():
     assert _vad_engine(vad=None).vad_state is None
 
+    from asr_engine.vad.gate import VadState
+
     source = HandFedSource()
     engine = _vad_engine(source=source)
-    state = engine.vad_state
-    assert state is not None and state.received_s == 0  # before the first start
+    assert engine.vad_state == VadState()  # before the first start
 
     await engine.start()
-    source.queue.put_nowait(pcm(quiet(200), loud(100), quiet(300, seed=3)))
+    source.queue.put_nowait(pcm(quiet(200), loud(100)))  # speech, still going
     await settle()
+    assert engine.vad_state == VadState(speaking=True)
+    source.queue.put_nowait(pcm(quiet(300, seed=3)))  # the gate closes
+    await settle()
+    assert engine.vad_state == VadState()
     await engine.stop()
-
-    state = engine.vad_state
-    assert state is not None
-    assert (state.utterances, state.speaking) == (1, False)
-    assert state.received_s == pytest.approx(0.6)
-    assert state.forwarded_s == pytest.approx(0.17)

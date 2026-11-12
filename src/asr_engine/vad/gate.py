@@ -32,17 +32,10 @@ log = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class VadState:
-    """A snapshot of the gate, for display (``ASREngine.vad_state``).
-
-    The counters cover the current run (since the last ``start()``); after
-    ``stop()`` they keep that run's totals.
-    """
+    """A snapshot of the gate, for display (``ASREngine.vad_state``)."""
 
     speaking: bool = False  # the gate is open: audio is reaching the module
     failed_open: bool = False  # the VAD raised; everything is forwarded ungated
-    utterances: int = 0  # utterances the gate has closed (end-of-speech markers)
-    received_s: float = 0.0  # audio received from the source
-    forwarded_s: float = 0.0  # audio forwarded to the ASR module
 
 
 def analysis_sample_rate(vad_cls: type[VADModule], pipeline_rate: int) -> int:
@@ -97,7 +90,6 @@ class VadGate:
         # the pre-roll *and* the frames that confirmed it.
         self._ring: deque[bytes] = deque(maxlen=pad_frames + self._open_frames)
 
-        self._bytes_per_s = audio_format.sample_rate * self._sample_bytes
         self._queue: asyncio.Queue[bytes | EndOfSpeech] | None = None
         self._task: asyncio.Task | None = None
         self._reset_state()
@@ -108,9 +100,6 @@ class VadGate:
         self._speech_run = 0
         self._silence_run = 0
         self._failed = False
-        self._utterances = 0
-        self._received_bytes = 0
-        self._forwarded_bytes = 0
         self._carry = b""  # bytes of an incomplete pipeline sample
         self._pipeline = bytearray()  # pipeline bytes not yet assigned to a frame
         self._pipeline_pos = 0  # pipeline sample index of _pipeline[0]
@@ -148,13 +137,9 @@ class VadGate:
         self._inner.stop()
 
     def state(self) -> VadState:
-        """The gate's current state and this run's counters."""
+        """Whether audio is reaching the module right now, and why."""
         return VadState(
-            speaking=self._speaking or self._failed,
-            failed_open=self._failed,
-            utterances=self._utterances,
-            received_s=self._received_bytes / self._bytes_per_s,
-            forwarded_s=self._forwarded_bytes / self._bytes_per_s,
+            speaking=self._speaking or self._failed, failed_open=self._failed
         )
 
     async def _run(
@@ -164,9 +149,8 @@ class VadGate:
     ) -> None:
         while True:
             chunk = await inner_queue.get()
-            self._received_bytes += len(chunk)
             if self._failed:
-                self._forward(out_queue, chunk)
+                out_queue.put_nowait(chunk)
                 continue
             try:
                 self._process(chunk, out_queue)
@@ -181,13 +165,7 @@ class VadGate:
                 self._out.clear()
                 self._pipeline.clear()
                 if leftover:
-                    self._forward(out_queue, leftover)
-
-    def _forward(
-        self, out_queue: asyncio.Queue[bytes | EndOfSpeech], data: bytes
-    ) -> None:
-        self._forwarded_bytes += len(data)
-        out_queue.put_nowait(data)
+                    out_queue.put_nowait(leftover)
 
     # ----------------------------------------------------------------- processing
 
@@ -257,7 +235,6 @@ class VadGate:
         self._silence_run = 0 if is_speech else self._silence_run + 1
         if self._silence_run >= self._close_frames:
             self._flush(out_queue)
-            self._utterances += 1
             if self._emit_end_of_speech:
                 out_queue.put_nowait(END_OF_SPEECH)
             self._module.reset()
@@ -278,6 +255,6 @@ class VadGate:
         size = self._format.chunk_bytes
         start = 0
         while len(data) - start >= 2 * size:
-            self._forward(out_queue, data[start : start + size])
+            out_queue.put_nowait(data[start : start + size])
             start += size
-        self._forward(out_queue, data[start:])
+        out_queue.put_nowait(data[start:])

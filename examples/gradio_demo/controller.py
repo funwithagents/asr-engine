@@ -75,22 +75,6 @@ def format_voice_activity(state: VadState | None, capturing: bool) -> str:
     return "silence: audio is held back"
 
 
-def format_vad_traffic(state: VadState | None) -> str:
-    """How much of the captured audio reached the module, this run."""
-    if state is None:
-        return "no VAD: all audio is sent"
-    share = (
-        f" ({100 * state.forwarded_s / state.received_s:.0f}%)"
-        if state.received_s
-        else ""
-    )
-    plural = "" if state.utterances == 1 else "s"
-    return (
-        f"sent {state.forwarded_s:.1f} s of {state.received_s:.1f} s{share} · "
-        f"{state.utterances} utterance{plural} closed"
-    )
-
-
 @dataclass(frozen=True)
 class ControllerState:
     """Immutable snapshot the UI renders. Built by ``DemoController.state()``."""
@@ -105,7 +89,6 @@ class ControllerState:
     module_type: str
     vad: str  # the configured gate, one line
     voice_activity: str  # what the gate is doing right now
-    vad_traffic: str  # audio sent to the module vs captured, this run
     utterance_log: list[str]
     segment_log: list[str]
     last_listen: str
@@ -441,7 +424,6 @@ class DemoController:
             module_type=self._config.module.type,
             vad=format_vad_config(self._config.vad),
             voice_activity=format_voice_activity(vad_state, capturing=not stopped),
-            vad_traffic=format_vad_traffic(vad_state),
             utterance_log=utterance_log,
             segment_log=segment_log,
             last_listen=format_segment(last_listen) if last_listen else "",

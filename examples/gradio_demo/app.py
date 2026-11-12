@@ -93,11 +93,6 @@ def build_ui(controller: DemoController) -> gr.Blocks:
                 info="is audio reaching the ASR module right now?",
                 interactive=False,
             )
-            vad_traffic_box = gr.Textbox(
-                label="Audio sent to the module",
-                info="this run: sent vs captured (what a cloud module bills)",
-                interactive=False,
-            )
 
         with gr.Row():
             with gr.Row():
@@ -151,7 +146,6 @@ def build_ui(controller: DemoController) -> gr.Blocks:
             connected_box,
             vad_config_box,
             voice_activity_box,
-            vad_traffic_box,
             message_box,
             utt_log,
             seg_log,
@@ -250,7 +244,6 @@ def _render(state: ControllerState) -> list:
         gr.update(value="yes" if state.connected else "no"),
         gr.update(value=state.vad),
         gr.update(value=state.voice_activity),
-        gr.update(value=state.vad_traffic),
         gr.update(value=state.message),
         gr.update(value="\n".join(state.utterance_log)),
         gr.update(value="\n".join(state.segment_log)),
