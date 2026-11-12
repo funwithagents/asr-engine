@@ -180,7 +180,7 @@ Requires the `deepgram` extra (`pip install 'asr-engine[deepgram]'`).
 
 ## Example: Voxtral config
 
-Requires the `mistral` extra (`pip install 'asr-engine[mistral]'`). See [modules/mistral.md](modules/mistral.md) for the module fields.
+Requires the `mistral` extra (`pip install 'asr-engine[mistral]'`). See [modules/mistral.md](modules/mistral.md) for the module fields. A complete file ships as `config.mistral.example.json`.
 
 ```json
 {
