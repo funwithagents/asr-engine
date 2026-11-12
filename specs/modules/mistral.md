@@ -12,7 +12,7 @@ tests:
 
 # Mistral Voxtral Realtime Module
 
-**Status:** Stable
+**Status:** Implemented
 
 ## Purpose
 

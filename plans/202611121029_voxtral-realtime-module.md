@@ -1,6 +1,6 @@
 # Voxtral realtime module
 
-**Status:** In progress
+**Status:** Done
 
 Implements [specs/modules/mistral.md](../specs/modules/mistral.md): a `voxtral_realtime` ASR module over Mistral's Voxtral 3 realtime WebSocket API, in a new `mistral` extra. It delivers the module, its fast-tier tests behind a scripted fake connection, a live e2e conformance row, the CI secret mapping and the doc touch-ups. It deliberately leaves out everything the spec defers: diarization, `eager_end` speculation, session recycling, a VAD `finalize()`, self-hosting and batch Voxtral.
 
