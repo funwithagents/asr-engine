@@ -17,11 +17,11 @@ input_audio.end), exactly as the module will, and logs every server event with
 the wall-clock time since the first audio chunk and the audio time sent so far.
 
 Usage (the key lives in ~/.zshrc, so go through an interactive zsh):
-    zsh -ic 'uv run python scripts/probe_voxtral_realtime.py'
-    zsh -ic 'uv run python scripts/probe_voxtral_realtime.py \
+    zsh -ic 'uv run python scripts/probe_mistral_realtime.py'
+    zsh -ic 'uv run python scripts/probe_mistral_realtime.py \
         --audio tests-e2e/fixtures/sample_24000_theskyisbluevalidate.wav'
-    zsh -ic 'uv run python scripts/probe_voxtral_realtime.py --idle 60'
-    zsh -ic 'uv run python scripts/probe_voxtral_realtime.py --no-turn-detection'
+    zsh -ic 'uv run python scripts/probe_mistral_realtime.py --idle 60'
+    zsh -ic 'uv run python scripts/probe_mistral_realtime.py --no-turn-detection'
 
 Reads the API key from the env var named by ``--api-key-env`` (default
 MISTRAL_API_KEY) and never prints it.

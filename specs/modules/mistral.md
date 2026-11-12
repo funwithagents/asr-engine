@@ -4,9 +4,9 @@ code:
   - src/asr_engine/modules/mistral/realtime.py
   - src/asr_engine/modules/__init__.py
   - pyproject.toml
-  - scripts/probe_voxtral_realtime.py
+  - scripts/probe_mistral_realtime.py
 tests:
-  - tests/modules/test_voxtral_realtime.py
+  - tests/modules/test_mistral_realtime.py
   - tests-e2e/test_engine_modules.py
 ---
 
@@ -16,7 +16,7 @@ tests:
 
 ## Purpose
 
-`voxtral_realtime` is a **cloud streaming** backend over Mistral's Voxtral 3 realtime transcription API (`voxtral-mini-transcribe-realtime-3`, released 2026-10-20, *Public Preview*). Compared with Deepgram it adds 45 languages with auto-detection, `context_bias` phrase boosting (useful for trigger words), and a per-session latency/accuracy trade-off (`target_streaming_delay_ms`). It costs $0.008 per audio minute.
+`mistral_realtime` is a **cloud streaming** backend over Mistral's Voxtral 3 realtime transcription API (`voxtral-mini-transcribe-realtime-3`, released 2026-10-20, *Public Preview*). Compared with Deepgram it adds 45 languages with auto-detection, `context_bias` phrase boosting (useful for trigger words), and a per-session latency/accuracy trade-off (`target_streaming_delay_ms`). It costs $0.008 per audio minute.
 
 Structurally it sits between the two existing real backends:
 
@@ -27,7 +27,7 @@ Structurally it sits between the two existing real backends:
 
 ### Measured (live probe, 2026-11-12)
 
-`scripts/probe_voxtral_realtime.py` streams a fixture at real-time pace and logs every server event against wall time since the first chunk. Nine runs on the `sample_*_theskyisbluevalidate` fixtures ("The sky is blue, validate.") and a joined 11 s, four-sentence recording (`hellohowareyoutoday` · 2.5 s · `Iamveryhappytomeetyou` · 0.4 s · `theskyisblue` · 2.5 s · `letsvalidatethis`):
+`scripts/probe_mistral_realtime.py` streams a fixture at real-time pace and logs every server event against wall time since the first chunk. Nine runs on the `sample_*_theskyisbluevalidate` fixtures ("The sky is blue, validate.") and a joined 11 s, four-sentence recording (`hellohowareyoutoday` · 2.5 s · `Iamveryhappytomeetyou` · 0.4 s · `theskyisblue` · 2.5 s · `letsvalidatethis`):
 
 | Measure | Result |
 |---|---|
@@ -50,7 +50,7 @@ Structurally it sits between the two existing real backends:
 
 | Decision | Choice | Rationale |
 |---|---|---|
-| Registry key | **`voxtral_realtime`** | Names the API, not the provider. That leaves room for a batch Voxtral module (diarization, word timestamps) under the same package, the way `deepgram_v1`/`deepgram_v2` share `deepgram/`. |
+| Registry key | **`mistral_realtime`** | The repo's convention: a **cloud** module is named after its provider and API (`deepgram_v1`, `deepgram_v2`), a **local** module after its model family (`kyutai`). So a future batch module for Mistral's file-transcription API (diarization, word timestamps) would be `mistral_batch` in the same package, and an on-device module over the open-weights Voxtral Realtime model would be `voxtral`, without either being confused with this one. |
 | Package / extra | `modules/mistral/realtime.py`, extra **`mistral`** | Follows the checklist in [asr-module-interface.md](../asr-module-interface.md): a provider-named package, a provider-named extra. |
 | Transport | **Raw `websockets`, not the `mistralai[realtime]` SDK** | The protocol is about six documented JSON message types. The SDK's documented `transcribe_stream` events don't include the `turn.*` events this design finalizes on, and its `connect()` surface is undocumented beyond opening a session. Owning the socket gives direct control of `input_audio.end`, reconnects and turn events. |
 | Finalization | **`turn.end` closes the utterance after a short margin; a no-new-text timer as fallback** | Measured: a turn's text always precedes its `turn.end`, and text after it is new speech (see [Utterance semantics](#utterance-semantics)). |
@@ -137,7 +137,7 @@ On the turn path a final lands at `turn.end + final_margin_ms`: measured `turn.e
 
 ```json
 {
-  "type": "voxtral_realtime",
+  "type": "mistral_realtime",
   "api_key_env": "MISTRAL_API_KEY",
   "language": "en",
   "context_bias": ["validate"]
@@ -184,7 +184,7 @@ dev = ["asr-engine[deepgram,mcp,kyutai-mlx,mistral]", ...]  # light: joins dev
 
 ## Testing
 
-### Fast tier: `tests/modules/test_voxtral_realtime.py`
+### Fast tier: `tests/modules/test_mistral_realtime.py`
 
 The module talks to a **scripted fake connection** (records every client message, serves server events the test pushes) injected through a keyword-only `connect` constructor argument: a callable `(url, headers) → async context manager → connection` with `send(str)`, `recv() → str`. The default is `websockets.connect`. No network, no sleeping beyond a few tens of milliseconds of configured timer values.
 
@@ -201,15 +201,15 @@ The module talks to a **scripted fake connection** (records every client message
 
 ### Live tier: `tests-e2e/test_engine_modules.py`
 
-A `MODULES` row: type `voxtral_realtime`, `api_key_env: MISTRAL_API_KEY`, the 44.1 kHz MP3 `ModuleAudio` (as Deepgram), and `silence_s` of 3.0 s, above both the measured turn path (≤ 2.4 s) and the timer path (≈ 2.5 s). [ci.md](../ci.md) gains the `MISTRAL_API_KEY` secret and an expected-skips row. Verify with `zsh -ic 'uv run pytest tests-e2e -k voxtral_realtime'`.
+A `MODULES` row: type `mistral_realtime`, `api_key_env: MISTRAL_API_KEY`, the 44.1 kHz MP3 `ModuleAudio` (as Deepgram), and `silence_s` of 3.0 s, above both the measured turn path (≤ 2.4 s) and the timer path (≈ 2.5 s). [ci.md](../ci.md) gains the `MISTRAL_API_KEY` secret and an expected-skips row. Verify with `zsh -ic 'uv run pytest tests-e2e -k mistral_realtime'`.
 
 ## Files
 
 - `src/asr_engine/modules/mistral/__init__.py`: imports nothing (keeps the registry lazy)
-- `src/asr_engine/modules/mistral/realtime.py`: `VoxtralRealtimeModule`
-- `src/asr_engine/modules/__init__.py`: `"voxtral_realtime": LazyModule("asr_engine.modules.mistral.realtime:VoxtralRealtimeModule", extra="mistral")`
+- `src/asr_engine/modules/mistral/realtime.py`: `MistralRealtimeModule`
+- `src/asr_engine/modules/__init__.py`: `"mistral_realtime": LazyModule("asr_engine.modules.mistral.realtime:MistralRealtimeModule", extra="mistral")`
 - `pyproject.toml`: the `mistral` extra, `all`, `dev`
-- `tests/modules/test_voxtral_realtime.py`, `tests-e2e/helpers.py` (`MODULES` row), `.github/workflows/ci.yml` (secret mapping)
+- `tests/modules/test_mistral_realtime.py`, `tests-e2e/helpers.py` (`MODULES` row), `.github/workflows/ci.yml` (secret mapping)
 - Spec and doc touch-ups: [asr-module-interface.md](../asr-module-interface.md) (registry snippet, extras table), [configuration.md](../configuration.md) (example), [ci.md](../ci.md), [project.md](../project.md) (package list), `README.md` (module table and section)
 
 ## Open questions

@@ -51,7 +51,7 @@ The six jobs run side by side and none waits on another: a run takes as long as 
 |---|---|
 | `kyutai` conformance case | local model, opt-in only (`ASR_ENGINE_E2E_KYUTAI`), never set in CI |
 | `deepgram_v1`, `deepgram_v2` conformance cases | only when the repository holds no `DEEPGRAM_API_KEY` secret, or on a fork's pull request |
-| `voxtral_realtime` conformance case | only when the repository holds no `MISTRAL_API_KEY` secret, or on a fork's pull request |
+| `mistral_realtime` conformance case | only when the repository holds no `MISTRAL_API_KEY` secret, or on a fork's pull request |
 
 - **The status checks to require on `main`** are `check`, the four `fast-tier` entries and `e2e`. Requiring them is a repository setting on GitHub, outside the repo.
 

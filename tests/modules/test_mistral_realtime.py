@@ -1,4 +1,4 @@
-"""Functional tests for the voxtral_realtime module (specs/modules/mistral.md).
+"""Functional tests for the mistral_realtime module (specs/modules/mistral.md).
 
 The module is driven through its ``connect`` seam with a scripted fake connection:
 it records every client message and serves the server events each test pushes.
@@ -19,7 +19,7 @@ import pytest
 from asr_engine.audio import AudioFormat
 from asr_engine.modules import resolve_module_class
 from asr_engine.modules.base import SpeechUtterance
-from asr_engine.modules.mistral.realtime import VoxtralRealtimeModule
+from asr_engine.modules.mistral.realtime import MistralRealtimeModule
 
 # --------------------------------------------------------------------------- fakes
 
@@ -137,7 +137,7 @@ class Harness:
         self, config: dict[str, Any], *script: FakeConnection | BaseException
     ) -> None:
         self.connector = FakeConnector(*script)
-        self.module = VoxtralRealtimeModule(
+        self.module = MistralRealtimeModule(
             {"api_key": "test-key", **config}, connect=self.connector
         )
         self.module._BACKOFF_S = (0.01,)
@@ -526,13 +526,13 @@ async def test_server_error_event_does_not_end_the_session(harnesses) -> None:
 )
 def test_invalid_config_raises_naming_the_field(config: dict, field: str) -> None:
     with pytest.raises(ValueError, match=field):
-        VoxtralRealtimeModule({"api_key": "k", **config})
+        MistralRealtimeModule({"api_key": "k", **config})
 
 
 def test_valid_edge_values_are_accepted() -> None:
     for delay in (80, 1200, 2400):
-        VoxtralRealtimeModule({"api_key": "k", "streaming_delay_ms": delay})
-    VoxtralRealtimeModule(
+        MistralRealtimeModule({"api_key": "k", "streaming_delay_ms": delay})
+    MistralRealtimeModule(
         {
             "api_key": "k",
             "language": "EN",
@@ -552,7 +552,7 @@ def test_valid_edge_values_are_accepted() -> None:
 def test_api_key_resolves_from_the_named_env_var(monkeypatch) -> None:
     monkeypatch.setenv("TEST_MISTRAL_KEY", "from-env")
     connector = FakeConnector()
-    module = VoxtralRealtimeModule(
+    module = MistralRealtimeModule(
         {"api_key_env": "TEST_MISTRAL_KEY"}, connect=connector
     )
 
@@ -572,5 +572,5 @@ async def _noop_utterance(_: SpeechUtterance) -> None:
     return None
 
 
-def test_registry_resolves_voxtral_realtime() -> None:
-    assert resolve_module_class("voxtral_realtime") is VoxtralRealtimeModule
+def test_registry_resolves_mistral_realtime() -> None:
+    assert resolve_module_class("mistral_realtime") is MistralRealtimeModule

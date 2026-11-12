@@ -129,7 +129,7 @@ Parametrized over the `MODULES` table in `helpers.py`. Each row carries the modu
 |--------|-------|-------------|---------------|--------------|
 | `deepgram_v1` | `nova-3` | `3.0` | `AUDIO_MP3_44100` | `DEEPGRAM_API_KEY` is set |
 | `deepgram_v2` | `flux-general-en` | `3.0` | `AUDIO_MP3_44100` | `DEEPGRAM_API_KEY` is set |
-| `voxtral_realtime` | `voxtral-mini-transcribe-realtime-3` (default) | `3.0` | `AUDIO_MP3_44100` | `MISTRAL_API_KEY` is set |
+| `mistral_realtime` | `voxtral-mini-transcribe-realtime-3` (default) | `3.0` | `AUDIO_MP3_44100` | `MISTRAL_API_KEY` is set |
 | `kyutai` | `kyutai/stt-1b-en_fr-candle` | `4.0` | `AUDIO_WAV_24000` | `ASR_ENGINE_E2E_KYUTAI=1` and its backend is installed |
 
 Each row runs one `test_engine_streams` scenario on its `ModuleAudio`:

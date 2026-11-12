@@ -216,7 +216,7 @@ Provider modules are optional: each one ships in an extra, and none is a default
 |---|---|---|---|---|
 | `deepgram_v1` | `deepgram` | Deepgram Listen v1 | General and multilingual transcription | `nova-3` |
 | `deepgram_v2` | `deepgram` | Deepgram Listen v2 | English conversational transcription with integrated turn detection | `flux-general-en` |
-| `voxtral_realtime` | `mistral` | Mistral Voxtral 3 realtime | Multilingual transcription (45 languages, auto-detected) with turn detection and phrase boosting | `voxtral-mini-transcribe-realtime-3` |
+| `mistral_realtime` | `mistral` | Mistral Voxtral 3 realtime | Multilingual transcription (45 languages, auto-detected) with turn detection and phrase boosting | `voxtral-mini-transcribe-realtime-3` |
 | `kyutai` | `kyutai-mlx` or `kyutai-torch` | None — runs on-device | Local English + French transcription: no network, no API key, no per-minute cost | `kyutai/stt-1b-en_fr-candle` |
 
 #### `fake` — test double, not an ASR backend
@@ -274,7 +274,7 @@ Do not use it for real speech recognition. See the [fake module specification](s
 
 ```json
 {
-  "type": "voxtral_realtime",
+  "type": "mistral_realtime",
   "api_key_env": "MISTRAL_API_KEY",
   "language": "en",
   "context_bias": ["validate"]
@@ -290,7 +290,7 @@ Do not use it for real speech recognition. See the [fake module specification](s
 | `turn_detection` | `true` | Close utterances on Voxtral's end-of-turn events; `false` relies on the silence timer. An object overrides the server's thresholds |
 | `finalize_after_silence_s` | `2.0` | Fallback: close an utterance after this long with no new text |
 
-Supported sample rates are 16, 24 and 44.1 kHz. Voxtral bills per audio minute ($0.008), silence included, so the cost follows how long the engine runs, not how much is said. A session left without audio for 20 s is closed and reopened on the next chunk. To check the live API's behaviour, run `zsh -ic 'uv run python scripts/probe_voxtral_realtime.py'`. See the [Mistral module specification](specs/modules/mistral.md) for every field.
+Supported sample rates are 16, 24 and 44.1 kHz. Voxtral bills per audio minute ($0.008), silence included, so the cost follows how long the engine runs, not how much is said. A session left without audio for 20 s is closed and reopened on the next chunk. To check the live API's behaviour, run `zsh -ic 'uv run python scripts/probe_mistral_realtime.py'`. See the [Mistral module specification](specs/modules/mistral.md) for every field.
 
 #### Kyutai (local, on-device)
 

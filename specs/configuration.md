@@ -192,7 +192,7 @@ Requires the `mistral` extra (`pip install 'asr-engine[mistral]'`). See [modules
     "auto_start": true,
     "audio": { "device": null },
     "module": {
-      "type": "voxtral_realtime",
+      "type": "mistral_realtime",
       "api_key_env": "MISTRAL_API_KEY",
       "language": "en",
       "context_bias": ["validate"]

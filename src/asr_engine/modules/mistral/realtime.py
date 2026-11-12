@@ -1,6 +1,6 @@
 """Voxtral 3 realtime transcription over Mistral's WebSocket API.
 
-Registry key ``voxtral_realtime``; needs the ``mistral`` extra (``websockets``).
+Registry key ``mistral_realtime``; needs the ``mistral`` extra (``websockets``).
 The server streams append-only, already-final text deltas and turn events on the
 same delayed timeline. The module accumulates deltas into interims and closes an
 utterance shortly after ``turn.end`` (or after a no-new-text timer). It owns the
@@ -32,7 +32,7 @@ from asr_engine.modules.base import (
 
 log = logging.getLogger(__name__)
 
-_LABEL = "voxtral_realtime"
+_LABEL = "mistral_realtime"
 DEFAULT_URL = "wss://api.mistral.ai/v1/audio/transcriptions/realtime"
 DEFAULT_MODEL = "voxtral-mini-transcribe-realtime-3"
 
@@ -163,7 +163,7 @@ async def _cancel(*tasks: asyncio.Task) -> None:
             pass
 
 
-class VoxtralRealtimeModule(ASRModule):
+class MistralRealtimeModule(ASRModule):
     """ASR module backed by Mistral's Voxtral 3 realtime transcription API."""
 
     SUPPORTED_SAMPLE_RATES = frozenset({16000, 24000, 44100})  # probe-verified

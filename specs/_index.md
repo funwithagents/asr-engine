@@ -27,7 +27,7 @@ Per-backend ASR module specs live in [`modules/`](modules/), one file per backen
 | [asr-module-interface.md](asr-module-interface.md) | ABC, audio format contract, lazy registry + provider extras (no default backend), reconnection | Implemented |
 | [modules/deepgram.md](modules/deepgram.md) | `deepgram` extra, WebSocket details, config fields, message mapping | Implemented |
 | [modules/kyutai.md](modules/kyutai.md) | Local on-device streaming STT: one `kyutai` key over MLX/PyTorch backends, semantic-VAD finalization (deferred by the text delay), 24 kHz contract, resident-model lifecycle | Implemented |
-| [modules/mistral.md](modules/mistral.md) | `voxtral_realtime`: Voxtral 3 realtime over a raw WebSocket (`mistral` extra), append-only deltas, `turn.end`-closed finals (+ silence fallback), idle-session parking, 16/24/44.1 kHz (probe-verified) | Implemented |
+| [modules/mistral.md](modules/mistral.md) | `mistral_realtime`: Voxtral 3 realtime over a raw WebSocket (`mistral` extra), append-only deltas, `turn.end`-closed finals (+ silence fallback), idle-session parking, 16/24/44.1 kHz (probe-verified) | Implemented |
 | [modules/fake.md](modules/fake.md) | `fake` scripted test double: word-by-word interims evenly spaced over each utterance's window on an audio-time clock, final at end; `fake_engine_factory` fixture | Implemented |
 | [demo-client.md](demo-client.md) | CLI, log format, behavior | Implemented |
 | [e2e-testing.md](e2e-testing.md) | File-based e2e pipeline: audio source abstraction, fixture format, assertions; module-agnostic scenarios on the `fake` module | Implemented |

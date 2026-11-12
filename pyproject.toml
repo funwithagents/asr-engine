@@ -38,7 +38,7 @@ kyutai-mlx = [
 kyutai-torch = [
     "moshi>=0.2.11",
 ]
-# Mistral Voxtral realtime (module type `voxtral_realtime`) — see specs/modules/mistral.md.
+# Mistral Voxtral realtime (module type `mistral_realtime`) — see specs/modules/mistral.md.
 # The module speaks the WebSocket protocol directly; >=14 for websockets.connect's
 # asyncio client with `additional_headers`.
 mistral = [
