@@ -204,10 +204,10 @@ async def _set_segmentation_mode(self, mode: str) -> None: ...
 The **live, in-run** mode swap, used only by `start_dictation` / `stop_dictation` to change the mode of an already-running engine (`_start_with_segmentation_mode` sets the mode at startup; `listen` never calls this). It switches the segment mode only, keeping the current segmentation params, and rebuilds the internal `Segmenter`, discarding any in-progress segment. Because the switch happens while the engine is running, it is **correctness-critical** that it:
 
 1. **Validates first** — build the candidate `Segmenter` (which raises `ValueError` on an unknown mode) *before* mutating any stored state, so a bad mode leaves the engine untouched.
-2. **Stops the old segmenter before swapping** — `await self._segmenter.stop()` so a `timeout`-mode segmenter's timers can't fire through the engine callback after the switch (otherwise a stale timeout segment could close after the mode already changed — see `_analysis.md` item 1).
+2. **Stops the old segmenter before swapping** — `await self._segmenter.stop()` so a `timeout`-mode segmenter's timers can't fire through the engine callback after the switch (otherwise a stale timeout segment could close after the mode already changed).
 3. Swaps in the candidate and `await`s its `start()`.
 
-Mode switches and dictation state transitions are serialized by a single engine lock so overlapping `listen` / dictation calls can't interleave (see `_analysis.md` item 2).
+Mode switches and dictation state transitions are serialized by a single engine lock so overlapping `listen` / dictation calls can't interleave.
 
 ### `set_segmentation_params`
 
