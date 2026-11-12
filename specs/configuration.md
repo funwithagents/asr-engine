@@ -182,9 +182,11 @@ envoyer, valider, confirmer, soumettre, entree, entrée
 
 All three modes are valid for `listen` and dictation. In `utterance` mode a `listen` returns after exactly one final utterance, and a dictation with `end_on_final_segment=true` ends after one — coherent, if degenerate.
 
+Complete server configs for every ASR module ship in `examples/config/` (`deepgram_v1.json`, `deepgram_v2.json`, `mistral_realtime.json`, `kyutai.json`), each with the `engine.vad` setting recommended for its module ([vad.md](vad.md) "Which modules to use with VAD"). `tests/examples/test_configs.py` checks they parse and that their module and VAD combination is accepted.
+
 ## Example: Deepgram config
 
-Requires the `deepgram` extra (`pip install 'asr-engine[deepgram]'`).
+Requires the `deepgram` extra (`pip install 'asr-engine[deepgram]'`), plus `silero` for the VAD block (drop the block to run ungated).
 
 ```json
 {
@@ -200,14 +202,15 @@ Requires the `deepgram` extra (`pip install 'asr-engine[deepgram]'`).
       "api_key_env": "DEEPGRAM_API_KEY",
       "language": "en-US",
       "model": "nova-3"
-    }
+    },
+    "vad": { "type": "silero" }
   }
 }
 ```
 
 ## Example: Voxtral config
 
-Requires the `mistral` extra (`pip install 'asr-engine[mistral]'`). See [modules/mistral.md](modules/mistral.md) for the module fields. A complete file ships as `config.mistral.example.json`.
+Requires the `mistral` extra (`pip install 'asr-engine[mistral]'`). See [modules/mistral.md](modules/mistral.md) for the module fields. A complete file ships as `examples/config/mistral_realtime.json`, with `"vad": {"type": "silero"}` (needs the `silero` extra).
 
 ```json
 {
@@ -223,14 +226,15 @@ Requires the `mistral` extra (`pip install 'asr-engine[mistral]'`). See [modules
       "api_key_env": "MISTRAL_API_KEY",
       "language": "en",
       "context_bias": ["validate"]
-    }
+    },
+    "vad": { "type": "silero" }
   }
 }
 ```
 
 ## Example: Kyutai config (local model, 24 kHz)
 
-Requires the `kyutai-mlx` (Apple Silicon) or `kyutai-torch` extra. No key: the model runs on-device (see [modules/kyutai.md](modules/kyutai.md) for the module fields). A complete file ships as `config.kyutai.example.json`.
+Requires the `kyutai-mlx` (Apple Silicon) or `kyutai-torch` extra. No key: the model runs on-device (see [modules/kyutai.md](modules/kyutai.md) for the module fields). A complete file ships as `examples/config/kyutai.json`, with `"vad": null`: the model is local and free and has its own end-of-turn head, so the gate is rarely worth it. Do not confuse `module.vad` (that head) with `engine.vad` (the gate).
 
 ```json
 {

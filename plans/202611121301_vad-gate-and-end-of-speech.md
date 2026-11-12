@@ -16,7 +16,7 @@ Built as planned, with these results and deviations:
 - **Step 5, changed after review:** the model is **not** committed or shipped in the wheel. `load()` downloads it on first use from upstream tag `v6.2.3` into the user cache and checks a pinned SHA-256; `engine.vad.model_path` points at a local copy instead. So there is no `silero_vad.onnx`, no `NOTICE.md` and no wheel include, contrary to the Scope and Verification lists below, and the real-model fast tests download the model once per machine and skip when offline. `onnxruntime` carries an Intel-macOS marker so the environment still syncs there. `uv lock` added four packages and changed no existing pin.
 - **Step 9:** a turn first reported after the marker is flushed when its transcript arrives.
 - **Tests:** the shared VAD test doubles live in `tests/vad/scripted.py` (importable from `tests/test_engine.py`), not in a `conftest.py`.
-- **`config.example.json` siblings:** left unchanged; the README documents the block.
+- **Example configs, changed after review:** moved from the repo root to `examples/config/`, one file per ASR module named after it (`deepgram_v1.json` is new; the old `config.example.json` is `deepgram_v2.json`). The three cloud configs enable the gate with their recommended setting; `kyutai.json` has `"vad": null`. `tests/examples/test_configs.py` keeps them valid.
 - **Live tier:** `test_engine_modules_vad` passed on `deepgram_v1`, both `deepgram_v2` cases, `mistral_realtime` and (locally, `ASR_ENGINE_E2E_KYUTAI=1`) `kyutai`.
 
 ## Scope

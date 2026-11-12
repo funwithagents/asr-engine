@@ -234,7 +234,7 @@ A `MODULES` row: type `mistral_realtime`, `api_key_env: MISTRAL_API_KEY`, the 44
 - `src/asr_engine/modules/mistral/realtime.py`: `MistralRealtimeModule`
 - `src/asr_engine/modules/__init__.py`: `"mistral_realtime": LazyModule("asr_engine.modules.mistral.realtime:MistralRealtimeModule", extra="mistral")`
 - `pyproject.toml`: the `mistral` extra, `all`, `dev`
-- `config.mistral.example.json`: a complete server config for this module
+- `examples/config/mistral_realtime.json`: a complete server config for this module, with the VAD gate on
 - `tests/modules/test_mistral_realtime.py`, `tests-e2e/helpers.py` (`MODULES` row), `.github/workflows/ci.yml` (secret mapping)
 - Spec and doc touch-ups: [asr-module-interface.md](../asr-module-interface.md) (registry snippet, extras table), [configuration.md](../configuration.md) (example), [ci.md](../ci.md), [project.md](../project.md) (package list), `README.md` (module table and section)
 

@@ -18,9 +18,9 @@ The demo lets you:
 From the repository root:
 
 ```bash
-uv sync --extra deepgram   # or the extra for the ASR module your config selects
+uv sync --extra deepgram --extra silero   # the extras your config selects (module + VAD)
 export DEEPGRAM_API_KEY="..."
-cp config.example.json config.json
+cp examples/config/deepgram_v2.json config.json   # or another file in examples/config/
 uv run python -m examples.gradio_demo.app --config config.json
 ```
 

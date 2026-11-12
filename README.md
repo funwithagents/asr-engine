@@ -293,7 +293,7 @@ Do not use it for real speech recognition. See the [fake module specification](s
 | `turn_detection` | `true` | Close utterances on Voxtral's end-of-turn events; `false` relies on the silence timer. An object overrides the server's thresholds |
 | `finalize_after_silence_s` | `2.0` | Fallback: close an utterance after this long with no new text |
 
-Supported sample rates are 16, 24 and 44.1 kHz. Voxtral bills per audio minute ($0.008), silence included, so the cost follows how long the engine runs, not how much is said. A session left without audio for 20 s is closed and reopened on the next chunk. To check the live API's behaviour, run `zsh -ic 'uv run python scripts/probe_mistral_realtime.py'`. A complete server config is in [`config.mistral.example.json`](config.mistral.example.json). See the [Mistral module specification](specs/modules/mistral.md) for every field.
+Supported sample rates are 16, 24 and 44.1 kHz. Voxtral bills per audio minute ($0.008), silence included, so without a VAD gate the cost follows how long the engine runs, not how much is said (see [Voice activity detection](#voice-activity-detection)). A session left without audio for 20 s is closed and reopened on the next chunk. To check the live API's behaviour, run `zsh -ic 'uv run python scripts/probe_mistral_realtime.py'`. A complete server config is in [`examples/config/mistral_realtime.json`](examples/config/mistral_realtime.json).
 
 #### Kyutai (local, on-device)
 
@@ -312,7 +312,7 @@ Supported sample rates are 16, 24 and 44.1 kHz. Voxtral bills per audio minute (
 }
 ```
 
-**`engine.audio.sample_rate` must be `24000`** — the model's only rate; with the 16000 default, engine construction fails with the format-reconciliation error. A complete server config is in [`config.kyutai.example.json`](config.kyutai.example.json).
+**`engine.audio.sample_rate` must be `24000`** — the model's only rate; with the 16000 default, engine construction fails with the format-reconciliation error. A complete server config is in [`examples/config/kyutai.json`](examples/config/kyutai.json). Note the two `vad` fields there: `module.vad` switches the model's own end-of-turn head, while `engine.vad` is the optional speech gate (left `null` for Kyutai; see [Voice activity detection](#voice-activity-detection)).
 
 | Field | Default | Description |
 |---|---|---|
@@ -617,13 +617,15 @@ server_config = MCPServerConfig.from_json_file("config.json")
 engine_config = server_config.engine
 ```
 
-Start the bundled server with the example configuration (requires the `mcp` extra; without it, `asr-engine-mcp` exits with the install hint):
+Start the bundled server with one of the example configurations (requires the `mcp` extra; without it, `asr-engine-mcp` exits with the install hint):
 
 ```bash
-uv sync --no-default-groups --extra deepgram --extra mcp
-cp config.example.json config.json
+uv sync --no-default-groups --extra deepgram --extra silero --extra mcp
+cp examples/config/deepgram_v2.json config.json
 uv run asr-engine-mcp --config config.json
 ```
+
+[`examples/config/`](examples/config/) holds one complete server config per ASR module: `deepgram_v1.json`, `deepgram_v2.json`, `mistral_realtime.json` and `kyutai.json`. The three cloud ones enable the Silero VAD gate with the setting recommended for that module (hence the `silero` extra above); remove their `vad` block to stream everything, as before.
 
 The default endpoint is `http://127.0.0.1:8000/mcp`. Logging is configured by the server command rather than the engine configuration:
 

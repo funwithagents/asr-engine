@@ -17,7 +17,7 @@ Where things live. This is a coarse, module-level map — for the full file inve
 | `plans/` | Implementation plans turning settled specs into buildable steps — indexed by [plans/_index.md](plans/_index.md) |
 | `tests/` | Fast, deterministic, no-network tests; mirrors the `src/asr_engine/` module structure (`tests/examples/` covers `examples/`); `tests/modules/` stays flat — one `test_<module>.py` per backend module, not a folder per backend; `tests/vad/` covers `src/asr_engine/vad/` (its `scripted.py` holds the deterministic VAD and hand-fed source other tests reuse) |
 | `tests-e2e/` | Opt-in real-time pipeline tests: per-module conformance against live provider APIs, everything else keyless on the scripted `fake` module (not collected by default `pytest`) |
-| `examples/` | Runnable consumers of the library, not part of the wheel — `gradio_demo/`, `mcp_client/`, `asr_to_terminal/`, each run via `python -m examples.<pkg>.<module>`; see [examples/README.md](examples/README.md) and [specs/project.md](specs/project.md) "Repo shape" |
+| `examples/` | Runnable consumers of the library, not part of the wheel — `gradio_demo/`, `mcp_client/`, `asr_to_terminal/`, each run via `python -m examples.<pkg>.<module>`; `config/` holds one complete server config per ASR module (with its recommended `engine.vad`); see [examples/README.md](examples/README.md) and [specs/project.md](specs/project.md) "Repo shape" |
 | `scripts/` | Standalone debug/utility scripts (not part of the package) |
 | `.github/workflows/` | The CI workflow (`ci.yml`) — static gate, fast tier on Linux/macOS/Windows, live tier on Linux; see [specs/ci.md](specs/ci.md) |
 
