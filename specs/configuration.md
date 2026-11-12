@@ -66,7 +66,8 @@ Both config classes expose the same three-rung constructor ladder — pick the r
     "module": {
       "type": "<module_type>",
       "...": "...module-specific fields..."
-    }
+    },
+    "vad": null
   }
 }
 ```
@@ -82,7 +83,7 @@ Consumed by the MCP entry point, not by `ASREngine`.
 
 ### `engine` block → `ASREngineConfig`
 
-The whole `engine` block maps to one `ASREngineConfig` dataclass, the single argument to `ASREngine(config=...)` (see [engine.md](engine.md)). It carries the scalar engine settings plus five nested sub-blocks.
+The whole `engine` block maps to one `ASREngineConfig` dataclass, the single argument to `ASREngine(config=...)` (see [engine.md](engine.md)). It carries the scalar engine settings plus five nested sub-blocks and the optional `vad` block.
 
 **`ASREngineConfig.from_dict(engine_block)`** is the public, in-memory constructor for direct importers: it takes the raw `engine` block (the object under the top-level `"engine"` key, **not** the whole file) and returns a validated `ASREngineConfig`, running exactly the same validation as file loading (see [Validation](#validation)). This is the "build from the `engine` block alone" path — no `server` block, no environment reads (module `api_key`/`api_key_env` are carried through as extra fields and resolved later at engine construction, so a config with unset credentials still builds). `from_json`/`from_json_file` (see [Constructors](#constructors)) layer JSON string and file loading over it; `from_json_file` reads a file whose top-level object *is* an `engine` block, not a whole `config.json`. `MCPServerConfig.from_dict` delegates its `engine` block here, so the direct and MCP entry points produce identical engine configs.
 
@@ -98,6 +99,7 @@ The whole `engine` block maps to one `ASREngineConfig` dataclass, the single arg
 | `sound_feedback` | object | see below | Start/stop audio cues, owned and played by the engine during `listen`. |
 | `audio` | object | see below | Audio input / file-source settings. |
 | `module` | object | — | ASR backend selection and its module-specific fields. **Required.** |
+| `vad` | object / null | `null` | Optional voice-activity gate in front of the ASR module. Omitted or `null`: no VAD, and the pipeline is unchanged. |
 
 #### `engine.segmentation` sub-block
 
@@ -139,6 +141,31 @@ The three format fields (`sample_rate`/`channels`/`encoding`) form the desired `
 | `type` | string | yes | Identifies which ASR module to load (e.g. `"deepgram_v1"`). There is **no default module**. Provider modules need their extra installed (see [asr-module-interface.md](asr-module-interface.md) "Optional dependencies (extras)"); `"fake"` is a test double for tests only (see [modules/fake.md](modules/fake.md)). |
 | *(other fields)* | any | depends | Module-specific configuration, parsed by the module. |
 
+#### `engine.vad` sub-block
+
+Optional. When present, the engine puts a speech gate between the audio source and the ASR module: silence is dropped, and each utterance's final is requested when the speaker stops. The design, which modules it suits and how to tune it per backend are in [vad.md](vad.md).
+
+```json
+"vad": {
+  "type": "silero",
+  "threshold": 0.5,
+  "min_speech_duration_ms": 250,
+  "min_silence_duration_ms": 500,
+  "speech_pad_ms": 300
+}
+```
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `type` | string | — (required when the block is present) | VAD module to load, a key of the VAD registry. Built in: `"silero"` (needs the `silero` extra; its 2.3 MB model is downloaded on first use). |
+| `threshold` | float | `0.5` | Speech probability at or above which a frame counts as speech. Strictly between 0 and 1. |
+| `min_speech_duration_ms` | integer | `250` | Consecutive speech before the gate opens. ≥ 0. |
+| `min_silence_duration_ms` | integer | `500` | Consecutive non-speech before the gate closes and the final is requested (the hangover). > 0. Raise it to about `1500` for a backend with its own turn detection (`deepgram_v2`, `kyutai`), so the backend still ends the turn itself — see [vad.md](vad.md) "Letting the backend end the turn first". |
+| `speech_pad_ms` | integer | `300` | Audio kept from before the detected onset. ≥ 0. |
+| *(other fields)* | any | — | Passed to the VAD module, like `engine.module`'s extra fields. `silero` takes `model_path` (a local copy of its model, for machines without network access) and rejects any other. |
+
+It maps to `ASREngineConfig.vad: VadConfig | None` (`type`, the four gate parameters, and `extra`). Any pipeline `sample_rate` / `encoding` the ASR module supports is valid with VAD on: the gate analyses its own copy of the audio and forwards the original bytes.
+
 **Default trigger words:**
 ```
 submit, enter, validate, send, confirm, go,
@@ -155,9 +182,11 @@ envoyer, valider, confirmer, soumettre, entree, entrée
 
 All three modes are valid for `listen` and dictation. In `utterance` mode a `listen` returns after exactly one final utterance, and a dictation with `end_on_final_segment=true` ends after one — coherent, if degenerate.
 
+Complete server configs for every ASR module ship in `examples/config/` (`deepgram_v1.json`, `deepgram_v2.json`, `mistral_realtime.json`, `kyutai.json`), each with the `engine.vad` setting recommended for its module ([vad.md](vad.md) "Which modules to use with VAD"). `tests/examples/test_configs.py` checks they parse and that their module and VAD combination is accepted.
+
 ## Example: Deepgram config
 
-Requires the `deepgram` extra (`pip install 'asr-engine[deepgram]'`).
+Requires the `deepgram` extra (`pip install 'asr-engine[deepgram]'`), plus `silero` for the VAD block (drop the block to run ungated).
 
 ```json
 {
@@ -173,14 +202,15 @@ Requires the `deepgram` extra (`pip install 'asr-engine[deepgram]'`).
       "api_key_env": "DEEPGRAM_API_KEY",
       "language": "en-US",
       "model": "nova-3"
-    }
+    },
+    "vad": { "type": "silero" }
   }
 }
 ```
 
 ## Example: Voxtral config
 
-Requires the `mistral` extra (`pip install 'asr-engine[mistral]'`). See [modules/mistral.md](modules/mistral.md) for the module fields. A complete file ships as `config.mistral.example.json`.
+Requires the `mistral` extra (`pip install 'asr-engine[mistral]'`). See [modules/mistral.md](modules/mistral.md) for the module fields. A complete file ships as `examples/config/mistral_realtime.json`, with `"vad": {"type": "silero"}` (needs the `silero` extra).
 
 ```json
 {
@@ -196,14 +226,15 @@ Requires the `mistral` extra (`pip install 'asr-engine[mistral]'`). See [modules
       "api_key_env": "MISTRAL_API_KEY",
       "language": "en",
       "context_bias": ["validate"]
-    }
+    },
+    "vad": { "type": "silero" }
   }
 }
 ```
 
 ## Example: Kyutai config (local model, 24 kHz)
 
-Requires the `kyutai-mlx` (Apple Silicon) or `kyutai-torch` extra. No key: the model runs on-device (see [modules/kyutai.md](modules/kyutai.md) for the module fields). A complete file ships as `config.kyutai.example.json`.
+Requires the `kyutai-mlx` (Apple Silicon) or `kyutai-torch` extra. No key: the model runs on-device (see [modules/kyutai.md](modules/kyutai.md) for the module fields). A complete file ships as `examples/config/kyutai.json`, with `"vad": null`: the model is local and free and has its own end-of-turn head, so the gate is rarely worth it. Do not confuse `module.vad` (that head) with `engine.vad` (the gate).
 
 ```json
 {
@@ -255,5 +286,9 @@ For tests only — a keyless, deterministic scripted module (see [modules/fake.m
   - `engine.auto_start_dictation` is `true` while `engine.auto_start` is `false`
   - `engine.audio.encoding` is not one of `linear16` / `mulaw`
   - `engine.audio.on_unsupported_format` is not one of `error` / `fallback`
+  - `engine.vad` is present and not an object, or its `type` is missing or not a non-empty string
+  - `engine.vad.threshold` is not a number strictly between 0 and 1, or one of `min_speech_duration_ms` (≥ 0), `min_silence_duration_ms` (> 0), `speech_pad_ms` (≥ 0) is not an integer within its bound — each error names `engine.vad.<field>`
+  - The specified `engine.vad.type` is unknown, its extra is not installed, or its own fields are invalid — checked at engine construction, like `engine.module.type`
+  - `engine.vad` is set with an ASR module that does not support VAD gating, or is absent with a module that requires it — checked at engine construction (see [asr-module-interface.md](asr-module-interface.md) "VAD gating")
 - The configured audio format is reconciled against the selected module's declared support at engine construction (startup). Under the default `on_unsupported_format="error"`, an unsupported `sample_rate` / `channels` / `encoding` raises a clear `ValueError` listing the module's supported values; under `"fallback"` it logs a warning and uses the module's default for that dimension.
 - The specified audio device is verified when audio capture first starts, and an unknown device raises a clear error there — at startup when `engine.auto_start` is `true`, or on the first `start`/`listen` call when it is `false`.

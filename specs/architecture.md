@@ -80,6 +80,8 @@ The server runs as a single Python process with an `asyncio` event loop:
 6. The engine updates the `asr://utterance` and `asr://segment` resources and calls `notify_resource_updated`
 7. Subscribed MCP clients receive the updated resources
 
+**Optional VAD stage.** When `engine.vad` is configured, a `VadGate` sits between steps 2 and 3: it reads the source's queue, forwards only the speech to the ASR module (the original bytes, with a pre-roll), and follows each utterance with an `END_OF_SPEECH` marker that makes the module emit its final. The gate runs on the event loop (one cheap model call per ~30 ms frame); the VAD model is loaded once, in a thread. Without `engine.vad` the stage does not exist and the flow above is exact. See [vad.md](vad.md).
+
 Segmentation (trigger-word / timeout / one-per-utterance) is owned entirely by the engine — see [engine.md](engine.md) for the detail.
 
 Audio capture is pluggable through the `AudioSource` seam: the default `AudioCapture` reads a `sounddevice` `InputStream`, but a caller can inject any `AudioSource` (a custom stream, a file, a scripted source) via `ASREngine(config, audio_source=...)`. That seam is a supported public extension point with its own chunk/lifecycle contract — see [audio-source.md](audio-source.md).

@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from asr_engine.modules.base import SpeechUtterance
+from asr_engine.modules.base import AudioQueue, SpeechUtterance
 from asr_engine.modules.deepgram.v1 import DeepgramV1Module
 
 # ---------------------------------------------------------------------------
@@ -125,7 +125,7 @@ def test_init_custom_values() -> None:
 @pytest.mark.asyncio
 async def test_drain_queue_for_removes_items() -> None:
     m = DeepgramV1Module(config={"api_key": "sk-test"})
-    q: asyncio.Queue[bytes] = asyncio.Queue()
+    q: AudioQueue = asyncio.Queue()
     for _ in range(5):
         q.put_nowait(b"chunk")
     await m._drain_queue_for(q, duration=0.05)
@@ -137,7 +137,7 @@ async def test_drain_queue_for_returns_after_duration() -> None:
     import time
 
     m = DeepgramV1Module(config={"api_key": "sk-test"})
-    q: asyncio.Queue[bytes] = asyncio.Queue()
+    q: AudioQueue = asyncio.Queue()
     start = time.monotonic()
     await m._drain_queue_for(q, duration=0.15)
     assert time.monotonic() - start >= 0.14
@@ -155,7 +155,7 @@ async def test_audio_loop_sends_chunks() -> None:
     conn.send_media = AsyncMock()
     conn.send_keep_alive = AsyncMock()
 
-    q: asyncio.Queue[bytes] = asyncio.Queue()
+    q: AudioQueue = asyncio.Queue()
     q.put_nowait(b"frame1")
     q.put_nowait(b"frame2")
 
@@ -185,7 +185,7 @@ async def test_audio_loop_sends_keepalive_on_timeout() -> None:
 
     conn.send_keep_alive = AsyncMock(side_effect=_track_keepalive)
 
-    q: asyncio.Queue[bytes] = asyncio.Queue()
+    q: AudioQueue = asyncio.Queue()
 
     async def stopper():
         await asyncio.wait_for(keepalive_sent.wait(), timeout=5.0)
@@ -303,3 +303,81 @@ def test_deepgram_v1_registered_in_registry() -> None:
     from asr_engine.modules import resolve_module_class
 
     assert resolve_module_class("deepgram_v1") is DeepgramV1Module
+
+
+# ---------------------------------------------------------------------------
+# VAD gating — the end-of-speech marker (specs/vad.md)
+# ---------------------------------------------------------------------------
+
+
+class _RecordingConn:
+    """A connection that records what the module sends, in order."""
+
+    def __init__(self) -> None:
+        self.sent: list[tuple[str, Any]] = []
+
+    def on(self, event: Any, callback: Any) -> None:
+        pass
+
+    async def start_listening(self) -> None:
+        await asyncio.Event().wait()
+
+    async def send_media(self, data: bytes) -> None:
+        self.sent.append(("media", data))
+
+    async def send_finalize(self) -> None:
+        self.sent.append(("finalize", None))
+
+    async def send_keep_alive(self) -> None:
+        self.sent.append(("keepalive", None))
+
+
+@pytest.mark.asyncio
+async def test_end_of_speech_sends_one_finalize_in_order_and_no_media() -> None:
+    from asr_engine.audio import END_OF_SPEECH
+
+    assert DeepgramV1Module.VAD_GATING == "supported"
+    conn = _RecordingConn()
+    m = DeepgramV1Module(config={"api_key": "sk-test"})
+    q: AudioQueue = asyncio.Queue()
+    for item in (b"one", b"two", END_OF_SPEECH, b"three", END_OF_SPEECH):
+        q.put_nowait(item)
+
+    async def on_result(r: SpeechUtterance) -> None:
+        pass
+
+    with patch("asr_engine.modules.deepgram.v1.AsyncDeepgramClient") as MockClient:
+        mc = MockClient.return_value
+        mc.listen.v1.connect.return_value.__aenter__ = AsyncMock(return_value=conn)
+        mc.listen.v1.connect.return_value.__aexit__ = AsyncMock(return_value=False)
+
+        async def run_and_stop():
+            while len(conn.sent) < 5:
+                await asyncio.sleep(0)
+            await m.stop()
+
+        await asyncio.gather(m.start(q, on_result), run_and_stop())
+
+    # The flush lands after the utterance's last chunk; the connection is kept
+    # and the next utterance goes out on it.
+    assert conn.sent == [
+        ("media", b"one"),
+        ("media", b"two"),
+        ("finalize", None),
+        ("media", b"three"),
+        ("finalize", None),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_end_of_speech_while_reconnecting_is_discarded() -> None:
+    from asr_engine.audio import END_OF_SPEECH
+
+    m = DeepgramV1Module(config={"api_key": "sk-test"})
+    q: AudioQueue = asyncio.Queue()
+    q.put_nowait(b"chunk")
+    q.put_nowait(END_OF_SPEECH)
+
+    await m._drain_queue_for(q, 0.05)
+    assert q.empty()
+    await m.finalize()  # no connection: nothing to flush, and no error

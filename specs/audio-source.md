@@ -31,6 +31,7 @@ class AudioSource(Protocol):
 - **Stability:** this is the blessed extension point. The Protocol surface (`start()` returning the queue, `stop()`) is kept **stable**; a breaking change to it is a versioned change, not a silent one. Callers may depend on it long-term.
 - **`start()`** opens/arms the source, spawns whatever background work feeds audio, and **returns the `asyncio.Queue[bytes]` it owns and will feed**. The engine reads this queue (via the ASR module) — it does not create or wrap it.
 - **`stop()`** halts feeding and releases the source's resources.
+- **VAD does not change this contract.** When `engine.vad` is configured the engine wraps the source — injected or not — in its internal speech gate ([vad.md](vad.md)), which reads the source's queue and feeds the ASR module from a queue of its own. The source still puts only `bytes` on an `asyncio.Queue[bytes]`; the gate's end-of-speech marker never appears on a source's queue, and a source cannot emit one.
 
 ## Chunk contract
 

@@ -40,7 +40,7 @@ async def test_listen_pipeline() -> None:
     assert segment.is_final is True
     assert segment.end_reason == "end_of_speech_timeout"
     assert segment.transcript == "the sky is blue"
-    assert engine.status() == {"running": False, "connected": False}
+    assert engine.status() == {"running": False, "connected": False, "vad": None}
 
 
 @pytest.mark.asyncio
@@ -80,7 +80,7 @@ async def test_dictation_pipeline() -> None:
         await engine.stop_dictation()
         assert engine.dictating is False
         assert engine.segmentation_mode == "utterance"
-        assert engine.status() == {"running": True, "connected": True}
+        assert engine.status() == {"running": True, "connected": True, "vad": None}
     finally:
         await engine.stop()
 

@@ -56,7 +56,7 @@ Thin pass-throughs to the engine:
 
 - `start()` → `await engine.start()`, returns `{"status": "running"}`.
 - `stop()` → `await engine.stop()`, returns `{"status": "stopped"}`.
-- `is_running()` → returns `engine.status()` (`{"running": bool, "connected": bool}`).
+- `is_running()` → returns `engine.status()` (`{"running": bool, "connected": bool, "vad": str | None}`; see [engine.md](engine.md) "Lifecycle").
 
 ### `listen`
 

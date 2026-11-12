@@ -7,9 +7,10 @@ from deepgram import AsyncDeepgramClient
 from deepgram.core.events import EventType
 from deepgram.listen.v1.types.listen_v1results import ListenV1Results
 
-from asr_engine.audio import DEFAULT_AUDIO_FORMAT, AudioFormat
+from asr_engine.audio import DEFAULT_AUDIO_FORMAT, AudioFormat, EndOfSpeech
 from asr_engine.modules.base import (
     ASRModule,
+    AudioQueue,
     ConnectedCallback,
     SpeechUtterance,
     UtteranceCallback,
@@ -39,6 +40,7 @@ class DeepgramV1Module(ASRModule):
     DEFAULT_SAMPLE_RATE = 16000
     DEFAULT_CHANNELS = 1
     DEFAULT_ENCODING = "linear16"
+    VAD_GATING = "supported"
 
     def __init__(self, config: dict) -> None:
         super().__init__(config)
@@ -49,10 +51,11 @@ class DeepgramV1Module(ASRModule):
         self._interim_results: bool = config.get("interim_results", True)
 
         self._stop_event = asyncio.Event()
+        self._conn: object | None = None  # the open connection, for finalize()
 
     async def start(
         self,
-        audio_queue: asyncio.Queue[bytes],
+        audio_queue: AudioQueue,
         on_utterance: UtteranceCallback,
         on_connected: ConnectedCallback | None = None,
         *,
@@ -74,6 +77,7 @@ class DeepgramV1Module(ASRModule):
                     interim_results=str(self._interim_results).lower(),
                 ) as conn:
                     attempt = 0
+                    self._conn = conn
                     if on_connected:
                         on_connected(True)
                     try:
@@ -128,6 +132,7 @@ class DeepgramV1Module(ASRModule):
                             if exc is not None:
                                 raise exc
                     finally:
+                        self._conn = None
                         if on_connected:
                             on_connected(False)
 
@@ -146,9 +151,10 @@ class DeepgramV1Module(ASRModule):
     async def _audio_loop(
         self,
         conn: object,
-        audio_queue: asyncio.Queue[bytes],
+        audio_queue: AudioQueue,
     ) -> None:
-        """Send audio chunks; send KeepAlive on silence. Exits immediately on stop()."""
+        """Send audio chunks; flush on an end-of-speech marker; send KeepAlive on
+        silence. Exits immediately on stop()."""
         stop_task = asyncio.create_task(self._stop_event.wait())
         try:
             while True:
@@ -166,7 +172,11 @@ class DeepgramV1Module(ASRModule):
                         pass
                     break
                 if get_task in done:
-                    await conn.send_media(get_task.result())  # type: ignore[union-attr]
+                    item = get_task.result()
+                    if isinstance(item, EndOfSpeech):
+                        await self.finalize()
+                    else:
+                        await conn.send_media(item)  # type: ignore[union-attr]
                 else:
                     # No audio for _KEEPALIVE_TIMEOUT seconds — keep the connection alive.
                     get_task.cancel()
@@ -183,12 +193,25 @@ class DeepgramV1Module(ASRModule):
             except (asyncio.CancelledError, Exception):
                 pass
 
+    async def finalize(self) -> None:
+        """End of a VAD-gated utterance: ask Deepgram to flush.
+
+        ``Finalize`` makes the server commit the audio it has received and answer
+        with a normal ``is_final`` result on the receive path; the connection and
+        its context are kept. See specs/vad.md "Per-module finalize()".
+        """
+        conn = self._conn
+        if conn is not None:
+            await conn.send_finalize()  # type: ignore[attr-defined]
+
     async def _drain_queue_for(
         self,
-        audio_queue: asyncio.Queue[bytes],
+        audio_queue: AudioQueue,
         duration: float,
     ) -> None:
-        """Drain audio_queue for *duration* seconds to prevent unbounded growth."""
+        """Drain audio_queue for *duration* seconds to prevent unbounded growth.
+
+        End-of-speech markers are discarded with the audio they follow."""
         loop = asyncio.get_event_loop()
         deadline = loop.time() + duration
         while True:

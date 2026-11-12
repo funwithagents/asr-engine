@@ -3,6 +3,7 @@ code:
   - src/asr_engine/modules/deepgram/__init__.py
   - src/asr_engine/modules/deepgram/v1.py
   - src/asr_engine/modules/deepgram/v2.py
+  - scripts/probe_deepgram_flux_silence.py
 tests:
   - tests/modules/test_deepgram_v1.py
   - tests/modules/test_deepgram_v2.py
@@ -103,6 +104,10 @@ Note: `speech_final` (endpointing signal) is intentionally not used. It depends 
 
 `v1` has a public `send_keep_alive()` method. It is called when no audio chunk arrives within 5 seconds.
 
+### VAD gating
+
+`VAD_GATING = "supported"` ([vad.md](../vad.md)). On an `END_OF_SPEECH` marker the audio loop calls `finalize()`, which sends Deepgram's `Finalize` message (`conn.send_finalize()`, distinct from `send_close_stream()`): the server commits the audio it has received and answers with a normal `is_final` result on the existing receive path. The connection and its context are kept, and the next utterance goes out on it. Nothing is sent for the marker itself. During a gated gap the keep-alive above fires as usual. A marker read while reconnecting is dropped with the audio.
+
 ---
 
 ## deepgram_v2 — Listen v2 (Flux)
@@ -166,6 +171,28 @@ msg.event                  → dispatch key
 ### KeepAlive
 
 The v2 SDK has no public `send_keep_alive()`. KeepAlive is sent via the internal `conn._send({"type": "KeepAlive"})` when no audio arrives within 5 seconds.
+
+### VAD gating
+
+`VAD_GATING = "supported"` ([vad.md](../vad.md)). Flux has no flush message: a turn ends only on silence Flux hears. So the module tracks whether a turn is open — set by any non-`EndOfTurn` `TurnInfo` carrying a transcript, cleared by `EndOfTurn` — and `finalize()` depends on it:
+
+- **No turn open.** Flux already ended the turn on the silence the gate let through. `finalize()` sends nothing, and nothing is billed. This is the normal path with the recommended `min_silence_duration_ms` of about 1500.
+- **Turn open.** The gate closed before Flux decided. `finalize()` sends **one burst of silence** covering `eot_timeout_ms` plus 0.5 s, in the pipeline encoding, through `send_media`. Flux then ends the turn by its own judgement or, at the latest, on its timeout.
+- **Turn reported after the marker.** The gate can close before Flux's first transcript for the utterance arrives. The burst is then sent as soon as that transcript shows the turn is open (once per gap).
+
+The connection is kept in every case. A marker read while reconnecting is dropped with the audio.
+
+**Measured** (`scripts/probe_deepgram_flux_silence.py`, live, 2026-11-12, `flux-general-en`, `eot_threshold` 0.7, `eot_timeout_ms` 2000, on the 44.1 kHz fixtures):
+
+| Measure | Result |
+|---|---|
+| `EndOfTurn` after speech ends, on real-time silence | **0.17 s** ("Hello. How are you today?") and **1.16 s** ("The sky is blue."): contextual, and inside a 1500 ms hangover in both cases |
+| Stop sending 0.3 s after the speech (a closed gate), nothing more | **No `EndOfTurn`**: the turn stays open indefinitely |
+| Same, then 2.5 s of silence in one unpaced message | `EndOfTurn` **0.6 s** after the burst (Flux consumes it faster than real time) |
+| Same, with a 1.0 s burst | `EndOfTurn` 0.5 s after the burst (this utterance needed about 1 s of silence in all) |
+| After `EndOfTurn` | `Update` events for the next turn carry an empty transcript until speech starts (they are ignored, and do not open a turn) |
+
+The burst is sized on `eot_timeout_ms` rather than on these figures because how much silence Flux needs depends on what was said; the timeout is the one bound it guarantees.
 
 ---
 

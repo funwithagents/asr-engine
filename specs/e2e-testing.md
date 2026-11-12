@@ -145,6 +145,27 @@ Each row runs one `test_engine_streams` scenario on its `ModuleAudio`:
 It does not assert `SpeechSegment`, `listen`, dictation, or MCP behavior: those are
 owned by shared engine/API layers.
 
+#### Behind the VAD gate — `test_engine_modules_vad`
+
+The same file runs each row a second time with `engine.vad` set to the Silero VAD ([vad.md](vad.md)), over the `MODULES_VAD` table that `helpers.py` derives from `MODULES`. The gate's own behaviour is pinned deterministically in the fast tier (`tests/vad/`); this scenario checks the one thing only a live backend can show: that each module's `finalize()` really produces a final once the gate has stopped sending audio.
+
+| Case id | `engine.vad` | What ends the utterance |
+|---|---|---|
+| `deepgram_v1` | `{"type": "silero"}` | The `Finalize` message sent on the marker |
+| `deepgram_v2-flux_ends_turn` | `+ "min_silence_duration_ms": 1500` | Flux's own `EndOfTurn`, on the silence the longer hangover lets through (the recommended setting) |
+| `deepgram_v2-marker_ends_turn` | `+ "min_silence_duration_ms": 300` | The silence burst the module sends on the marker, since the gate closed before Flux decided |
+| `mistral_realtime` | `{"type": "silero"}` | The local flush: silence burst, then the final once the text stops |
+| `kyutai` | `{"type": "silero"}` | The flush frames stepped on the marker |
+
+Each case, on the row's existing fixtures (the 44.1 kHz MP3s and 24 kHz WAVs also exercise the gate's resampling path, since Silero analyses at 16 kHz):
+
+1. Start, wait for `connected=true`, and check `status()["vad"] == "silero"`. The source feeds continuous silence around the fixtures, as a microphone would; the gate drops it.
+2. Play the first fixture followed by `silence_s`; require a final containing the whole phrase "the sky is blue" — its first word shows the pre-roll kept the onset, its last that the flush brought the tail out — and require that the utterance produced exactly **one** final.
+3. Play the second fixture; require finals after the first that together contain "the sky is blue" and `validate` (the module survived a gap with no audio at all and finalized again).
+4. Stop and require `running=false`, `connected=false`.
+
+Skip axes: the row's own (`require_api_key`, `require_local_model`), plus `require_vad_runtime`, which skips where `onnxruntime` is not installed (Intel macOS).
+
 ### Default module (`fake`)
 
 `helpers.default_module(script)` returns `("fake", {"utterances": script})`. The scripts come from builder functions in `helpers.py`, one per fixture, timed to fall **inside the audio actually fed** — the fixture plus any trailing silence (the fake's clock is audio time, so events past the end of the fed audio never fire — see [modules/fake.md](modules/fake.md) "Clock"):

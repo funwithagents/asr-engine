@@ -16,7 +16,12 @@
       "model": "voxtral-mini-transcribe-realtime-3",
       "language": "en",
       "streaming_delay_ms": 480,
-      "context_bias": ["validate"]
+      "context_bias": [
+        "validate"
+      ]
+    },
+    "vad": {
+      "type": "silero"
     }
   }
 }

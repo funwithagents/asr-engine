@@ -175,10 +175,13 @@ At construction the engine:
 
 - Instantiates the ASR module from `config.module` (raising `ValueError` on an unknown `type`).
 - **Reconciles the audio format:** builds the desired `AudioFormat` from `config.audio` (`sample_rate`/`channels`/`encoding`) and resolves it against the module class's declared support via `reconcile_audio_format(...)`, using `config.audio.on_unsupported_format` (`"error"` fails fast here; `"fallback"` uses module defaults with a warning — see [asr-module-interface.md](asr-module-interface.md)). The resolved format is exposed as the read-only `audio_format` property.
+- **Resolves the optional VAD stage** when `config.vad` is set ([vad.md](vad.md) "Engine integration"): resolves the VAD class (unknown `type` → `ValueError`, missing extra → `ImportError` with the install hint), instantiates it (config validation; the model is **not** loaded here), and checks that `soxr` is importable when the VAD's analysis rate differs from the pipeline rate. Two combinations are configuration errors, raised here as `ValueError`: a VAD with a module whose `VAD_GATING` is `"unsupported"`, and no VAD with a module whose `VAD_GATING` is `"required"`. With no `config.vad`, nothing VAD-related is imported.
 - Builds its `Segmenter` in `utterance` mode from the `config.segmentation` params.
 - Constructs a `SoundFeedback` (or a no-op stub when `sound_feedback.enabled` is `false`) from `config.sound_feedback`; the engine plays cues itself inside `listen` (see [sound-feedback.md](sound-feedback.md)).
 
 At `start()` the engine selects its own audio source from config: an injected `audio_source` if given, else a `FileAudioSource` when `config.audio.audio_file` is set, else a live `AudioCapture` on `config.audio.device`. The capture layer and the module are both given the reconciled `audio_format`.
+
+When a VAD is configured, the selected source (injected or not) is wrapped in a `VadGate`, and the gate's queue — speech only, each utterance followed by an `END_OF_SPEECH` marker — goes to the module in place of the source's. The VAD model is loaded in a thread on the first start (`asyncio.to_thread(vad.load)`) and stays resident for the engine's lifetime, so `listen()`'s start/stop cycles do not reload it. Stopping the engine stops the gate, which stops the source it wraps. `audio_format` is unchanged by VAD, and so is the `Segmenter`: it still derives segments from the module's utterances only. See [vad.md](vad.md).
 
 `config.auto_start` and `config.auto_start_dictation` are **not** acted on by the engine itself — they are signals to the caller (the MCP server). `auto_start` says whether to call `start()` at startup; `auto_start_dictation` says whether to follow that `start()` with `start_dictation(end_on_final_segment=False)`, so the always-on `asr://segment` stream aggregates continuously from startup in `dictation_default_segmentation_mode`. (The engine can't act on either itself: `listen()` reuses `start()`, so a `start()` that auto-entered dictation would clobber the mode `listen` just set.)
 
@@ -285,7 +288,8 @@ Update the stored default mode that `start_dictation(segmentation_mode=None)` / 
 
 - `async start()` — `await self._start_with_segmentation_mode("utterance")`: the always-on stream is `utterance`. The caller applies `auto_start_dictation` by calling `start_dictation` *after* `start()`.
 - `async stop()` — stops the module, audio capture, and the segmenter's timers, clears any dictation state (a stopped engine is never dictating), and resets the stored segment mode to `utterance` so the `segmentation_mode` getter reads `utterance` at rest (the next `_start_with_segmentation_mode` sets the mode again anyway).
-- `status() -> dict` — `{"running": bool, "connected": bool}` (unchanged).
+- `status() -> dict` — `{"running": bool, "connected": bool, "vad": str | None}`. `vad` is the configured `engine.vad.type`, or `None` when the engine runs ungated.
+- `vad_state -> VadState | None` (read-only property) — `None` without `engine.vad`. Otherwise a snapshot of the gate, meant to be polled by a UI: `speaking` (audio is reaching the module right now) and `failed_open` (because the VAD failed). Both are false before the first start and once stopped. See [vad.md](vad.md) "Engine integration".
 
 ### `listen`
 

@@ -29,6 +29,7 @@ Per-backend ASR module specs live in [`modules/`](modules/), one file per backen
 | [modules/kyutai.md](modules/kyutai.md) | Local on-device streaming STT: one `kyutai` key over MLX/PyTorch backends, semantic-VAD finalization (deferred by the text delay), 24 kHz contract, resident-model lifecycle | Implemented |
 | [modules/mistral.md](modules/mistral.md) | `mistral_realtime`: Voxtral 3 realtime over a raw WebSocket (`mistral` extra), append-only deltas, `turn.end`-closed finals (+ silence fallback), idle-session parking, 16/24/44.1 kHz (probe-verified) | Implemented |
 | [modules/fake.md](modules/fake.md) | `fake` scripted test double: word-by-word interims evenly spaced over each utterance's window on an audio-time clock, final at end; `fake_engine_factory` fixture | Implemented |
+| [vad.md](vad.md) | Optional speech gate before the ASR module: `VADModule` registry (Silero on `onnxruntime`, model downloaded on first use), `VadGate` (pipeline vs analysis format, hysteresis, pre-roll), in-band `END_OF_SPEECH` marker → `ASRModule.finalize()`, module opt-in via `VAD_GATING`; `engine.vad` config | Implemented |
 | [demo-client.md](demo-client.md) | CLI, log format, behavior | Implemented |
 | [e2e-testing.md](e2e-testing.md) | File-based e2e pipeline: audio source abstraction, fixture format, assertions; module-agnostic scenarios on the `fake` module | Implemented |
 | [asr-to-terminal.md](asr-to-terminal.md) | Progressive terminal injection via xdotool/ydotool, consuming the server's `asr://segment` resource | Implemented |

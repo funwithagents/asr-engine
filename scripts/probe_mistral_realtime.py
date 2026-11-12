@@ -11,6 +11,10 @@ don't state. This script measures them against the live API:
   after the audio and reports whether the server closes the socket (idle timeout).
   ``--idle-silence`` streams digital silence instead, to check that it keeps the
   session alive.
+- **Tail text without further audio** (VAD gating, specs/vad.md) — with
+  ``--trailing-silence 0 --idle N`` the script stops sending right after the
+  speech: does the last text still arrive? ``--burst-silence S`` then sends S
+  seconds of silence in one unpaced message, to check that a burst flushes it.
 
 It speaks the raw WebSocket protocol (session.update / input_audio.append /
 input_audio.end), exactly as the module will, and logs every server event with
@@ -189,6 +193,19 @@ async def run(args: argparse.Namespace) -> None:
         await ws.send(json.dumps(session_update(args, rate)))
         try:
             await send_paced(ws, clock, pcm + silence, rate)
+            if args.burst_silence:
+                # One unpaced message of silence: what a VAD-gated module sends
+                # to flush the text still behind the streaming delay.
+                burst = bytes(int(rate * args.burst_silence) * 2)
+                log(clock, "BURST", f"{args.burst_silence:.2f}s of silence, unpaced")
+                await ws.send(
+                    json.dumps(
+                        {
+                            "type": "input_audio.append",
+                            "audio": base64.b64encode(burst).decode(),
+                        }
+                    )
+                )
             if args.idle:
                 if args.idle_silence:
                     log(clock, "IDLE", f"streaming {args.idle:.0f}s of silence")
@@ -226,6 +243,12 @@ def main() -> None:
         "--idle-silence",
         action="store_true",
         help="during --idle, stream digital silence instead of sending nothing",
+    )
+    parser.add_argument(
+        "--burst-silence",
+        type=float,
+        default=0.0,
+        help="seconds of silence sent in one unpaced message right after the audio",
     )
     parser.add_argument("--done-timeout", type=float, default=15.0)
     asyncio.run(run(parser.parse_args()))

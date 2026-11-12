@@ -46,6 +46,17 @@ Structurally it sits between the two existing real backends:
 | Unknown model | Handshake rejected: **HTTP 403** |
 | Undocumented session field | `verbatim: false` (left at default) |
 
+A second probe session the same day, for VAD gating (`--trailing-silence`, `--idle`, `--burst-silence` on the 16 kHz "the sky is blue" fixture, delay 480 ms):
+
+| Measure | Result |
+|---|---|
+| Stop sending right after the speech | **The tail text does not arrive.** " blue." came only 6 s later, when `input_audio.end` was sent. The server emits text for audio time *t* only once it has received audio up to about *t* + the streaming delay. |
+| Stop sending after 0.3 s of real silence | Same: part of the tail (".") still missing until `input_audio.end` |
+| Stop sending after 0.5 s of real silence | Tail complete 0.14 s after the last chunk |
+| Stop, then 0.6 s of silence in **one unpaced message** | Tail complete **0.46 s** after the burst (0.56 s in a second run) |
+| Same with a 1.0 s burst | Tail complete 0.22 s after the burst |
+| `turn.end` in these runs | Not emitted until more audio arrived: with gating, finals cannot come from the server's turn detection |
+
 ## Decisions
 
 | Decision | Choice | Rationale |
@@ -163,11 +174,24 @@ The module sends `audio_format: {"encoding": "pcm_s16le", "sample_rate": <reconc
 - **Idle parking.** When no chunk arrives for `idle_close_s`, the session ends as above. The module stays *running* and `on_connected` is **not** set to `False`, because nothing is wrong and `is_running` should not report an outage. The next chunk opens a fresh session (connect → `session.created` → `session.update`), and is sent first once it is ready. A connect failure here enters normal reconnection. Parking only happens when the input actually stops (a speech-only injected source, an exhausted file source, a stalled device). The live mic and `ScriptableAudioSource` stream continuously, silence included, and never park.
 - **Reconnection** follows the [reconnection contract](../asr-module-interface.md#reconnection-contract) (1, 2, 4, 8 s backoff, draining `audio_queue` meanwhile). On connection loss the module first emits the accumulator as a final, since every delta was already final text, and calls `on_connected(False)`. A reconnect is a **new session**: settings are re-sent, and context from the old session is lost. A rejected handshake logs at error level with the cause: HTTP 401 → "check `api_key` / `api_key_env`", HTTP 403 → "check `model`".
 
-## Self-sufficient endpointing (no VAD stage)
+## Endpointing, with and without a VAD stage
 
 The module needs **no VAD in front of it**. End-of-utterance comes from the server's own `turn_detection` (`turn.end`), with the local silence timer as fallback. Both work on a continuous stream that includes silence, which is exactly what the mic delivers. This module, like `deepgram_v1`/`deepgram_v2` and `kyutai`, owns its endpointing.
 
 **Cost consequence.** Without a VAD stage the engine streams everything it captures, silence included, and Voxtral bills per audio minute ($0.008). The bill is therefore the engine's *running time*, not speech time: about $0.48 per hour of `start()`→`stop()`, regardless of how much is said. That is bounded by the engine lifecycle (capture runs only between engine `start()` and `stop()`, which `listen` wraps) and is the same model as Deepgram's.
+
+### VAD gating
+
+`VAD_GATING = "supported"` ([vad.md](../vad.md)). With `engine.vad` set, the module receives only speech, the bill follows speech time, and room noise never leaves the machine. The server's `turn.end` no longer drives finals (it needs to hear the silence the gate removes), so they come from the gate's `END_OF_SPEECH` marker.
+
+On a marker the send loop calls `finalize()`. `input_audio.end` would end the session, so the flush is local, in two steps:
+
+1. **Send one burst of silence** of `streaming_delay_ms` + 200 ms, as a single `input_audio.append`. The text of the audio already sent is still behind the streaming delay, and the probe above showed it does not arrive unless the server receives that much more audio. This is billed: about 0.7 s per utterance at the default delay.
+2. **Arm a `flush` timer** of `streaming_delay_ms + final_margin_ms`. Each delta that arrives while it is armed restarts it, so the final is emitted once the text has stopped for that long, with everything that arrived in between. It uses the same mechanism as the `turn` and `silence` timers, and whichever fires first finalizes and cancels the others.
+
+The session is kept, and the next utterance goes out on it. A final therefore arrives about `0.5 s + streaming_delay_ms + final_margin_ms` after the marker (≈ 1.1 s at the defaults), itself `min_silence_duration_ms` after the speaker stops.
+
+During the gaps nothing new is needed: [idle parking](#lifecycle) ends the session after `idle_close_s` without a chunk and reopens one with the next. A marker read while parked (nothing is open to finalize) or while reconnecting is dropped. A late `turn.end` for a gated utterance, emitted once the next utterance's audio reaches the server, finds an empty accumulator and emits nothing.
 
 ## Installation
 
@@ -197,6 +221,7 @@ The module talks to a **scripted fake connection** (records every client message
 - **Stop flush:** `stop()` sends `input_audio.end`, takes deltas that arrive before `transcription.done` into the final, and returns within `stop_timeout_s` when `done` never comes; `on_connected` ends `False`.
 - **Idle parking:** with no chunk for `idle_close_s`, the accumulator is flushed as a final, `input_audio.end` is sent, and `on_connected` is not called with `False`. The next chunk opens a new session whose first message is `session.update`, and that chunk's bytes follow it.
 - **Reconnect:** a dropped socket emits the accumulator as a final, calls `on_connected(False)`, reconnects, and re-sends `session.update`. A failed handshake retries.
+- **VAD gating:** an `END_OF_SPEECH` marker sends the silence burst (exact length), then the final after the flush wait, including a delta that arrived inside it; deltas that keep arriving hold the final; the session is kept and a second utterance gets its own final; nothing accumulated emits nothing; a marker is dropped while reconnecting and does not reopen a parked session.
 - **Validation:** one case per invalid-config rule above (scenario-style, per [testing.md](../testing.md)).
 
 ### Live tier: `tests-e2e/test_engine_modules.py`
@@ -209,7 +234,7 @@ A `MODULES` row: type `mistral_realtime`, `api_key_env: MISTRAL_API_KEY`, the 44
 - `src/asr_engine/modules/mistral/realtime.py`: `MistralRealtimeModule`
 - `src/asr_engine/modules/__init__.py`: `"mistral_realtime": LazyModule("asr_engine.modules.mistral.realtime:MistralRealtimeModule", extra="mistral")`
 - `pyproject.toml`: the `mistral` extra, `all`, `dev`
-- `config.mistral.example.json`: a complete server config for this module
+- `examples/config/mistral_realtime.json`: a complete server config for this module, with the VAD gate on
 - `tests/modules/test_mistral_realtime.py`, `tests-e2e/helpers.py` (`MODULES` row), `.github/workflows/ci.yml` (secret mapping)
 - Spec and doc touch-ups: [asr-module-interface.md](../asr-module-interface.md) (registry snippet, extras table), [configuration.md](../configuration.md) (example), [ci.md](../ci.md), [project.md](../project.md) (package list), `README.md` (module table and section)
 
@@ -220,5 +245,4 @@ None load-bearing. Deferrals:
 - **Maximum session length.** Undocumented, and not probed beyond ≈ 75 s. If a session limit exists, the server's close lands mid-stream and reconnection recovers it, at the cost of one flushed final and a gap of about a second. If that proves disruptive, add Kyutai-style proactive recycling at an utterance boundary.
 - **`turn.eager_end`** could start a speculative final earlier, retracted on `turn.resume`. `SpeechUtterance` has no retraction, and the probe saw it fire mid-sentence routinely, so this waits for a use case.
 - **Self-hosting.** The previous generation (Voxtral Mini 4B Realtime 2602) has open weights (Apache 2.0) and runs on vLLM's `/v1/realtime`. Whether Voxtral 3 has open weights, or whether vLLM speaks this exact protocol, is unconfirmed. `url` keeps the door open.
-- **Speech gating (VAD).** A future VAD stage that forwards speech only would cut the bill to speech time. This module would need one small addition: a local-only `finalize()` on the gate's end-of-speech marker, arming a `streaming_delay_ms + final_margin_ms` deadline (the full delay, because the marker comes on the real-time audio, ahead of the delayed text), since `input_audio.end` ends the session and can't be used as a flush. The gaps need nothing new: [idle parking](#lifecycle) already handles silence longer than ≈ 20 s.
-- **Batch Voxtral** (diarization, word timestamps) as a separate module under `modules/mistral/`. It needs a VAD or similar stage to chunk audio into utterances first.
+- **Batch Voxtral** (diarization, word timestamps) as a separate module under `modules/mistral/`. It would declare `VAD_GATING = "required"`: the gate's end-of-speech marker is what chunks the audio into utterances ([vad.md](../vad.md) "Fit with planned modules").

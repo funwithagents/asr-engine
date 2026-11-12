@@ -146,7 +146,7 @@ def test_engine_starts_in_utterance_mode():
 
 def test_initial_status():
     engine, _ = make_engine()
-    assert engine.status() == {"running": False, "connected": False}
+    assert engine.status() == {"running": False, "connected": False, "vad": None}
 
 
 def test_set_connected():
@@ -479,3 +479,249 @@ async def test_listen_rejects_running_engine():
                 await engine.listen(mode="trigger_word")
         finally:
             await engine.stop()
+
+
+# ---------------------------------------------------------------------------
+# VAD gating (specs/vad.md) — on a deterministic VAD and a hand-fed source
+# ---------------------------------------------------------------------------
+
+from asr_engine.audio import (  # noqa: E402
+    DEFAULT_AUDIO_FORMAT,
+    END_OF_SPEECH,
+)
+from asr_engine.config import VadConfig  # noqa: E402
+from asr_engine.modules.base import ASRModule  # noqa: E402
+from tests.vad.scripted import (  # noqa: E402
+    HandFedSource,
+    Scripted16kVAD,
+    ScriptedVAD,
+    loud,
+    pcm,
+    quiet,
+    settle,
+)
+
+
+class RecordingModule(ASRModule):
+    """An ASR module that records every item it reads from its audio queue."""
+
+    SUPPORTED_SAMPLE_RATES = None
+    SUPPORTED_CHANNELS = None
+    SUPPORTED_ENCODINGS = None
+    DEFAULT_SAMPLE_RATE = 16000
+    DEFAULT_CHANNELS = 1
+    DEFAULT_ENCODING = "linear16"
+    VAD_GATING = "supported"
+
+    instances: list["RecordingModule"] = []
+
+    def __init__(self, config: dict) -> None:
+        super().__init__(config)
+        self.items: list = []
+        RecordingModule.instances.append(self)
+
+    async def start(
+        self,
+        audio_queue,
+        on_utterance,
+        on_connected=None,
+        *,
+        audio_format=DEFAULT_AUDIO_FORMAT,
+    ) -> None:
+        while True:
+            self.items.append(await audio_queue.get())
+
+    async def stop(self) -> None:
+        pass
+
+
+class UngatedModule(RecordingModule):
+    VAD_GATING = "unsupported"
+
+
+class BatchLikeModule(RecordingModule):
+    VAD_GATING = "required"
+
+
+# Open after 30 ms of speech, close after 50 ms of silence, 20 ms of pre-roll —
+# the same figures as tests/vad/test_gate.py, on the scripted VAD's 10 ms frames.
+_VAD = VadConfig(
+    type="scripted",
+    min_speech_duration_ms=30,
+    min_silence_duration_ms=50,
+    speech_pad_ms=20,
+)
+
+
+def _vad_engine(
+    module_cls: type = RecordingModule,
+    *,
+    vad: VadConfig | None = _VAD,
+    vad_cls: type = ScriptedVAD,
+    sample_rate: int = 16000,
+    source: HandFedSource | None = None,
+    module_extra: dict | None = None,
+    **engine_kwargs,
+) -> ASREngine:
+    config = ASREngineConfig(
+        sound_feedback=SoundFeedbackConfig(enabled=False),
+        audio=AudioConfig(sample_rate=sample_rate),
+        module=ModuleConfig(type="recording", extra=module_extra or {}),
+        vad=vad,
+    )
+    modules = {"recording": module_cls} if module_cls is not None else {}
+    with (
+        patch.dict("asr_engine.modules.REGISTRY", modules),
+        patch.dict("asr_engine.vad.REGISTRY", {"scripted": vad_cls}),
+    ):
+        return ASREngine(config, audio_source=source, **engine_kwargs)
+
+
+@pytest.mark.asyncio
+async def test_vad_module_receives_only_speech_then_one_marker_per_utterance():
+    source = HandFedSource()
+    engine = _vad_engine(source=source)
+    module = engine._asr_module
+    assert isinstance(module, RecordingModule)
+    first = pcm(quiet(200), loud(100), quiet(300, seed=3))
+    second = pcm(quiet(200, seed=4), loud(60, seed=5), quiet(300, seed=6))
+
+    await engine.start()
+    assert engine.status() == {"running": True, "connected": False, "vad": "scripted"}
+    source.queue.put_nowait(first)
+    source.queue.put_nowait(second)
+    await settle()
+    await engine.stop()
+
+    markers = [n for n, item in enumerate(module.items) if item is END_OF_SPEECH]
+    assert len(markers) == 2 and markers[-1] == len(module.items) - 1
+    # Pre-roll from 180 ms, hangover to 350 ms / 310 ms (see tests/vad/test_gate.py).
+    assert b"".join(module.items[: markers[0]]) == first[180 * 32 : 350 * 32]
+    assert b"".join(module.items[markers[0] + 1 : -1]) == second[180 * 32 : 310 * 32]
+    assert source.stops == 1  # stopping the engine stops the wrapped source
+
+
+def test_vad_with_a_module_that_does_not_handle_the_marker_is_a_config_error():
+    with pytest.raises(ValueError, match="'recording' does not support VAD gating"):
+        _vad_engine(UngatedModule)
+
+
+def test_a_module_that_requires_vad_is_a_config_error_without_one():
+    with pytest.raises(ValueError, match="'recording' needs a VAD.*engine.vad"):
+        _vad_engine(BatchLikeModule, vad=None)
+    # …and builds with one.
+    assert _vad_engine(BatchLikeModule).status()["vad"] == "scripted"
+
+
+def test_unknown_vad_type_fails_at_construction():
+    with pytest.raises(ValueError, match="Unknown VAD type 'nope'"):
+        _vad_engine(vad=VadConfig(type="nope"))
+
+
+def test_vad_module_config_is_validated_at_construction():
+    with pytest.raises(ValueError, match="boom"):
+        _vad_engine(vad=VadConfig(type="scripted", extra={"boom": 1}))
+
+
+def test_resampling_without_soxr_fails_at_construction_with_an_install_hint():
+    # A 24 kHz pipeline on a 16 kHz-only VAD needs the resampler…
+    with patch("asr_engine.engine.importlib.util.find_spec", return_value=None):
+        with pytest.raises(ImportError, match="soxr"):
+            _vad_engine(vad_cls=Scripted16kVAD, sample_rate=24000)
+        # …a rate the VAD supports does not, so soxr is not required for it.
+        assert _vad_engine(vad_cls=Scripted16kVAD, sample_rate=16000) is not None
+
+
+@pytest.mark.asyncio
+async def test_vad_model_is_loaded_once_across_start_stop_cycles():
+    source = HandFedSource()
+    engine = _vad_engine(source=source)
+    vad = engine._vad_module
+    assert isinstance(vad, ScriptedVAD) and vad.loads == 0  # not at construction
+
+    utterance = pcm(quiet(200), loud(100), quiet(300, seed=3))
+    module = engine._asr_module
+    assert isinstance(module, RecordingModule)
+    for cycle in (1, 2):
+        await engine.start()
+        source.queue.put_nowait(utterance)
+        await settle()
+        await engine.stop()
+        # Each run gates from a clean state: one utterance, one marker.
+        assert module.items.count(END_OF_SPEECH) == cycle
+    assert vad.loads == 1
+    assert (source.starts, source.stops) == (2, 2)
+
+
+@pytest.mark.asyncio
+async def test_fake_module_runs_its_script_on_gated_audio_only():
+    """``fake`` + VAD end to end: its audio-time clock counts only what the gate
+    lets through, so silence does not advance the script."""
+    utterances: list[SpeechUtterance] = []
+
+    async def collect(u: SpeechUtterance) -> None:
+        utterances.append(u)
+
+    source = HandFedSource()
+    config = ASREngineConfig(
+        sound_feedback=SoundFeedbackConfig(enabled=False),
+        module=ModuleConfig(
+            type="fake",
+            extra={"utterances": [{"text": "hello", "start_s": 0.0, "end_s": 0.2}]},
+        ),
+        vad=_VAD,
+    )
+    with patch.dict("asr_engine.vad.REGISTRY", {"scripted": ScriptedVAD}):
+        engine = ASREngine(config, audio_source=source, on_speech_utterance=collect)
+
+    await engine.start()
+    source.queue.put_nowait(pcm(quiet(1000)))  # five times the script's length
+    await settle()
+    assert utterances == []  # gated out: the fake's clock has not moved
+
+    source.queue.put_nowait(pcm(loud(300), quiet(200)))
+    await settle()
+    await engine.stop()
+    assert [(u.transcript, u.is_final) for u in utterances] == [("hello", True)]
+
+
+def test_no_vad_configured_imports_nothing_vad_related():
+    import subprocess
+    import sys
+
+    code = (
+        "import sys\n"
+        "from unittest.mock import MagicMock\n"
+        # Stub sounddevice as tests/conftest.py does, so PortAudio isn't needed.
+        "sys.modules['sounddevice'] = MagicMock()\n"
+        "from asr_engine import ASREngine, ASREngineConfig\n"
+        "ASREngine(ASREngineConfig.from_dict({'module': {'type': 'fake'},"
+        " 'sound_feedback': {'enabled': False}}))\n"
+        "bad = [m for m in sys.modules if m.startswith(('asr_engine.vad',"
+        " 'onnxruntime', 'soxr'))]\n"
+        "assert not bad, bad\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True
+    )
+    assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.asyncio
+async def test_vad_state_is_none_without_vad_and_follows_the_gate_with_it():
+    assert _vad_engine(vad=None).vad_state is None
+
+    from asr_engine.vad.gate import VadState
+
+    source = HandFedSource()
+    engine = _vad_engine(source=source)
+    assert engine.vad_state == VadState()  # before the first start
+
+    await engine.start()
+    source.queue.put_nowait(pcm(quiet(200), loud(100)))  # speech, still going
+    await settle()
+    assert engine.vad_state == VadState(speaking=True)
+    source.queue.put_nowait(pcm(quiet(300, seed=3)))  # the gate closes
+    await settle()
+    assert engine.vad_state == VadState()
+    await engine.stop()

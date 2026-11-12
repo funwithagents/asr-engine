@@ -89,6 +89,70 @@ class SoundFeedbackConfig:
 
 
 @dataclass
+class VadConfig:
+    """The optional ``engine.vad`` block: a VAD module and the gate's parameters.
+
+    See specs/vad.md "Configuration".
+    """
+
+    type: str = ""
+    threshold: float = 0.5
+    min_speech_duration_ms: int = 250
+    min_silence_duration_ms: int = 500
+    speech_pad_ms: int = 300
+    extra: dict[str, Any] = field(default_factory=dict)
+
+
+_VAD_GATE_FIELDS = (
+    "type",
+    "threshold",
+    "min_speech_duration_ms",
+    "min_silence_duration_ms",
+    "speech_pad_ms",
+)
+
+
+def _vad_duration(data: dict[str, Any], key: str, default: int, minimum: int) -> int:
+    value = data.get(key, default)
+    if isinstance(value, bool) or not isinstance(value, int) or value < minimum:
+        bound = "a positive integer" if minimum > 0 else "a non-negative integer"
+        raise ValueError(f"Invalid engine.vad.{key}: {value!r}. Must be {bound}.")
+    return value
+
+
+def _parse_vad(data: object) -> VadConfig | None:
+    """Parse and validate the ``engine.vad`` block (``None``/absent → no VAD)."""
+    if data is None:
+        return None
+    if not isinstance(data, dict):
+        raise ValueError("Invalid engine.vad: must be an object or null.")
+    vad_type = data.get("type")
+    if not isinstance(vad_type, str) or not vad_type:
+        raise ValueError(
+            "Config is missing required field: engine.vad.type "
+            "(omit the engine.vad block to run without VAD)"
+        )
+    threshold = data.get("threshold", 0.5)
+    if (
+        isinstance(threshold, bool)
+        or not isinstance(threshold, (int, float))
+        or not 0 < threshold < 1
+    ):
+        raise ValueError(
+            f"Invalid engine.vad.threshold: {threshold!r}. "
+            f"Must be a number strictly between 0 and 1."
+        )
+    return VadConfig(
+        type=vad_type,
+        threshold=float(threshold),
+        min_speech_duration_ms=_vad_duration(data, "min_speech_duration_ms", 250, 0),
+        min_silence_duration_ms=_vad_duration(data, "min_silence_duration_ms", 500, 1),
+        speech_pad_ms=_vad_duration(data, "speech_pad_ms", 300, 0),
+        extra={k: v for k, v in data.items() if k not in _VAD_GATE_FIELDS},
+    )
+
+
+@dataclass
 class ASREngineConfig:
     """Everything an ``ASREngine`` needs — the whole ``engine`` config block."""
 
@@ -100,6 +164,7 @@ class ASREngineConfig:
     sound_feedback: SoundFeedbackConfig = field(default_factory=SoundFeedbackConfig)
     audio: AudioConfig = field(default_factory=AudioConfig)
     module: ModuleConfig = field(default_factory=ModuleConfig)
+    vad: VadConfig | None = None  # None: no VAD stage (specs/vad.md)
 
     @classmethod
     def from_dict(cls, engine_block: dict[str, Any]) -> ASREngineConfig:
@@ -110,8 +175,8 @@ class ASREngineConfig:
         the top-level ``"engine"`` key (not the whole config file) and validates it
         — segmentation modes in {utterance, trigger_word, timeout}, encoding in
         {linear16, mulaw}, on_unsupported_format in {error, fallback},
-        ``auto_start_dictation`` requires ``auto_start``, and ``module.type`` is
-        required. ``from_json``/``from_json_file`` layer JSON string/file loading
+        ``auto_start_dictation`` requires ``auto_start``, ``module.type`` is
+        required, and the optional ``vad`` block's ``type`` and gate parameters. ``from_json``/``from_json_file`` layer JSON string/file loading
         over it, and ``MCPServerConfig.from_dict`` delegates its ``engine`` block
         here, so every entry point validates identically.
 
@@ -188,6 +253,8 @@ class ASREngineConfig:
         extra = {k: v for k, v in module_data.items() if k != "type"}
         module = ModuleConfig(type=module_type, extra=extra)
 
+        vad = _parse_vad(engine_block.get("vad"))
+
         return cls(
             auto_start=auto_start,
             auto_start_dictation=auto_start_dictation,
@@ -197,6 +264,7 @@ class ASREngineConfig:
             sound_feedback=sound_feedback,
             audio=audio,
             module=module,
+            vad=vad,
         )
 
     @classmethod

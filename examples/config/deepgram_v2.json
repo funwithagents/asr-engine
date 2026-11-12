@@ -14,6 +14,10 @@
       "type": "deepgram_v2",
       "api_key_env": "DEEPGRAM_API_KEY",
       "model": "flux-general-en"
+    },
+    "vad": {
+      "type": "silero",
+      "min_silence_duration_ms": 1500
     }
   }
 }

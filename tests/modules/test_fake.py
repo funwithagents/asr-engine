@@ -7,7 +7,7 @@ import asyncio
 import pytest
 
 from asr_engine.audio import AudioFormat
-from asr_engine.modules.base import SpeechUtterance
+from asr_engine.modules.base import AudioQueue, SpeechUtterance
 from asr_engine.modules.fake import FakeASRModule
 
 LINEAR16_16K = AudioFormat(sample_rate=16000, encoding="linear16")  # 32000 B/s
@@ -29,7 +29,7 @@ class _Harness:
     def __init__(self, config: dict, audio_format: AudioFormat = LINEAR16_16K) -> None:
         self.module = FakeASRModule(config)
         self.audio_format = audio_format
-        self.queue: asyncio.Queue[bytes] = asyncio.Queue()
+        self.queue: AudioQueue = asyncio.Queue()
         self.fed_s = 0.0
         self.events: list[tuple[float, str, bool, float | None]] = []
         self.connected: list[bool] = []
@@ -198,3 +198,23 @@ def test_touching_utterances_are_allowed():
             ]
         }
     )
+
+
+# ------------------------------------------------------------------ VAD gating
+
+
+async def test_end_of_speech_marker_is_ignored_and_does_not_move_the_clock():
+    from asr_engine.audio import END_OF_SPEECH
+
+    assert FakeASRModule.VAD_GATING == "supported"
+    h = _Harness({"utterances": [{"text": "hi", "start_s": 0.0, "end_s": 0.2}]})
+    await h.start()
+
+    await h.feed(0.1)
+    await h.queue.put(END_OF_SPEECH)  # the script, not the marker, decides finals
+    await _settle()
+    assert h.events == []
+
+    await h.feed(0.1)  # the clock carries on from 0.1 s
+    await h.stop()
+    assert h.events == [(0.2, "hi", True, None)]

@@ -246,7 +246,11 @@ async def test_is_running_tool_returns_engine_status():
     engine._connected = True
 
     result = await mcp.call_tool("is_running", {})
-    assert tool_result_json(result) == {"running": True, "connected": True}
+    assert tool_result_json(result) == {
+        "running": True,
+        "connected": True,
+        "vad": None,
+    }
 
 
 # ---------------------------------------------------------------------------

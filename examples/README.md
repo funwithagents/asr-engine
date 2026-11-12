@@ -27,8 +27,10 @@ export DEEPGRAM_API_KEY="..."
 The Gradio example drives an `ASREngine` directly. The two MCP examples require the server to be running in another terminal:
 
 ```bash
-cp config.example.json config.json
+cp examples/config/deepgram_v2.json config.json   # or another file in examples/config/
 uv run asr-engine-mcp --config config.json
 ```
+
+[`config/`](config/) holds one complete server config per ASR module (`deepgram_v1`, `deepgram_v2`, `mistral_realtime`, `kyutai`); the cloud ones enable the Silero VAD gate.
 
 Run examples from the repository root with `python -m` so their cross-example imports resolve correctly. See each example's README for its configuration, system requirements, and complete command line.

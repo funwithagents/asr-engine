@@ -165,7 +165,8 @@ Returns the current operational state of the ASR engine.
 ```json
 {
   "running": true,
-  "connected": true
+  "connected": true,
+  "vad": null
 }
 ```
 
@@ -173,6 +174,7 @@ Returns the current operational state of the ASR engine.
 |---|---|---|
 | `running` | boolean | Whether the ASR engine has been started |
 | `connected` | boolean | Whether the ASR backend WebSocket is currently connected |
+| `vad` | string / null | The configured `engine.vad.type`, or `null` when the engine runs without a VAD gate ([vad.md](vad.md)) |
 
 ### `listen`
 

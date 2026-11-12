@@ -68,6 +68,23 @@ class AudioFormat:
 DEFAULT_AUDIO_FORMAT = AudioFormat()
 
 
+class EndOfSpeech:
+    """In-band marker: the utterance whose audio precedes it is complete.
+
+    Put on the audio queue by the VAD gate (``asr_engine.vad.gate.VadGate``),
+    right after an utterance's last chunk, and only when a VAD is configured. An
+    ``AudioSource`` never emits it. See specs/vad.md "End of speech".
+    """
+
+    __slots__ = ()
+
+    def __repr__(self) -> str:
+        return "END_OF_SPEECH"
+
+
+END_OF_SPEECH = EndOfSpeech()  # the only instance; compare with `is`
+
+
 class AudioSource(Protocol):
     """Audio source for an ``ASREngine`` — the public, stable injection seam.
 
@@ -124,6 +141,19 @@ def linear16_to_mulaw(pcm: bytes) -> bytes:
     return ulaw.astype(np.uint8).tobytes()
 
 
+def mulaw_to_linear16(mulaw: bytes) -> bytes:
+    """Decode G.711 μ-law to signed 16-bit little-endian PCM (2 bytes/sample).
+
+    The inverse of ``linear16_to_mulaw``, up to G.711's quantization.
+    """
+    ulaw = ~np.frombuffer(mulaw, dtype=np.uint8).astype(np.int32) & 0xFF
+    exponent = (ulaw >> 4) & 0x07
+    mantissa = ulaw & 0x0F
+    magnitude = (((mantissa << 3) + 0x84) << exponent) - 0x84
+    samples = np.where(ulaw & 0x80, -magnitude, magnitude)
+    return samples.astype("<i2").tobytes()
+
+
 def _encode_chunk(linear16: bytes, fmt: AudioFormat) -> bytes:
     """Transcode a linear16 (s16) chunk to *fmt*'s encoding (no-op for linear16)."""
     if fmt.encoding == "mulaw":
@@ -139,6 +169,12 @@ def _silence_chunk(fmt: AudioFormat) -> bytes:
     """
     zeros = b"\x00" * (fmt.frames_per_chunk * fmt.channels * 2)
     return _encode_chunk(zeros, fmt)
+
+
+def _silence(fmt: AudioFormat, duration_s: float) -> bytes:
+    """*duration_s* of digital silence in *fmt*'s encoding, as one byte string."""
+    frames = round(fmt.sample_rate * duration_s)
+    return _encode_chunk(b"\x00" * (frames * fmt.channels * 2), fmt)
 
 
 def _validate_audio_format(info, path: Path, fmt: AudioFormat) -> None:

@@ -11,6 +11,7 @@ from asr_engine.audio import AudioFormat
 from asr_engine.modules import REGISTRY, load_module
 from asr_engine.modules.base import (
     ASRModule,
+    AudioQueue,
     SpeechUtterance,
     reconcile_audio_format,
     resolve_api_key,
@@ -135,7 +136,7 @@ async def test_asr_module_start_stop_called() -> None:
             self.stopped = True
 
     m = TrackingModule(config={})
-    queue: asyncio.Queue[bytes] = asyncio.Queue()
+    queue: AudioQueue = asyncio.Queue()
     cb = AsyncMock()
     await m.start(queue, cb)
     await m.stop()

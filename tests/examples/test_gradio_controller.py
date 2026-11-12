@@ -19,8 +19,9 @@ from unittest.mock import patch
 
 import pytest
 
-from asr_engine.config import ASREngineConfig, ModuleConfig
+from asr_engine.config import ASREngineConfig, ModuleConfig, VadConfig
 from asr_engine.modules import REGISTRY
+from asr_engine.vad.gate import VadState
 from examples.gradio_demo.controller import ControllerState, DemoController
 
 
@@ -46,6 +47,8 @@ class FakeEngine:
         self.listen_entered = asyncio.Event()
         self.dictation_calls: list[tuple[str | None, bool]] = []
         self.params_calls: list[tuple[list[str], float, float]] = []
+        # What the real engine reports: None without engine.vad, else the gate's.
+        self.vad_state: VadState | None = None if config.vad is None else VadState()
         FakeEngine.instances.append(self)
 
     async def start(self) -> None:
@@ -93,10 +96,10 @@ class FakeEngine:
 
 
 @contextmanager
-def make_controller() -> Iterator[DemoController]:
+def make_controller(vad: VadConfig | None = None) -> Iterator[DemoController]:
     """A controller whose engine is FakeEngine, torn down cleanly."""
     FakeEngine.instances.clear()
-    base = ASREngineConfig(module=ModuleConfig(type="deepgram_v1"))
+    base = ASREngineConfig(module=ModuleConfig(type="deepgram_v1"), vad=vad)
     with patch("examples.gradio_demo.controller.ASREngine", FakeEngine):
         with DemoController(base) as controller:
             yield controller
@@ -229,3 +232,41 @@ def test_start_dictation_before_running_is_rejected():
         c.start_dictation(mode="timeout")
         assert "Start the engine" in c.state().message
         assert c.state().phase == "stopped"
+
+
+# --- VAD view -----------------------------------------------------------------
+
+
+def test_without_vad_the_view_says_there_is_none():
+    with make_controller() as c:
+        c.start()
+        st = c.state()
+        assert st.vad.startswith("off")
+        assert st.voice_activity == "no VAD"
+
+
+def test_vad_view_shows_the_configured_gate_before_any_engine_exists():
+    gate = VadConfig(type="silero", min_silence_duration_ms=1500)
+    with make_controller(vad=gate) as c:
+        st = c.state()
+        assert st.vad.startswith("silero")
+        assert "closes after 1500 ms of silence" in st.vad
+        assert st.voice_activity == "idle (not capturing)"
+
+
+def test_vad_view_follows_the_engines_gate_while_running():
+    with make_controller(vad=VadConfig(type="silero")) as c:
+        c.start()
+        engine = FakeEngine.instances[-1]
+
+        engine.vad_state = VadState()
+        assert c.state().voice_activity == "silence: audio is held back"
+
+        engine.vad_state = VadState(speaking=True)
+        assert c.state().voice_activity == "SPEECH: audio is sent to the module"
+
+        engine.vad_state = VadState(speaking=True, failed_open=True)
+        assert c.state().voice_activity.startswith("FAILED OPEN")
+
+        c.stop()
+        assert c.state().voice_activity == "idle (not capturing)"

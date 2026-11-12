@@ -50,13 +50,16 @@ class ASRModule(ABC):
     DEFAULT_CHANNELS: ClassVar[int]
     DEFAULT_ENCODING: ClassVar[str]
 
+    # How the module relates to VAD gating (see "VAD gating" below).
+    VAD_GATING: ClassVar[VadGating] = "unsupported"
+
     def __init__(self, config: dict) -> None:
         self.config = config
 
     @abstractmethod
     async def start(
         self,
-        audio_queue: asyncio.Queue[bytes],
+        audio_queue: AudioQueue,  # asyncio.Queue[bytes | EndOfSpeech]
         on_utterance: UtteranceCallback,
         on_connected: ConnectedCallback | None = None,
         *,
@@ -65,7 +68,9 @@ class ASRModule(ABC):
         """
         Start the ASR module.
 
-        - audio_queue: async queue of raw audio chunks in `audio_format`
+        - audio_queue: async queue of raw audio chunks in `audio_format`. A
+          module whose VAD_GATING is not "unsupported" may also read
+          END_OF_SPEECH markers from it (only when a VAD is configured).
         - on_utterance: async callback invoked for each interim or final utterance
         - on_connected: optional callback invoked with the backend connection
           state (True on connect, False on disconnect). Drives the `connected`
@@ -85,7 +90,32 @@ class ASRModule(ABC):
         Should close the backend connection and stop consuming audio_queue.
         """
         ...
+
+    async def finalize(self) -> None:
+        """
+        The audio received so far ends an utterance: emit its final and be
+        ready for the next one. Default: no-op. See "VAD gating".
+        """
 ```
+
+## VAD gating
+
+When the engine is configured with a VAD ([vad.md](vad.md)), a speech gate sits between the audio source and the module: the module receives only the speech, and an in-band `END_OF_SPEECH` marker (`asr_engine.audio`, also exported from `asr_engine`) right after each utterance's last chunk. The full design, and what each bundled module does, is in [vad.md](vad.md) "End of speech"; the contract for a module author is:
+
+- **`VAD_GATING`** declares the module's relation to the gate. Unlike the audio-format attributes it has a default, so a module written before VAD existed keeps working unchanged.
+
+  | Value | Meaning | Engine check at construction |
+  |---|---|---|
+  | `"unsupported"` (default) | The module never receives a marker; its queue holds only `bytes`. | `engine.vad` set → `ValueError` |
+  | `"supported"` | Handles the marker; works with or without a VAD. | — |
+  | `"required"` | Produces no final without the marker (a batch backend). | no `engine.vad` → `ValueError` |
+
+- **The module handles the marker in its own drain loop**, where its connection or model is in scope: on `END_OF_SPEECH` it calls `self.finalize()` instead of sending audio. The engine never calls `finalize()`.
+- **`finalize()`** makes the backend emit the final for the audio received so far, and leaves the module ready for the next utterance on the same connection or session. It may return before the final has been emitted (the final can arrive through the normal receive path) and must not block the drain loop for long.
+- A marker read while the module is discarding audio (reconnect backoff, model loading) is discarded with it.
+- There is no start-of-utterance signal: an utterance begins with the first chunk after the previous marker. During a gap no chunk arrives, and the module waits on the queue as it would on an idle source (keep-alives and idle handling apply as usual).
+
+All five bundled modules declare `"supported"`.
 
 ## Audio Format Contract
 
@@ -158,6 +188,8 @@ Each real backend's third-party dependencies live in a `[project.optional-depend
 | `mistral` | `mistral_realtime` | `websockets` |
 | *(core)* | `fake` | — |
 
+The optional VAD stage follows the same rule with its own registry: the `silero` extra (`onnxruntime`, `soxr`) serves `engine.vad.type: "silero"` ([vad.md](vad.md)).
+
 A module file may import its SDK at module top level — the lazy registry guarantees it is only imported when selected. Adding a backend with new dependencies means adding an extra and naming it in the `LazyModule` entry.
 
 **One module over several extras.** A `LazyModule` names a single `extra`, which cannot describe `kyutai`: one registry key over two interchangeable backends, each with its own extra. It is therefore registered with `extra=None`, its module file imports no third-party package, and it resolves its backend in `__init__`, raising its own `ImportError` worded like the registry's (see [modules/kyutai.md](modules/kyutai.md) "Backend selection"). The error still surfaces at engine construction, so the fail-fast behaviour is unchanged.
@@ -168,7 +200,8 @@ A module file may import its SDK at module top level — the lazy registry guara
 2. Register it lazily in `modules/__init__.py`: `REGISTRY["<name>"] = LazyModule("asr_engine.modules.<backend>.<file>:<ClassName>", extra="<provider>")`. Put its third-party dependencies in a `<provider>` extra under `[project.optional-dependencies]` in `pyproject.toml` (never in core `dependencies`), and **add `<provider>` to the `all` extra** — `all` means every extra, no exceptions. Then decide *separately* whether the `dev` group needs it: add it there too when contributors must have the module type-checked and tested (the usual case), or leave it out when it is heavy enough that not every contributor should pay for it (see [project.md](project.md) "`all` means every extra").
 3. Document its config fields (the `engine.module` block accepts any fields beyond `type`); if it authenticates, resolve the key through `resolve_api_key` (`api_key` / `api_key_env`).
 4. Add the backend's spec as `specs/modules/<backend>.md` (or update the existing one, e.g. [modules/deepgram.md](modules/deepgram.md)), with its frontmatter `code:`/`tests:` lists, and a row in [_index.md](_index.md).
-5. Add a row to the `MODULES` table in `tests-e2e/helpers.py` (module type, model, `api_key_env`, a `silence_s` matching how long the backend needs to finalize an utterance, and the `ModuleAudio` — format + fixtures — to drive it with; a local-model module also gets a `LOCAL_MODEL_OPT_IN_ENV` entry) so `test_engine_modules.py` gives it e2e conformance coverage (see [e2e-testing.md](e2e-testing.md)). Verify with `zsh -ic 'uv run pytest tests-e2e -k <name>'`.
+5. Decide its `VAD_GATING` (see "VAD gating"): implement `finalize()` and the marker branch in the drain loop and declare `"supported"` — or `"required"` for a backend with no endpointing of its own. Leaving the default `"unsupported"` makes `engine.vad` a configuration error with this module.
+6. Add a row to the `MODULES` table in `tests-e2e/helpers.py` (module type, model, `api_key_env`, a `silence_s` matching how long the backend needs to finalize an utterance, and the `ModuleAudio` — format + fixtures — to drive it with; a local-model module also gets a `LOCAL_MODEL_OPT_IN_ENV` entry) so `test_engine_modules.py` gives it e2e conformance coverage, ungated and (when it supports gating) behind the VAD gate (see [e2e-testing.md](e2e-testing.md)). Verify with `zsh -ic 'uv run pytest tests-e2e -k <name>'`.
 
 ## Module Constructor Contract
 
@@ -206,4 +239,4 @@ Each module is solely responsible for reconnecting to its backend on connection 
 | 3 | 4s |
 | 4+ | 8s (max) |
 
-While reconnecting, the module must continue draining `audio_queue` to prevent it from growing unbounded.
+While reconnecting, the module must continue draining `audio_queue` to prevent it from growing unbounded. `END_OF_SPEECH` markers drained this way are dropped.

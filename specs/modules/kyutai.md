@@ -234,6 +234,18 @@ The model emits one text token per 80 ms frame and **never revises** what it has
 
 - After a final the accumulator resets. **An empty accumulator emits nothing** — matching the Deepgram modules, which discard empty transcripts.
 
+### VAD gating
+
+`VAD_GATING = "supported"` ([vad.md](../vad.md)). The model is free and has its own semantic end-of-turn, so the gate is rarely needed here; it saves compute and stretches the step budget on battery or thermally limited hardware. With the gate on, give it a longer hangover (`min_silence_duration_ms` about 1500) so the semantic VAD above still decides, as for Flux.
+
+Both timers above count model steps, and a closed gate means no audio, hence no steps. So on an `END_OF_SPEECH` marker the feed loop calls `finalize()`, which:
+
+1. pads the partial frame left in the re-blocking buffer with zeros and queues it;
+2. queues `ceil(audio_delay_seconds / 0.08) + 2` frames of silence, enough to push the words still behind the model's delay out of it (silence is free here);
+3. queues a flush marker, which the worker echoes to the emit loop once every frame before it has been stepped.
+
+On that echo the emit loop emits the accumulated text as a final (`confidence=None`) and resets its utterance state — the forced-final branch of the step-budget recycle, without the backend reset. If the semantic VAD already emitted the final during the hangover, the accumulator is empty and nothing more is emitted. The flush marker is a control item, so the [backpressure](#backpressure) drop keeps it. A marker read while the model is loading or the session is restarting is dropped with the audio.
+
 The `Segmenter` and everything downstream then behave exactly as they do for a cloud module: the module's finals are what `utterance` / `trigger_word` mode close on.
 
 ### Latency
@@ -312,6 +324,7 @@ The [speed rule](../testing.md) forbids loading a real model here, so every test
 - **Lifecycle:** `on_connected(True)` only after `load()` returns, with load-time audio dropped; `stop()` unblocks an idle `start()`, and one interrupted mid-load; `stop()` does **not** discard the loaded backend, and every backend call lands on one thread; a failed `load()` or `step()` is retried with a fresh backend.
 - **Backend selection:** `auto` resolves per monkeypatched platform; a forced-unavailable backend raises the install-hint `ImportError`.
 - **Validation:** one test per branch above.
+- **VAD gating:** an `END_OF_SPEECH` marker pads the partial frame, steps the flush frames and yields one final; text arriving during the flush belongs to it, and the next utterance starts clean without a session reset; nothing accumulated emits nothing; a semantic-VAD final before the marker is not repeated; the flush survives a lag drop; a marker during model load is dropped.
 
 ### E2E tier
 
@@ -339,7 +352,7 @@ Its `silence_s` is 4.0 s: it must exceed `audio_delay_seconds + finalize_after_s
 | `scripts/benchmark_kyutai.py` | Real-time-factor benchmark (MLX); also pre-fetches the weights |
 | `tests/modules/test_kyutai.py` | Fast tier, on the scripted fake backend |
 | `tests-e2e/fixtures/sample_24000_*.wav` | 24 kHz conformance fixtures |
-| `config.kyutai.example.json` | A complete server config for this module |
+| `examples/config/kyutai.json` | A complete server config for this module (`engine.vad` left `null`) |
 
 ## Non-goals
 

@@ -10,9 +10,11 @@ import logging
 
 from asr_engine.audio import (
     DEFAULT_AUDIO_FORMAT,
+    END_OF_SPEECH,
     AudioCapture,
     AudioFormat,
     AudioSource,
+    EndOfSpeech,
     FileAudioSource,
     ScriptableAudioSource,
 )
@@ -22,6 +24,7 @@ from asr_engine.config import (
     ModuleConfig,
     SegmentationConfig,
     SoundFeedbackConfig,
+    VadConfig,
 )
 from asr_engine.engine import ASREngine
 from asr_engine.modules.base import SpeechUtterance
@@ -45,6 +48,7 @@ __all__ = [
     "ModuleConfig",
     "SegmentationConfig",
     "SoundFeedbackConfig",
+    "VadConfig",
     # Audio sources + format
     "AudioSource",
     "AudioCapture",
@@ -52,6 +56,9 @@ __all__ = [
     "DEFAULT_AUDIO_FORMAT",
     "FileAudioSource",
     "ScriptableAudioSource",
+    # VAD end-of-speech marker (for ASR module authors; see specs/vad.md)
+    "EndOfSpeech",
+    "END_OF_SPEECH",
     # Data types
     "SpeechUtterance",
     "SpeechSegment",

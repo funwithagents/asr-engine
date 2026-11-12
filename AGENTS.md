@@ -12,12 +12,12 @@ Where things live. This is a coarse, module-level map — for the full file inve
 
 | Path | What's there |
 |---|---|
-| `src/asr_engine/` | The library itself — one module per core concept (see below); pluggable ASR backends in `modules/` — the registry and `base.py` at its root, then **one package per backend** (`modules/deepgram/`, `modules/mistral/`, `modules/kyutai/`, `modules/fake/`); bundled cues in `sounds/` |
+| `src/asr_engine/` | The library itself — one module per core concept (see below); pluggable ASR backends in `modules/` — the registry and `base.py` at its root, then **one package per backend** (`modules/deepgram/`, `modules/mistral/`, `modules/kyutai/`, `modules/fake/`); the optional VAD stage in `vad/` — its registry, `base.py` and the shared `gate.py` at its root, then one package per VAD backend (`vad/silero/`) — see [specs/vad.md](specs/vad.md); bundled cues in `sounds/` |
 | `specs/` | Pre-implementation design docs, one per concept, each with a `**Status:**` — indexed by [specs/_index.md](specs/_index.md). Per-backend specs live in `specs/modules/` (one `<backend>.md` each, mirroring `src/asr_engine/modules/<backend>/`); the contract they all implement stays at the top level ([asr-module-interface.md](specs/asr-module-interface.md)) |
 | `plans/` | Implementation plans turning settled specs into buildable steps — indexed by [plans/_index.md](plans/_index.md) |
-| `tests/` | Fast, deterministic, no-network tests; mirrors the `src/asr_engine/` module structure (`tests/examples/` covers `examples/`); `tests/modules/` stays flat — one `test_<module>.py` per backend module, not a folder per backend |
+| `tests/` | Fast, deterministic, no-network tests; mirrors the `src/asr_engine/` module structure (`tests/examples/` covers `examples/`); `tests/modules/` stays flat — one `test_<module>.py` per backend module, not a folder per backend; `tests/vad/` covers `src/asr_engine/vad/` (its `scripted.py` holds the deterministic VAD and hand-fed source other tests reuse) |
 | `tests-e2e/` | Opt-in real-time pipeline tests: per-module conformance against live provider APIs, everything else keyless on the scripted `fake` module (not collected by default `pytest`) |
-| `examples/` | Runnable consumers of the library, not part of the wheel — `gradio_demo/`, `mcp_client/`, `asr_to_terminal/`, each run via `python -m examples.<pkg>.<module>`; see [examples/README.md](examples/README.md) and [specs/project.md](specs/project.md) "Repo shape" |
+| `examples/` | Runnable consumers of the library, not part of the wheel — `gradio_demo/`, `mcp_client/`, `asr_to_terminal/`, each run via `python -m examples.<pkg>.<module>`; `config/` holds one complete server config per ASR module (with its recommended `engine.vad`); see [examples/README.md](examples/README.md) and [specs/project.md](specs/project.md) "Repo shape" |
 | `scripts/` | Standalone debug/utility scripts (not part of the package) |
 | `.github/workflows/` | The CI workflow (`ci.yml`) — static gate, fast tier on Linux/macOS/Windows, live tier on Linux; see [specs/ci.md](specs/ci.md) |
 
@@ -109,7 +109,7 @@ After any code change, run linting, type checking, and tests, and fix any failur
 ## Commands
 
 ```bash
-uv sync --dev                # full contributor environment (dev names the extras it needs: deepgram, mcp, kyutai-mlx — not kyutai-torch, see specs/project.md)
+uv sync --dev                # full contributor environment (dev names the extras it needs: deepgram, mcp, kyutai-mlx, mistral, silero — not kyutai-torch, see specs/project.md)
 uv run ruff check .
 uv run ruff format .
 uv run pyright

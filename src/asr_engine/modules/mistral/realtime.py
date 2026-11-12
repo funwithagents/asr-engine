@@ -21,9 +21,15 @@ from urllib.parse import urlencode
 
 import websockets
 
-from asr_engine.audio import DEFAULT_AUDIO_FORMAT, AudioFormat
+from asr_engine.audio import (
+    DEFAULT_AUDIO_FORMAT,
+    AudioFormat,
+    EndOfSpeech,
+    _silence,
+)
 from asr_engine.modules.base import (
     ASRModule,
+    AudioQueue,
     ConnectedCallback,
     SpeechUtterance,
     UtteranceCallback,
@@ -51,6 +57,10 @@ _TURN_DURATIONS = ("min_silence_ms", "end_timeout_ms")
 _SERVER_IDLE_KILL_S = (
     30.0  # measured: the server drops a session after ~30 s of no audio
 )
+# VAD gating: silence sent past the streaming delay on an end-of-speech marker.
+# Measured: the text of audio already sent only arrives once the server has
+# received about one streaming delay of further audio (specs/modules/mistral.md).
+_FLUSH_MARGIN_S = 0.2
 _HANDSHAKE_TIMEOUT_S = 10.0
 _CLOSE_TIMEOUT_S = 2.0
 _LANGUAGE_RE = re.compile(r"^[A-Za-z]{2}$")
@@ -172,6 +182,7 @@ class MistralRealtimeModule(ASRModule):
     DEFAULT_SAMPLE_RATE = 16000
     DEFAULT_CHANNELS = 1
     DEFAULT_ENCODING = "linear16"
+    VAD_GATING = "supported"
 
     _BACKOFF_S: tuple[float, ...] = (1.0, 2.0, 4.0, 8.0)
 
@@ -241,6 +252,13 @@ class MistralRealtimeModule(ASRModule):
         self._on_utterance: UtteranceCallback | None = None
         self._on_connected: ConnectedCallback | None = None
 
+        # VAD gating: the open session and the silence finalize() sends on it.
+        self._conn: RealtimeConnection | None = None
+        self._flush_silence = b""
+        # After a marker the final is emitted once no text has arrived for this
+        # long (the streaming delay plus the margin); each delta restarts it.
+        self._flush_s = self._delay_ms / 1000 + self._final_margin_s
+
         # Utterance assembly. The lock serializes every emission and every change
         # to the accumulator, so an interim and a timer-driven final never interleave.
         self._accum = ""
@@ -251,7 +269,7 @@ class MistralRealtimeModule(ASRModule):
 
     async def start(
         self,
-        audio_queue: asyncio.Queue[bytes],
+        audio_queue: AudioQueue,
         on_utterance: UtteranceCallback,
         on_connected: ConnectedCallback | None = None,
         *,
@@ -259,6 +277,9 @@ class MistralRealtimeModule(ASRModule):
     ) -> None:
         self._stop_event.clear()
         self._stopped.clear()
+        self._flush_silence = _silence(
+            audio_format, self._delay_ms / 1000 + _FLUSH_MARGIN_S
+        )
         self._running = True
         self._on_utterance = on_utterance
         self._on_connected = on_connected
@@ -293,9 +314,12 @@ class MistralRealtimeModule(ASRModule):
                     break
                 # Parked after an idle gap: stay "connected" and reopen a session
                 # with the next chunk, which goes out first once it is ready.
-                pending = await self._next_chunk(audio_queue)
-                if pending is None:
+                item = await self._next_chunk(audio_queue)
+                while isinstance(item, EndOfSpeech):  # nothing open to finalize
+                    item = await self._next_chunk(audio_queue)
+                if item is None:
                     break
+                pending = item
         finally:
             await self._cancel_timers()
             self._set_connected(False)
@@ -341,7 +365,7 @@ class MistralRealtimeModule(ASRModule):
         url: str,
         headers: dict[str, str],
         session_update: dict[str, Any],
-        audio_queue: asyncio.Queue[bytes],
+        audio_queue: AudioQueue,
         pending: bytes | None,
     ) -> SessionEnd:
         """One server session: handshake, stream until stop/idle, then flush.
@@ -359,6 +383,7 @@ class MistralRealtimeModule(ASRModule):
                 )
             await conn.send(json.dumps(session_update))
             self._handshake_ok = True
+            self._conn = conn
             self._set_connected(True)
 
             receiver = asyncio.create_task(self._receive(conn))
@@ -386,12 +411,13 @@ class MistralRealtimeModule(ASRModule):
                 await self._finalize()
                 return end
             finally:
+                self._conn = None
                 await _cancel(receiver, sender)
 
     async def _send_audio(
         self,
         conn: RealtimeConnection,
-        audio_queue: asyncio.Queue[bytes],
+        audio_queue: AudioQueue,
         pending: bytes | None,
     ) -> SessionEnd:
         if pending is not None:
@@ -407,7 +433,26 @@ class MistralRealtimeModule(ASRModule):
                     self._idle_close_s,
                 )
                 return "idle"
-            await self._append(conn, chunk)
+            if isinstance(chunk, EndOfSpeech):
+                await self.finalize()
+            else:
+                await self._append(conn, chunk)
+
+    async def finalize(self) -> None:
+        """End of a VAD-gated utterance: flush its text and emit the final.
+
+        ``input_audio.end`` would end the session, so the flush is local. The text
+        of the audio already sent is still behind the streaming delay and only
+        arrives once the server receives more audio, so this sends one burst of
+        silence covering that delay, then emits the accumulated text as a final
+        once no delta has arrived for ``streaming_delay_ms + final_margin_ms``.
+        See specs/vad.md "Per-module finalize()".
+        """
+        conn = self._conn
+        if conn is None:
+            return
+        await self._append(conn, self._flush_silence)
+        self._arm("flush", self._flush_s, restart=True)
 
     @staticmethod
     async def _append(conn: RealtimeConnection, chunk: bytes) -> None:
@@ -447,6 +492,8 @@ class MistralRealtimeModule(ASRModule):
             if transcript:
                 await self._emit(transcript, is_final=False)
         self._arm("silence", self._silence_s, restart=True)
+        if "flush" in self._timers:  # still flushing a gated utterance
+            self._arm("flush", self._flush_s, restart=True)
 
     def _arm(self, name: str, delay: float, *, restart: bool) -> None:
         current = self._timers.get(name)
@@ -505,9 +552,9 @@ class MistralRealtimeModule(ASRModule):
             self._on_connected(connected)
 
     async def _next_chunk(
-        self, audio_queue: asyncio.Queue[bytes], timeout: float | None = None
-    ) -> bytes | None:
-        """The next chunk, or ``None`` on stop or after *timeout* seconds."""
+        self, audio_queue: AudioQueue, timeout: float | None = None
+    ) -> bytes | EndOfSpeech | None:
+        """The next queue item, or ``None`` on stop or after *timeout* seconds."""
         if self._stop_event.is_set():
             return None
         get_task = asyncio.create_task(audio_queue.get())
@@ -526,8 +573,9 @@ class MistralRealtimeModule(ASRModule):
             return get_task.result()
         return None
 
-    async def _drain_for(self, audio_queue: asyncio.Queue[bytes], delay: float) -> None:
-        """Discard audio for *delay* seconds (or until stop) while reconnecting."""
+    async def _drain_for(self, audio_queue: AudioQueue, delay: float) -> None:
+        """Discard audio (and end-of-speech markers) for *delay* seconds, or until
+        stop, while reconnecting."""
         loop = asyncio.get_running_loop()
         deadline = loop.time() + delay
         while not self._stop_event.is_set():

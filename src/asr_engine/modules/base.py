@@ -5,9 +5,9 @@ import logging
 import os
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Awaitable, Callable, ClassVar
+from typing import Awaitable, Callable, ClassVar, Literal
 
-from asr_engine.audio import DEFAULT_AUDIO_FORMAT, AudioFormat
+from asr_engine.audio import DEFAULT_AUDIO_FORMAT, AudioFormat, EndOfSpeech
 
 log = logging.getLogger(__name__)
 
@@ -18,6 +18,13 @@ class SpeechUtterance:
     is_final: bool
     confidence: float | None  # None if not provided by backend
 
+
+# What a module's audio queue carries: PCM chunks, plus the VAD gate's
+# end-of-speech marker when a VAD is configured (specs/vad.md).
+AudioQueue = asyncio.Queue[bytes | EndOfSpeech]
+
+# How a module relates to VAD gating (specs/vad.md "The module contract").
+VadGating = Literal["unsupported", "supported", "required"]
 
 UtteranceCallback = Callable[[SpeechUtterance], Awaitable[None]]
 ConnectedCallback = Callable[[bool], None]
@@ -151,6 +158,13 @@ class ASRModule(ABC):
     DEFAULT_CHANNELS: ClassVar[int]
     DEFAULT_ENCODING: ClassVar[str]
 
+    # VAD gating (specs/vad.md). Unlike the capabilities above this has a default,
+    # so a module written before VAD existed keeps working unchanged.
+    # "unsupported": never sent a marker; VAD + this module is a config error.
+    # "supported":   handles the marker; works with or without VAD.
+    # "required":    produces no final without it; no VAD + this module is a config error.
+    VAD_GATING: ClassVar[VadGating] = "unsupported"
+
     def __init_subclass__(cls, **kwargs: object) -> None:
         super().__init_subclass__(**kwargs)
         if not _is_concrete(cls):
@@ -176,7 +190,7 @@ class ASRModule(ABC):
     @abstractmethod
     async def start(
         self,
-        audio_queue: asyncio.Queue[bytes],
+        audio_queue: AudioQueue,
         on_utterance: UtteranceCallback,
         on_connected: ConnectedCallback | None = None,
         *,
@@ -185,6 +199,9 @@ class ASRModule(ABC):
         """
         Start the ASR module.
 
+        - audio_queue: PCM chunks. A module whose ``VAD_GATING`` is not
+          ``"unsupported"`` may also receive ``END_OF_SPEECH`` markers on it (only
+          when a VAD is configured) and calls ``finalize()`` for each.
         - audio_format: the reconciled format (rate/channels/encoding) of the
           chunks arriving on ``audio_queue``; the module reports it to its backend.
 
@@ -197,3 +214,12 @@ class ASRModule(ABC):
     async def stop(self) -> None:
         """Stop the ASR module gracefully."""
         ...
+
+    async def finalize(self) -> None:
+        """The audio received so far ends an utterance: emit its final and be
+        ready for the next one.
+
+        Called by the module itself, from its own drain loop, when it reads an
+        ``END_OF_SPEECH`` marker. May return before the final has been emitted,
+        and must not block the drain loop for long. Default: no-op.
+        """

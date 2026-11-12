@@ -113,6 +113,8 @@ A plain snapshot the UI renders. Fields:
 | `trigger_words: str` | pending config's segmentation trigger words, comma-joined (for the textbox) |
 | `initial_silence_timeout_s`, `end_of_speech_timeout_s: float` | pending config's segmentation timeouts |
 | `device: str \| None`, `module_type: str` | current pending config |
+| `vad: str` | the pending config's `engine.vad`, one line (`format_vad_config`) |
+| `voice_activity: str` | `engine.vad_state` ([engine.md](engine.md)) and whether the engine is capturing (`format_voice_activity`) |
 | `utterance_log: list[str]` | **every** utterance formatted (interim + final), most-recent last (bounded deque) |
 | `segment_log: list[str]` | **every** segment formatted (interim `[open]` + closed `[end_reason]`), most-recent last (bounded deque) |
 | `last_listen: str` | formatted result of the last `listen` |
@@ -129,6 +131,11 @@ A single Gradio `Blocks` page, top to bottom:
 - **Params row**: a trigger-words textbox (comma-separated), two timeout number inputs, and an "Apply params" button calling `set_segmentation_params`. The timer only toggles these inputs' *enablement* — it never rewrites their value, so it can't clobber what the user is typing; the current values seed them at build time.
 - **Engine row**: Start and Stop buttons (always-on capture).
 - **State row**: read-only fields for the engine **phase** (`stopped` / `running` / `dictating` / `listening`) and backend connection. Because the mode dropdown is a free input (not a mirror of engine state), the phase field shows the **active** mode next to the phase while `dictating`/`listening` (e.g. `dictating · trigger_word`), so the user still sees what is running.
+- **VAD row**: two read-only fields for the optional VAD gate ([vad.md](vad.md)).
+  - **VAD gate:** the configured `engine.vad` in one line (type, threshold, open/close durations, pre-roll), or "off" when the config has none. The demo does not edit it: the gate is set in the config file.
+  - **Voice activity:** what the gate is doing right now: `SPEECH` (audio is reaching the module), `silence` (held back), `FAILED OPEN` (the VAD raised and everything is sent), `idle` when not capturing, `no VAD` without one.
+
+  The timer polls every 0.25 s, so the voice-activity field follows the gate closely enough to show even a short utterance (the gate stays open at least `min_silence_duration_ms`).
 - **Segmentation + actions row** (two columns): on the **left**, a **Segmentation mode** dropdown (`utterance` / `trigger_word` / `timeout`) beside an "end dictation on first final segment" checkbox (two columns on one line); on the **right**, Start-dictation / Stop-dictation buttons on the first line and the Listen (single-shot) button on the second. The dropdown is a free user choice that drives **both** `listen` (the mode passed to `controller.listen`) and `start_dictation`; it stays editable in every phase and the poll timer **never** overwrites its value (that would clobber the selection — same rule as the params inputs). Start-dictation is enabled while `running` and not yet dictating; Stop-dictation while `dictating`.
 - **Last activity**: a read-only line carrying the controller's message (result of the most recent action or an error).
 - **Results**: two scrolling, read-only log panels — utterances and segments — each showing **every** event including interims (autoscrolled to the newest, so the last line is the latest), a **Clear** button beneath them (`clear_logs`), plus the last `listen` result. There are no separate "latest" single-line boxes; the log's tail is the latest.
@@ -180,6 +187,7 @@ The examples directory is not built into the wheel (`[tool.uv_build].include` co
 - **`listen` cancellation**: `stop()` during the `listening` phase cancels the listen task and returns the phase to `stopped` with the cancelled message.
 - **Param validation**: `set_segmentation_params` rejects non-positive timeouts with a message and leaves prior params intact.
 - **Phase transitions**: `stopped` → `running` → `dictating` → `running`, and the `can_start` / `can_stop` / `can_listen` / `can_dictate` / `config_enabled` enablement derived from each phase.
+- **VAD view**: without `engine.vad` the fields say there is none; with one, they show the configured gate before any engine exists, then follow the engine's `vad_state` through silence, speech and fail-open, and return to idle after Stop.
 
 The engine behavior the demo relies on (the `segmentation_mode` / `dictating` getters, `start_dictation` / `stop_dictation`, `listen`) is separately covered by the engine's own tests in `tests/test_engine.py`; the controller tests use a fake engine so they stay fast and deterministic and pin the *controller's* logic, not the engine's.
 

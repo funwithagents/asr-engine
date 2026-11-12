@@ -27,9 +27,10 @@ from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 
-from asr_engine.audio import DEFAULT_AUDIO_FORMAT, AudioFormat
+from asr_engine.audio import DEFAULT_AUDIO_FORMAT, AudioFormat, EndOfSpeech
 from asr_engine.modules.base import (
     ASRModule,
+    AudioQueue,
     ConnectedCallback,
     SpeechUtterance,
     UtteranceCallback,
@@ -101,6 +102,14 @@ class _Recycled:
 
 
 _RECYCLED = _Recycled()
+
+
+class _Flushed:
+    """Worker → emit loop: every frame of a VAD-gated utterance has been stepped."""
+
+
+_FLUSHED = _Flushed()
+_FLUSH = object()  # feed loop → worker: echo _FLUSHED once the frames before it ran
 _RESET = object()  # emit loop → worker: reset the session at this point
 _STOP = object()  # module → worker: end the session
 
@@ -114,6 +123,7 @@ class KyutaiModule(ASRModule):
     DEFAULT_SAMPLE_RATE = SAMPLE_RATE
     DEFAULT_CHANNELS = 1
     DEFAULT_ENCODING = "linear16"
+    VAD_GATING = "supported"
 
     # Retry delays after a failed load/session (specs/asr-module-interface.md
     # "Reconnection Contract"); the last value repeats.
@@ -193,6 +203,12 @@ class KyutaiModule(ASRModule):
         self._executor: ThreadPoolExecutor | None = None
         self._load_future: asyncio.Future[None] | None = None
 
+        # VAD gating: the running session's frame queue, partial-frame buffer and
+        # flush length, for finalize().
+        self._frames: queue.Queue | None = None
+        self._buffer = bytearray()
+        self._flush_frames = 0
+
         self._stop_event = asyncio.Event()
         self._idle = asyncio.Event()  # set whenever start() is not running
         self._idle.set()
@@ -218,7 +234,7 @@ class KyutaiModule(ASRModule):
 
     async def start(
         self,
-        audio_queue: asyncio.Queue[bytes],
+        audio_queue: AudioQueue,
         on_utterance: UtteranceCallback,
         on_connected: ConnectedCallback | None = None,
         *,
@@ -269,9 +285,7 @@ class KyutaiModule(ASRModule):
         await self.stop()
         await self._discard_backend()
 
-    async def _ensure_loaded(
-        self, audio_queue: asyncio.Queue[bytes]
-    ) -> KyutaiBackend | None:
+    async def _ensure_loaded(self, audio_queue: AudioQueue) -> KyutaiBackend | None:
         """Return the loaded backend, loading it on first use; None if stopped.
 
         The load runs on the backend thread while ``audio_queue`` is drained, so
@@ -328,7 +342,7 @@ class KyutaiModule(ASRModule):
     async def _run_session(
         self,
         backend: KyutaiBackend,
-        audio_queue: asyncio.Queue[bytes],
+        audio_queue: AudioQueue,
         on_utterance: UtteranceCallback,
     ) -> None:
         """Run feed loop + worker thread + emit loop until stop() or a failure."""
@@ -337,6 +351,11 @@ class KyutaiModule(ASRModule):
         frames: queue.Queue = queue.Queue()
         results: asyncio.Queue = asyncio.Queue()
         worker_stop = threading.Event()
+        self._frames = frames
+        self._buffer = bytearray()
+        # The text runs audio_delay_s behind the audio: this many silent frames
+        # push the last words of a gated utterance out of the model.
+        self._flush_frames = math.ceil(backend.audio_delay_s / STEP_S - 1e-9) + 2
 
         def deliver(item: object) -> None:
             try:
@@ -358,6 +377,7 @@ class KyutaiModule(ASRModule):
             for task in done:
                 task.result()  # re-raise a session failure
         finally:
+            self._frames = None
             await _cancel(feed_task, emit_task)
             worker_stop.set()
             frames.put(_STOP)
@@ -401,6 +421,9 @@ class KyutaiModule(ASRModule):
                     backend.reset()
                     prime()
                     continue
+                if item is _FLUSH:
+                    deliver(_FLUSHED)
+                    continue
                 if backend.steps_remaining == 0:
                     # Budget exhausted with an utterance still open: tell the emit
                     # loop to force-finalize, then carry on in a fresh session.
@@ -417,17 +440,18 @@ class KyutaiModule(ASRModule):
             except Exception:
                 log.exception("Kyutai backend reset() failed")
 
-    async def _feed_loop(
-        self, audio_queue: asyncio.Queue[bytes], frames: queue.Queue
-    ) -> None:
+    async def _feed_loop(self, audio_queue: AudioQueue, frames: queue.Queue) -> None:
         """Re-block s16 chunks into float32 model frames; apply backpressure."""
         loop = asyncio.get_running_loop()
-        buffer = bytearray()
+        buffer = self._buffer
         last_warn = -math.inf
         while True:
             chunk = await self._get_or_stop(audio_queue)
             if chunk is None:
                 return
+            if isinstance(chunk, EndOfSpeech):
+                await self.finalize()
+                continue
             buffer.extend(chunk)
             while len(buffer) >= FRAME_BYTES:
                 pcm = np.frombuffer(bytes(buffer[:FRAME_BYTES]), dtype="<i2")
@@ -447,6 +471,28 @@ class KyutaiModule(ASRModule):
                         last_warn = now
                         log.warning("Kyutai model is %.1f s behind real time", lag_s)
                 frames.put(pcm.astype(np.float32) / 32768.0)
+
+    async def finalize(self) -> None:
+        """End of a VAD-gated utterance: flush the model and force a final.
+
+        The module's timers count model steps, and a closed gate means no audio,
+        hence no steps. So: pad the partial frame with zeros, feed enough silent
+        frames to push out the text still behind the model's delay, then a marker
+        the worker echoes to the emit loop, which finalizes what has accumulated.
+        See specs/vad.md "Per-module finalize()".
+        """
+        frames = self._frames
+        if frames is None:
+            return
+        if self._buffer:
+            self._buffer.extend(bytes(FRAME_BYTES - len(self._buffer)))
+            pcm = np.frombuffer(bytes(self._buffer), dtype="<i2")
+            self._buffer.clear()
+            frames.put(pcm.astype(np.float32) / 32768.0)
+        silence = np.zeros(FRAME_SAMPLES, dtype=np.float32)
+        for _ in range(self._flush_frames):
+            frames.put(silence)
+        frames.put(_FLUSH)
 
     def _drop_oldest(self, frames: queue.Queue) -> int:
         """Drop the oldest queued frames until lag is back to ``lag_warn_s``."""
@@ -515,6 +561,13 @@ class KyutaiModule(ASRModule):
                 vad_high, final_in_steps, final_confidence = False, None, None
                 reset_requested = False
                 continue
+            if item is _FLUSHED:
+                # A VAD-gated utterance ended: finalize what has accumulated. A
+                # final the semantic VAD emitted in the meantime left nothing here.
+                await emit(True, None)
+                text, steps_since_text = "", 0
+                vad_high, final_in_steps, final_confidence = False, None, None
+                continue
 
             result, steps_remaining = item
             if result.text is not None:
@@ -582,14 +635,14 @@ class KyutaiModule(ASRModule):
         return None
 
     @staticmethod
-    async def _drain_forever(audio_queue: asyncio.Queue[bytes]) -> None:
+    async def _drain_forever(audio_queue: AudioQueue) -> None:
         while True:
             await audio_queue.get()
 
-    async def _drain_queue_for(
-        self, audio_queue: asyncio.Queue[bytes], duration: float
-    ) -> None:
-        """Drain audio_queue for *duration* seconds (or until stop())."""
+    async def _drain_queue_for(self, audio_queue: AudioQueue, duration: float) -> None:
+        """Drain audio_queue for *duration* seconds (or until stop()).
+
+        End-of-speech markers are discarded with the audio they follow."""
         loop = asyncio.get_running_loop()
         deadline = loop.time() + duration
         while not self._stop_event.is_set():

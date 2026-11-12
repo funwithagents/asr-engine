@@ -41,6 +41,7 @@ uv sync --no-default-groups --extra deepgram --extra mcp   # + the MCP server (a
 uv sync --no-default-groups --extra mistral                # Mistral Voxtral realtime
 uv sync --no-default-groups --extra kyutai-mlx             # local Kyutai STT, Apple Silicon (MLX)
 uv sync --no-default-groups --extra kyutai-torch           # local Kyutai STT, elsewhere (PyTorch)
+uv sync --no-default-groups --extra deepgram --extra silero   # + the optional Silero VAD gate
 uv sync --no-default-groups --extra all                    # every provider and the server
 
 # For an installed package:
@@ -48,6 +49,7 @@ pip install 'asr-engine[deepgram]'
 pip install 'asr-engine[mcp,deepgram]'
 pip install 'asr-engine[mistral]'
 pip install 'asr-engine[kyutai-mlx]'     # or 'asr-engine[kyutai-torch]'
+pip install 'asr-engine[deepgram,silero]'   # a provider + the optional Silero VAD gate
 pip install 'asr-engine[all]'
 ```
 
@@ -185,6 +187,7 @@ A complete engine block looks like this:
 |---|---|
 | `module` | Selects an ASR backend and supplies its provider-specific settings; required |
 | `audio` | Selects live or file input and requests the end-to-end audio format |
+| `vad` | Optional speech gate in front of the module; omitted by default (see [Voice activity detection](#voice-activity-detection)) |
 | `segmentation` | Defines the trigger words and silence timeouts used by listen and dictation |
 | `sound_feedback` | Controls the start and stop cues played by `listen()` |
 | `listen_default_segmentation_mode` | Default mode for future `listen()` calls; defaults to `trigger_word` |
@@ -290,7 +293,7 @@ Do not use it for real speech recognition. See the [fake module specification](s
 | `turn_detection` | `true` | Close utterances on Voxtral's end-of-turn events; `false` relies on the silence timer. An object overrides the server's thresholds |
 | `finalize_after_silence_s` | `2.0` | Fallback: close an utterance after this long with no new text |
 
-Supported sample rates are 16, 24 and 44.1 kHz. Voxtral bills per audio minute ($0.008), silence included, so the cost follows how long the engine runs, not how much is said. A session left without audio for 20 s is closed and reopened on the next chunk. To check the live API's behaviour, run `zsh -ic 'uv run python scripts/probe_mistral_realtime.py'`. A complete server config is in [`config.mistral.example.json`](config.mistral.example.json). See the [Mistral module specification](specs/modules/mistral.md) for every field.
+Supported sample rates are 16, 24 and 44.1 kHz. Voxtral bills per audio minute ($0.008), silence included, so without a VAD gate the cost follows how long the engine runs, not how much is said (see [Voice activity detection](#voice-activity-detection)). A session left without audio for 20 s is closed and reopened on the next chunk. To check the live API's behaviour, run `zsh -ic 'uv run python scripts/probe_mistral_realtime.py'`. A complete server config is in [`examples/config/mistral_realtime.json`](examples/config/mistral_realtime.json).
 
 #### Kyutai (local, on-device)
 
@@ -309,7 +312,7 @@ Supported sample rates are 16, 24 and 44.1 kHz. Voxtral bills per audio minute (
 }
 ```
 
-**`engine.audio.sample_rate` must be `24000`** — the model's only rate; with the 16000 default, engine construction fails with the format-reconciliation error. A complete server config is in [`config.kyutai.example.json`](config.kyutai.example.json).
+**`engine.audio.sample_rate` must be `24000`** — the model's only rate; with the 16000 default, engine construction fails with the format-reconciliation error. A complete server config is in [`examples/config/kyutai.json`](examples/config/kyutai.json). Note the two `vad` fields there: `module.vad` switches the model's own end-of-turn head, while `engine.vad` is the optional speech gate (left `null` for Kyutai; see [Voice activity detection](#voice-activity-detection)).
 
 | Field | Default | Description |
 |---|---|---|
@@ -455,7 +458,8 @@ Pass `segmentation_mode=None` or omit it to use `dictation_default_segmentation_
 
 | API | Purpose |
 |---|---|
-| `status()` | Return the engine's `running` and backend `connected` state |
+| `status()` | Return the engine's `running` and backend `connected` state, and the configured `vad` type (`None` when ungated) |
+| `vad_state` | With a VAD configured: whether speech is reaching the module right now (`None` without one) |
 | `dictating` | Report whether a dictation session is active |
 | `segmentation_mode` | Inspect the currently active mode |
 | `audio_format` | Inspect the audio format reconciled with the active module |
@@ -515,6 +519,44 @@ You can also inject an `AudioSource` when constructing the engine. An injected s
 | `fallback` | The unsupported dimension uses the module's declared default and a warning is logged |
 
 The resolved format is exposed as `engine.audio_format` and is given to both the audio source and the ASR module. The bundled Deepgram modules support sample rates of 8000, 16000, 24000, 44100, and 48000 Hz; mono audio; and `linear16` or `mulaw` encoding. The `kyutai` module supports exactly 24000 Hz mono `linear16`.
+
+## Voice activity detection
+
+By default the engine streams everything it captures to the ASR module, silence included. A hosted backend bills that silence, and a local model keeps computing on it. An optional `vad` block puts a speech gate in front of the module: only speech is forwarded (with a short pre-roll so the first word is not clipped), and when the speaker stops the module is told to emit its final.
+
+```bash
+uv sync --no-default-groups --extra deepgram --extra silero
+```
+
+```json
+{
+  "module": { "type": "deepgram_v1", "api_key_env": "DEEPGRAM_API_KEY" },
+  "vad": { "type": "silero" }
+}
+```
+
+The bundled VAD is [Silero](https://github.com/snakers4/silero-vad), run with `onnxruntime`, without PyTorch. Its model (2.3 MB) is downloaded on first use from a pinned upstream release, checked against a known hash, and kept in the user cache (`~/.cache/asr-engine`, or `$ASR_ENGINE_CACHE_DIR`). On a machine without network access, download the file yourself and set `"model_path"` in the `vad` block. It works with any audio format the ASR module accepts.
+
+| Field | Default | Purpose |
+|---|---|---|
+| `type` | — | VAD to load; `"silero"` is built in (the `silero` extra) |
+| `threshold` | `0.5` | Speech probability at or above which audio counts as speech |
+| `min_speech_duration_ms` | `250` | Speech needed before the gate opens (ignores clicks) |
+| `min_silence_duration_ms` | `500` | Silence needed before the gate closes and the final is requested |
+| `speech_pad_ms` | `300` | Audio kept from before the detected start of speech |
+| `model_path` | — | (`silero`) Path of a local copy of the model, used instead of the download |
+
+Every bundled module works behind the gate. Which setting suits it depends on whether the backend has its own turn detection:
+
+| Module | Recommended `vad` block | Why |
+|---|---|---|
+| `deepgram_v1`, `mistral_realtime` | `{"type": "silero"}` | The gate ends each utterance; the bill follows speech time |
+| `deepgram_v2` (Flux) | `{"type": "silero", "min_silence_duration_ms": 1500}` | The longer window lets Flux hear enough silence to end the turn by its own contextual judgement; the gate then only removes the idle time between utterances |
+| `kyutai` | Usually none; else as for Flux | Local and free, with its own end-of-turn detection; gating only saves compute |
+
+With the gate on, the boundaries of final utterances follow `min_silence_duration_ms` unless the backend ends the turn first, so a larger value gives fewer, longer finals. Segmentation (`trigger_word`, `timeout`) is unchanged: it still works on the module's utterances.
+
+`onnxruntime` publishes no Intel macOS wheel, so the Silero VAD is unavailable on that platform. The design is in the [VAD specification](specs/vad.md).
 
 ## Optional tools and MCP server
 
@@ -576,13 +618,15 @@ server_config = MCPServerConfig.from_json_file("config.json")
 engine_config = server_config.engine
 ```
 
-Start the bundled server with the example configuration (requires the `mcp` extra; without it, `asr-engine-mcp` exits with the install hint):
+Start the bundled server with one of the example configurations (requires the `mcp` extra; without it, `asr-engine-mcp` exits with the install hint):
 
 ```bash
-uv sync --no-default-groups --extra deepgram --extra mcp
-cp config.example.json config.json
+uv sync --no-default-groups --extra deepgram --extra silero --extra mcp
+cp examples/config/deepgram_v2.json config.json
 uv run asr-engine-mcp --config config.json
 ```
+
+[`examples/config/`](examples/config/) holds one complete server config per ASR module: `deepgram_v1.json`, `deepgram_v2.json`, `mistral_realtime.json` and `kyutai.json`. The three cloud ones enable the Silero VAD gate with the setting recommended for that module (hence the `silero` extra above); remove their `vad` block to stream everything, as before.
 
 The default endpoint is `http://127.0.0.1:8000/mcp`. Logging is configured by the server command rather than the engine configuration:
 

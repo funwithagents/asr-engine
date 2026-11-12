@@ -16,6 +16,7 @@
       "backend": "auto",
       "hf_repo": "kyutai/stt-1b-en_fr-candle",
       "vad": true
-    }
+    },
+    "vad": null
   }
 }

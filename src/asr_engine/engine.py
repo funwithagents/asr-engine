@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import importlib.util
 import logging
+from typing import TYPE_CHECKING, cast
 
 from asr_engine.audio import (
     AudioCapture,
@@ -12,6 +14,7 @@ from asr_engine.audio import (
 from asr_engine.config import ASREngineConfig
 from asr_engine.modules import resolve_module_class
 from asr_engine.modules.base import (
+    AudioQueue,
     SpeechUtterance,
     UtteranceCallback,
     reconcile_audio_format,
@@ -23,6 +26,10 @@ from asr_engine.segmenter import (
     SpeechSegment,
 )
 from asr_engine.sound_feedback import NoOpSoundFeedback, SoundFeedback
+
+if TYPE_CHECKING:
+    from asr_engine.vad.base import VADModule
+    from asr_engine.vad.gate import VadGate, VadState
 
 log = logging.getLogger(__name__)
 
@@ -77,6 +84,9 @@ class ASREngine:
             self._module_cls,
             on_unsupported=config.audio.on_unsupported_format,
         )
+        self._vad_module, self._vad_loaded = self._build_vad(), False
+        self._vad_gate: VadGate | None = None  # the last run's gate, for vad_state
+
         self.on_speech_utterance: UtteranceCallback = (
             on_speech_utterance or _noop_utterance
         )
@@ -84,7 +94,8 @@ class ASREngine:
         self._audio_source = audio_source
         self._running = False
         self._connected = False
-        self._audio_capture: AudioSource | None = None
+        # The running source: the VAD gate when one is configured, else the source.
+        self._audio_capture: AudioSource | VadGate | None = None
         self._task: asyncio.Task | None = None
 
         if config.sound_feedback.enabled:
@@ -111,6 +122,50 @@ class ASREngine:
         self._dictating = False
         self._dictation_end_on_final = False
         self._dictation_ending = False
+
+    def _build_vad(self) -> VADModule | None:
+        """Resolve and check the optional VAD stage (specs/vad.md).
+
+        Builds the VAD module (config validation only — the model is loaded on the
+        first start) and applies the construction-time checks. With no
+        ``engine.vad`` nothing VAD-related is imported.
+        """
+        vad_config = self._config.vad
+        gating = self._module_cls.VAD_GATING
+        module_name = self._config.module.type
+        if vad_config is None:
+            if gating == "required":
+                raise ValueError(
+                    f"ASR module '{module_name}' needs a VAD to know when an "
+                    f"utterance ends: add an engine.vad block "
+                    f'(e.g. "vad": {{"type": "silero"}}).'
+                )
+            return None
+        if gating == "unsupported":
+            raise ValueError(
+                f"ASR module '{module_name}' does not support VAD gating "
+                f"(it does not handle the end-of-speech marker): remove the "
+                f"engine.vad block or use another module."
+            )
+
+        from asr_engine.vad import resolve_vad_class
+        from asr_engine.vad.gate import analysis_sample_rate
+
+        # Raises ValueError (unknown type) or ImportError (extra missing).
+        vad_cls = resolve_vad_class(vad_config.type)
+        vad_module = vad_cls(config=vad_config.extra)
+        pipeline_rate = self._audio_format.sample_rate
+        analysis_rate = analysis_sample_rate(vad_cls, pipeline_rate)
+        if analysis_rate != pipeline_rate and importlib.util.find_spec("soxr") is None:
+            raise ImportError(
+                f"VAD '{vad_config.type}' analyses audio at {analysis_rate} Hz but "
+                f"the pipeline runs at {pipeline_rate} Hz; resampling needs the "
+                f"'soxr' package, which is not installed. Install it with: "
+                f"pip install soxr (it is part of 'asr-engine[silero]'), or set "
+                f"engine.audio.sample_rate to one of "
+                f"{sorted(vad_cls.SUPPORTED_SAMPLE_RATES)}."
+            )
+        return vad_module
 
     def _build_segmenter(self, mode: str | None = None) -> Segmenter:
         """Build a Segmenter for *mode* (default: the current mode).
@@ -189,20 +244,50 @@ class ASREngine:
         self._segmenter = self._build_segmenter(segmentation_mode)  # raises on bad mode
         self._segment_mode = segmentation_mode
 
+        source: AudioSource
         if self._audio_source is not None:
-            self._audio_capture = self._audio_source
+            source = self._audio_source
         elif self._audio_config.audio_file:
-            self._audio_capture = FileAudioSource(
+            source = FileAudioSource(
                 self._audio_config.audio_file,
                 audio_format=self._audio_format,
                 trailing_silence_s=self._audio_config.trailing_silence_s,
             )
         else:
             loop = asyncio.get_running_loop()
-            self._audio_capture = AudioCapture(
+            source = AudioCapture(
                 self._audio_config.device, loop, audio_format=self._audio_format
             )
-        audio_queue = self._audio_capture.start()
+
+        audio_queue: AudioQueue
+        vad_config = self._config.vad
+        if self._vad_module is not None and vad_config is not None:
+            from asr_engine.vad.gate import VadGate
+
+            if not self._vad_loaded:
+                # Blocking; the model then stays resident for the engine's
+                # lifetime, so listen()'s start/stop cycles do not reload it.
+                await asyncio.to_thread(self._vad_module.load)
+                self._vad_loaded = True
+            gate = VadGate(
+                source,
+                self._vad_module,
+                self._audio_format,
+                threshold=vad_config.threshold,
+                min_speech_duration_ms=vad_config.min_speech_duration_ms,
+                min_silence_duration_ms=vad_config.min_silence_duration_ms,
+                speech_pad_ms=vad_config.speech_pad_ms,
+                emit_end_of_speech=True,
+            )
+            # Stopping the gate stops the source it wraps.
+            self._vad_gate = gate
+            self._audio_capture = gate
+            audio_queue = gate.start()
+        else:
+            self._audio_capture = source
+            # A plain source's Queue[bytes]: the module only reads from it, so
+            # widening the item type is safe.
+            audio_queue = cast(AudioQueue, source.start())
         await self._segmenter.start()
         self._task = asyncio.create_task(
             self._asr_module.start(
@@ -325,11 +410,28 @@ class ASREngine:
         """
         return self._segment_mode
 
+    @property
+    def vad_state(self) -> VadState | None:
+        """The VAD gate's live state, or ``None`` when no VAD is configured.
+
+        ``speaking`` says whether audio is reaching the ASR module right now, and
+        ``failed_open`` whether that is because the VAD failed. Both are false
+        before the first start and once stopped. Meant to be polled, e.g. by a UI.
+        """
+        if self._vad_module is None:
+            return None
+        if self._vad_gate is None:
+            from asr_engine.vad.gate import VadState
+
+            return VadState()
+        return self._vad_gate.state()
+
     def status(self) -> dict:
         """Return current engine state."""
         return {
             "running": self._running,
             "connected": self._connected,
+            "vad": self._config.vad.type if self._config.vad is not None else None,
         }
 
     def set_connected(self, state: bool) -> None:
