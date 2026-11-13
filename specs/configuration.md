@@ -182,7 +182,7 @@ envoyer, valider, confirmer, soumettre, entree, entrée
 
 All three modes are valid for `listen` and dictation. In `utterance` mode a `listen` returns after exactly one final utterance, and a dictation with `end_on_final_segment=true` ends after one — coherent, if degenerate.
 
-Complete server configs for every ASR module ship in `examples/config/` (`deepgram_v1.json`, `deepgram_v2.json`, `mistral_realtime.json`, `openai_realtime_compatible.json`, `kyutai.json`, `mlx_audio.json`), each with the `engine.vad` setting recommended for its module ([vad.md](vad.md) "Which modules to use with VAD"). `tests/examples/test_configs.py` checks they parse and that their module and VAD combination is accepted.
+Complete server configs for every ASR module ship in `examples/config/` (`deepgram_v1.json`, `deepgram_v2.json`, `mistral_realtime.json`, `openai_realtime_compatible.json`, `openai_transcriptions_compatible.json`, `kyutai.json`, `mlx_audio.json`), each with the `engine.vad` setting recommended for its module ([vad.md](vad.md) "Which modules to use with VAD"). `tests/examples/test_configs.py` checks they parse and that their module and VAD combination is accepted.
 
 ## Example: Deepgram config
 
@@ -251,6 +251,25 @@ Requires the `openai-realtime-compatible` extra (`pip install 'asr-engine[openai
       "model": "gpt-4o-transcribe",
       "language": "en",
       "prompt": "validate"
+    },
+    "vad": { "type": "silero" }
+  }
+}
+```
+
+## Example: OpenAI transcriptions config (batch over HTTP)
+
+Requires the `openai-transcriptions-compatible` extra, plus `silero`: **`engine.vad` is mandatory**, as for every batch module ([batch-asr-module.md](batch-asr-module.md)). See [modules/openai-transcriptions-compatible.md](modules/openai-transcriptions-compatible.md) for the module fields, and for pointing `url` at Groq or a local server. A complete file ships as `examples/config/openai_transcriptions_compatible.json`.
+
+```json
+{
+  "engine": {
+    "audio": { "device": null, "sample_rate": 16000 },
+    "module": {
+      "type": "openai_transcriptions_compatible",
+      "api_key_env": "OPENAI_API_KEY",
+      "model": "gpt-4o-transcribe",
+      "language": "en"
     },
     "vad": { "type": "silero" }
   }

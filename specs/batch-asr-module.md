@@ -13,7 +13,7 @@ tests:
 
 Most open speech models are **batch** models: they transcribe a complete stretch of audio and have no streaming state and no endpointing of their own. Examples are Parakeet, Whisper, Qwen3-ASR and SenseVoice, behind runners like mlx-audio, transformers or an HTTP `/v1/audio/transcriptions` server. `BatchASRModule` is the shared base class that turns such a model into an `ASRModule`. The VAD gate cuts the stream into utterances, the base class buffers each one and decodes it, and the subclass only says how to load the model and how to transcribe one buffer.
 
-This is the design [vad.md](vad.md) "Fit with planned modules" sketched. The first subclass is [modules/mlx-audio.md](modules/mlx-audio.md).
+This is the design [vad.md](vad.md) "Fit with planned modules" sketched. The subclasses are [modules/mlx-audio.md](modules/mlx-audio.md) (local models on Apple Silicon) and [modules/openai-transcriptions-compatible.md](modules/openai-transcriptions-compatible.md) (any `/v1/audio/transcriptions` server over HTTP).
 
 ## Contract for subclasses
 
@@ -26,6 +26,7 @@ class BatchASRModule(ASRModule, ABC):
     DEFAULT_SAMPLE_RATE, DEFAULT_CHANNELS, DEFAULT_ENCODING = 16000, 1, "linear16"
 
     LABEL: ClassVar[str]  # registry key, used in log and error messages
+    DEFAULT_INTERIM_INTERVAL_S: ClassVar[float] = 0.5  # the field's default
 
     @abstractmethod
     def load(self) -> None:
@@ -61,7 +62,7 @@ Every subclass accepts these, beside its own:
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `interim_interval_s` | float | `0.5` | Re-decode the utterance for an interim after this much more buffered audio. `0` disables interims. |
+| `interim_interval_s` | float | `0.5` (the class's `DEFAULT_INTERIM_INTERVAL_S`) | Re-decode the utterance for an interim after this much more buffered audio. `0` disables interims. A subclass whose decodes are billed per request sets its default to `0` ([openai-transcriptions-compatible](modules/openai-transcriptions-compatible.md)). |
 | `max_utterance_s` | float | `30.0` | Cut an utterance that grows this long: decode it as a final and start a new one |
 | `stop_timeout_s` | float | `10.0` | How long `stop()` waits for the last decodes |
 

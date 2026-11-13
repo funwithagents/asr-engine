@@ -52,6 +52,13 @@ mistral = [
 openai-realtime-compatible = [
     "websockets>=14",
 ]
+# Any server implementing OpenAI's POST /v1/audio/transcriptions (module type
+# `openai_transcriptions_compatible`) — see
+# specs/modules/openai-transcriptions-compatible.md. A protocol module, named
+# like the one above.
+openai-transcriptions-compatible = [
+    "httpx>=0.27",
+]
 # Local batch STT on Apple Silicon through the mlx-audio runner (module type
 # `mlx_audio`) — see specs/modules/mlx-audio.md. One runner, many model families
 # (Parakeet, Whisper, Qwen3-ASR, …). The marker is load-bearing, as for
@@ -74,7 +81,7 @@ silero = [
 # share an environment with mlx-audio — and *separately* decide whether the dev
 # group below needs it (see specs/project.md "Exclusive extras").
 all = [
-    "asr-engine[deepgram,mcp,mistral,mlx-audio,openai-realtime-compatible,silero]",
+    "asr-engine[deepgram,mcp,mistral,mlx-audio,openai-realtime-compatible,openai-transcriptions-compatible,silero]",
 ]
 
 [project.scripts]
@@ -147,7 +154,7 @@ dev = [
     # Apple Silicon); the Kyutai extras cannot be (see [tool.uv] conflicts), and
     # their tests use a fake backend. silero is light (onnxruntime + soxr), so
     # the fast tier runs the real VAD model.
-    "asr-engine[deepgram,mcp,mistral,openai-realtime-compatible,silero]",
+    "asr-engine[deepgram,mcp,mistral,openai-realtime-compatible,openai-transcriptions-compatible,silero]",
     # The mlx-audio extra's package, named directly: uv (0.11) silently installs
     # nothing for a self-referenced extra that sits in a declared conflict, so
     # "asr-engine[mlx-audio]" here would be a no-op. Keep in sync with the extra.

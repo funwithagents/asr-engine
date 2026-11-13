@@ -28,6 +28,7 @@ def test_there_is_one_example_config_per_module() -> None:
         "mistral_realtime",
         "mlx_audio",
         "openai_realtime_compatible",
+        "openai_transcriptions_compatible",
     ]
 
 
@@ -59,5 +60,6 @@ def test_the_cloud_examples_gate_with_their_recommended_setting() -> None:
     assert flux is not None and flux.min_silence_duration_ms == 1500
     assert vad("kyutai") is None
     # A batch module cannot run ungated; the default window suits it.
-    batch = vad("mlx_audio")
-    assert batch is not None and batch.min_silence_duration_ms == 500
+    for name in ("mlx_audio", "openai_transcriptions_compatible"):
+        batch = vad(name)
+        assert batch is not None and batch.min_silence_duration_ms == 500
