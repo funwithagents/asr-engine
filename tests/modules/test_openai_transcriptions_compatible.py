@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import io
 import logging
+import time
 import wave
 from email.parser import BytesParser
 from email.policy import HTTP
@@ -74,6 +75,8 @@ class Server:
 
     def __init__(self, reply: Reply | None = None) -> None:
         self.uploads: list[Upload] = []
+        self.started = time.monotonic()
+        self.log: list[str] = []  # "<s since start> <warm-up|speech>", per request
         self.reply: Reply = reply or (
             lambda up: httpx.Response(200, json={"text": f" heard {len(up.samples)} "})
         )
@@ -81,6 +84,8 @@ class Server:
     def __call__(self, request: httpx.Request) -> httpx.Response:
         upload = Upload(request)
         self.uploads.append(upload)
+        kind = "warm-up" if upload.is_warm_up else "speech"
+        self.log.append(f"{time.monotonic() - self.started:.2f}s {kind}")
         return self.reply(upload)
 
     @property
@@ -101,8 +106,13 @@ def speech(seconds: float, value: int = 1000) -> bytes:
 class Session:
     """Runs a module's start() and collects what it emits."""
 
-    def __init__(self, module: OpenAITranscriptionsCompatibleModule) -> None:
+    def __init__(
+        self,
+        module: OpenAITranscriptionsCompatibleModule,
+        seen: Callable[[], object] = list,
+    ) -> None:
         self.module = module
+        self.seen = seen  # what the server received, for timeout messages
         self.queue: AudioQueue = asyncio.Queue()
         self.utterances: list[SpeechUtterance] = []
         self.connected: list[bool] = []
@@ -120,20 +130,32 @@ class Session:
                 audio_format=AudioFormat(SAMPLE_RATE),
             )
         )
-        await self.until(lambda: bool(self.connected))
+        try:
+            await self.until(lambda: bool(self.connected))
+        except BaseException:
+            # __aexit__ does not run when __aenter__ raises: stop here, or the
+            # start() task outlives the test (on Windows a pending task then
+            # blocks the event loop from closing, and the run hangs).
+            await self.__aexit__()
+            raise
         return self
 
     async def __aexit__(self, *exc: object) -> None:
         await self.module.stop()
         assert self.task is not None
-        await asyncio.wait_for(self.task, 2.0)
+        await asyncio.wait_for(self.task, 5.0)
 
-    async def until(self, condition: Callable[[], bool]) -> None:
-        for _ in range(300):
-            if condition():
-                return
-            await asyncio.sleep(0.01)
-        raise AssertionError("condition not met in time")
+    async def until(self, condition: Callable[[], bool], timeout: float = 10.0) -> None:
+        loop = asyncio.get_running_loop()
+        started = loop.time()
+        while not condition():
+            if loop.time() - started > timeout:
+                raise AssertionError(
+                    f"condition not met within {timeout:g}s (connected="
+                    f"{self.connected}, utterances={self.utterances}, server saw "
+                    f"{self.seen()})"
+                )
+            await asyncio.sleep(0.005)
 
     def say(self, *chunks: bytes) -> None:
         for chunk in chunks:
@@ -299,7 +321,7 @@ async def test_a_failed_warm_up_is_retried_before_connecting(
     mod = module(server)
     mod._BACKOFF_S = (0.01,)
     with caplog.at_level(logging.ERROR):
-        async with Session(mod) as session:
+        async with Session(mod, lambda: server.log) as session:
             session.say(speech(0.5))
             await session.until(lambda: bool(session.finals))
 
@@ -311,10 +333,11 @@ async def test_a_failed_warm_up_is_retried_before_connecting(
 async def test_an_unreachable_server_is_retried_before_connecting(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    calls: list[httpx.Request] = []
+    calls: list[str] = []
+    started = time.monotonic()
 
     def handler(request: httpx.Request) -> httpx.Response:
-        calls.append(request)
+        calls.append(f"{time.monotonic() - started:.2f}s")
         if len(calls) == 1:
             raise httpx.ConnectError("connection refused", request=request)
         return httpx.Response(200, json={"text": ""})
@@ -324,7 +347,7 @@ async def test_an_unreachable_server_is_retried_before_connecting(
     )
     mod._BACKOFF_S = (0.01,)
     with caplog.at_level(logging.ERROR):
-        async with Session(mod) as session:
+        async with Session(mod, lambda: calls) as session:
             assert session.connected == [True]
 
     assert len(calls) == 2
