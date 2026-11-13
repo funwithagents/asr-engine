@@ -5,7 +5,8 @@ Needs the ``kyutai-mlx`` extra. Only ``module.py`` imports this file, and only
 once this backend is selected. See specs/modules/kyutai.md.
 """
 
-# moshi_mlx / mlx publish no Linux wheels, so these imports don't resolve there;
+# moshi_mlx / mlx publish no Linux wheels, and the kyutai extras are not in the dev
+# group (they conflict with mlx-audio), so these imports usually don't resolve;
 # where they do, moshi_mlx ships py.typed without re-exporting its public names and
 # sentencepiece/rustymimi's stubs reject the documented constructor arguments.
 # pyright: reportMissingImports=false, reportAttributeAccessIssue=false
@@ -26,6 +27,7 @@ from huggingface_hub import hf_hub_download
 from moshi_mlx import models, utils
 
 from asr_engine.modules.kyutai.backend import StepResult
+from asr_engine.modules.kyutai.download import weight_files
 
 log = logging.getLogger(__name__)
 
@@ -74,11 +76,11 @@ class MlxKyutaiBackend:
     def load(self) -> None:
         with open(hf_hub_download(self._hf_repo, "config.json")) as f:
             raw_config = json.load(f)
-        mimi_weights = hf_hub_download(self._hf_repo, raw_config["mimi_name"])
-        moshi_weights = hf_hub_download(
-            self._hf_repo, raw_config.get("moshi_name", "model.safetensors")
-        )
-        tokenizer_path = hf_hub_download(self._hf_repo, raw_config["tokenizer_name"])
+        # The same files download.py fetches ahead of time.
+        mimi_name, moshi_name, tokenizer_name = weight_files(raw_config)
+        mimi_weights = hf_hub_download(self._hf_repo, mimi_name)
+        moshi_weights = hf_hub_download(self._hf_repo, moshi_name)
+        tokenizer_path = hf_hub_download(self._hf_repo, tokenizer_name)
 
         lm_config = models.LmConfig.from_config_dict(raw_config)
         model = models.Lm(lm_config)

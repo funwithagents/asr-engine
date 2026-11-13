@@ -29,8 +29,10 @@ mcp = [
     "uvicorn",
 ]
 # Local on-device Kyutai STT (module type `kyutai`), one extra per backend — see
-# specs/modules/kyutai.md. The marker is load-bearing: mlx publishes no Linux
-# wheels, so an unmarked entry would break `all` there; with it the extra
+# specs/modules/kyutai.md. Both are exclusive with mlx-audio, and so out of `all`
+# and `dev`: install them in an environment of their own (see [tool.uv]
+# conflicts). The marker is load-bearing: mlx publishes no Linux wheels, so an
+# unmarked entry would break `uv lock` there; with it the extra
 # resolves to nothing off Apple Silicon.
 kyutai-mlx = [
     "moshi-mlx>=0.3; sys_platform == 'darwin' and platform_machine == 'arm64'",
@@ -50,6 +52,13 @@ mistral = [
 openai-realtime-compatible = [
     "websockets>=14",
 ]
+# Local batch STT on Apple Silicon through the mlx-audio runner (module type
+# `mlx_audio`) — see specs/modules/mlx-audio.md. One runner, many model families
+# (Parakeet, Whisper, Qwen3-ASR, …). The marker is load-bearing, as for
+# kyutai-mlx: mlx publishes no Linux/Windows wheels. Keep in sync with `dev`.
+mlx-audio = [
+    "mlx-audio[stt]>=0.6; sys_platform == 'darwin' and platform_machine == 'arm64'",
+]
 # Silero VAD (engine.vad.type `silero`) — see specs/vad.md. onnxruntime runs
 # upstream's ONNX model, downloaded on first use (the silero-vad package itself
 # depends on torch); soxr
@@ -61,10 +70,11 @@ silero = [
     "soxr",
 ]
 # Every provider and transport extra in one install (`pip install 'asr-engine[all]'`).
-# Add each new extra here — no exceptions — and *separately* decide whether the
-# dev group below needs it (see specs/project.md).
+# Add each new extra here — the one exception is the Kyutai extras, which cannot
+# share an environment with mlx-audio — and *separately* decide whether the dev
+# group below needs it (see specs/project.md "Exclusive extras").
 all = [
-    "asr-engine[deepgram,mcp,kyutai-mlx,kyutai-torch,mistral,openai-realtime-compatible,silero]",
+    "asr-engine[deepgram,mcp,mistral,mlx-audio,openai-realtime-compatible,silero]",
 ]
 
 [project.scripts]
@@ -87,6 +97,7 @@ select = ["E4", "E7", "E9", "F", "I"]  # ruff defaults (E4/E7/E9/F) + isort impo
 
 [tool.pyright]
 include = ["src", "tests", "tests-e2e", "examples"]
+extraPaths = ["tests-e2e"]  # as pytest's pythonpath: tests/ may import the e2e helpers
 venvPath = "."
 venv = ".venv"
 typeCheckingMode = "standard"
@@ -112,16 +123,35 @@ filterwarnings = [
 # is synced by default — the dev venv always has gradio. gradio stays out of
 # [project.dependencies], so library consumers never pull it.
 default-groups = ["dev", "demo"]
+# The Kyutai extras cannot share an environment with mlx-audio: moshi-mlx pins
+# mlx<0.27 and sounddevice==0.5, moshi pins sounddevice==0.5 and
+# huggingface-hub<1.0, and mlx-audio needs mlx>=0.31, sounddevice>=0.5.3 and
+# huggingface-hub>=1.0. mlx-audio wins `all` and `dev` (moshi-mlx is unmaintained);
+# Kyutai gets its own environment (.venv-kyutai). See specs/project.md
+# "Exclusive extras".
+conflicts = [
+    [{ extra = "kyutai-mlx" }, { extra = "mlx-audio" }],
+    [{ extra = "kyutai-torch" }, { extra = "mlx-audio" }],
+    [{ extra = "kyutai-mlx" }, { extra = "all" }],
+    [{ extra = "kyutai-torch" }, { extra = "all" }],
+    [{ extra = "kyutai-mlx" }, { group = "dev" }],
+    [{ extra = "kyutai-torch" }, { group = "dev" }],
+]
 
 [dependency-groups]
 dev = [
     # The extras contributors need, named explicitly rather than via `all`, so
     # pyright and the tests see every provider module and the MCP server without
     # every contributor paying for a heavy backend. `all` stays the public
-    # "everything" target. See specs/project.md. kyutai-mlx is in (a no-op off
-    # Apple Silicon); kyutai-torch is not — it drags in ~2.5 GB of torch. silero
-    # is light (onnxruntime + soxr), so the fast tier runs the real VAD model.
-    "asr-engine[deepgram,mcp,kyutai-mlx,mistral,openai-realtime-compatible,silero]",
+    # "everything" target. See specs/project.md. mlx-audio is in (a no-op off
+    # Apple Silicon); the Kyutai extras cannot be (see [tool.uv] conflicts), and
+    # their tests use a fake backend. silero is light (onnxruntime + soxr), so
+    # the fast tier runs the real VAD model.
+    "asr-engine[deepgram,mcp,mistral,openai-realtime-compatible,silero]",
+    # The mlx-audio extra's package, named directly: uv (0.11) silently installs
+    # nothing for a self-referenced extra that sits in a declared conflict, so
+    # "asr-engine[mlx-audio]" here would be a no-op. Keep in sync with the extra.
+    "mlx-audio[stt]>=0.6; sys_platform == 'darwin' and platform_machine == 'arm64'",
     "pyright>=1.1.411",
     "pytest",
     "pytest-asyncio",
@@ -134,3 +164,4 @@ dev = [
 demo = [
     "gradio",
 ]
+

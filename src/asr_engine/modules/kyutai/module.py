@@ -35,6 +35,7 @@ from asr_engine.modules.base import (
     SpeechUtterance,
     UtteranceCallback,
 )
+from asr_engine.modules.kyutai import download
 from asr_engine.modules.kyutai.backend import KyutaiBackend, StepResult
 
 __all__ = ["KyutaiBackend", "KyutaiModule", "StepResult"]
@@ -77,7 +78,14 @@ def _resolve_backend_name(requested: str) -> str:
     """Resolve ``"auto"`` to a concrete backend and check the choice is installed."""
     if requested == "auto":
         on_apple_silicon = sys.platform == "darwin" and platform.machine() == "arm64"
-        name = "mlx" if on_apple_silicon and _is_importable("moshi_mlx") else "torch"
+        # On Apple Silicon, MLX unless only the torch backend is installed — so a
+        # Mac with neither gets the kyutai-mlx install hint, not kyutai-torch's.
+        name = (
+            "mlx"
+            if on_apple_silicon
+            and (_is_importable("moshi_mlx") or not _is_importable("moshi"))
+            else "torch"
+        )
     else:
         name = requested
     package, extra, _ = _BACKEND_IMPLS[name]
@@ -85,7 +93,9 @@ def _resolve_backend_name(requested: str) -> str:
         raise ImportError(
             f"ASR module 'kyutai' with backend '{name}' requires the optional "
             f"dependency '{extra}' which is not installed. Install it with: "
-            f"pip install 'asr-engine[{extra}]' (from source: uv sync --extra {extra})"
+            f"pip install 'asr-engine[{extra}]' (from source: uv sync --extra {extra}), "
+            f"in an environment without mlx-audio or [all]: the two cannot be "
+            f'installed together (see specs/project.md "Exclusive extras")'
         )
     return name
 
@@ -141,7 +151,7 @@ class KyutaiModule(ASRModule):
                 f"kyutai module: unknown backend {backend!r}; "
                 f"expected 'auto', 'mlx' or 'torch'"
             )
-        self._hf_repo = config.get("hf_repo", "kyutai/stt-1b-en_fr-candle")
+        self._hf_repo = config.get("hf_repo", download.DEFAULT_REPO)
         if not isinstance(self._hf_repo, str) or not self._hf_repo:
             raise ValueError("kyutai module: 'hf_repo' must be a non-empty string")
         self._vad = config.get("vad", True)

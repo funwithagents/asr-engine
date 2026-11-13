@@ -11,8 +11,8 @@ and the e2e tier ran on the MLX backend only). It needs a real run by a user of
 this backend — see the spec's open questions.
 """
 
-# `kyutai-torch` is deliberately not in the dev group (~2.5 GB of torch), so these
-# imports don't resolve in a default contributor environment.
+# `kyutai-torch` is not in the dev group (~2.5 GB of torch, and it conflicts with
+# mlx-audio), so these imports don't resolve in a default contributor environment.
 # pyright: reportMissingImports=false, reportAttributeAccessIssue=false
 
 from __future__ import annotations

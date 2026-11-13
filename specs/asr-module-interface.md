@@ -165,6 +165,9 @@ REGISTRY: dict[str, LazyModule | type[ASRModule]] = {
         "OpenAIRealtimeCompatibleModule",
         extra="openai-realtime-compatible",
     ),
+    "mlx_audio": LazyModule(
+        "asr_engine.modules.mlx_audio.module:MlxAudioModule"
+    ),  # see below
     "kyutai": LazyModule("asr_engine.modules.kyutai.module:KyutaiModule"),  # see below
 }
 
@@ -186,20 +189,24 @@ def load_module(asr_config: dict) -> ASRModule: ...
 Each real backend's third-party dependencies live in a `[project.optional-dependencies]` extra, never in core `dependencies`. The extra is named after what the user installs it for:
 
 - a **provider module** (one vendor's API or one model family) is named after the provider and API (`deepgram_v1`, `mistral_realtime`) or the model family (`kyutai`), and its extra after the provider (`deepgram`, `mistral`, `kyutai-mlx`);
+- a **runner module** (a generic model runner that serves many model families, the model being a config value) is named after the runner (`mlx_audio`), and its extra after the module key (`mlx-audio`);
 - a **protocol module** (any server implementing a de-facto standard API) is named `<origin>_<api>_compatible` (`openai_realtime_compatible`), and its extra after the module key with `_` → `-` (`openai-realtime-compatible`), even when another extra lists the same packages. The suffix leaves the plain name (`openai_realtime`) free for a vendor-only module.
 
 | Extra | Modules | Dependencies |
 |---|---|---|
 | `deepgram` | `deepgram_v1`, `deepgram_v2` | `deepgram-sdk` |
-| `kyutai-mlx` | `kyutai` (MLX backend) | `moshi-mlx`, marker-guarded to Apple Silicon |
-| `kyutai-torch` | `kyutai` (PyTorch backend) | `moshi` |
+| `kyutai-mlx` | `kyutai` (MLX backend) | `moshi-mlx`, marker-guarded to Apple Silicon; **exclusive with `mlx-audio`**, not in `all` / `dev` ([project.md](project.md) "Exclusive extras") |
+| `kyutai-torch` | `kyutai` (PyTorch backend) | `moshi`; **exclusive with `mlx-audio`**, not in `all` / `dev` |
 | `mistral` | `mistral_realtime` | `websockets` |
 | `openai-realtime-compatible` | `openai_realtime_compatible` | `websockets` |
+| `mlx-audio` | `mlx_audio` | `mlx-audio[stt]`, marker-guarded to Apple Silicon; exclusive with the Kyutai extras |
 | *(core)* | `fake` | — |
 
 The optional VAD stage follows the same rule with its own registry: the `silero` extra (`onnxruntime`, `soxr`) serves `engine.vad.type: "silero"` ([vad.md](vad.md)).
 
 A module file may import its SDK at module top level — the lazy registry guarantees it is only imported when selected. Adding a backend with new dependencies means adding an extra and naming it in the `LazyModule` entry.
+
+**A module that raises its own hint.** `mlx_audio` is registered with `extra=None` too: its extra is Apple Silicon only, so its `module.py` imports nothing third-party and raises an `ImportError` that says so, which also keeps the module testable on every platform ([modules/mlx-audio.md](modules/mlx-audio.md)).
 
 **One module over several extras.** A `LazyModule` names a single `extra`, which cannot describe `kyutai`: one registry key over two interchangeable backends, each with its own extra. It is therefore registered with `extra=None`, its module file imports no third-party package, and it resolves its backend in `__init__`, raising its own `ImportError` worded like the registry's (see [modules/kyutai.md](modules/kyutai.md) "Backend selection"). The error still surfaces at engine construction, so the fail-fast behaviour is unchanged.
 
@@ -209,8 +216,8 @@ A module file may import its SDK at module top level — the lazy registry guara
 2. Register it lazily in `modules/__init__.py`: `REGISTRY["<name>"] = LazyModule("asr_engine.modules.<backend>.<file>:<ClassName>", extra="<extra>")`. Put its third-party dependencies in an extra named per the rule above (`<provider>`, or the module key for a protocol module) under `[project.optional-dependencies]` in `pyproject.toml` (never in core `dependencies`), and **add it to the `all` extra** — `all` means every extra, no exceptions. Then decide *separately* whether the `dev` group needs it: add it there too when contributors must have the module type-checked and tested (the usual case), or leave it out when it is heavy enough that not every contributor should pay for it (see [project.md](project.md) "`all` means every extra").
 3. Document its config fields (the `engine.module` block accepts any fields beyond `type`); if it authenticates, resolve the key through `resolve_api_key` (`api_key` / `api_key_env`).
 4. Add the backend's spec as `specs/modules/<backend>.md` (or update the existing one, e.g. [modules/deepgram.md](modules/deepgram.md)), with its frontmatter `code:`/`tests:` lists, and a row in [_index.md](_index.md).
-5. Decide its `VAD_GATING` (see "VAD gating"): implement `finalize()` and the marker branch in the drain loop and declare `"supported"` — or `"required"` for a backend with no endpointing of its own. Leaving the default `"unsupported"` makes `engine.vad` a configuration error with this module.
-6. Add a row to the `MODULES` table in `tests-e2e/helpers.py` (module type, model, `api_key_env`, a `silence_s` matching how long the backend needs to finalize an utterance, and the `ModuleAudio` — format + fixtures — to drive it with; a local-model module also gets a `LOCAL_MODEL_OPT_IN_ENV` entry) so `test_engine_modules.py` gives it e2e conformance coverage, ungated and (when it supports gating) behind the VAD gate (see [e2e-testing.md](e2e-testing.md)). Verify with `zsh -ic 'uv run pytest tests-e2e -k <name>'`.
+5. Decide its `VAD_GATING` (see "VAD gating"): implement `finalize()` and the marker branch in the drain loop and declare `"supported"` — or `"required"` for a backend with no endpointing of its own. A batch model subclasses `BatchASRModule` ([batch-asr-module.md](batch-asr-module.md)), which is `"required"` and only asks for `load()` and `transcribe()`. Leaving the default `"unsupported"` makes `engine.vad` a configuration error with this module.
+6. Add a row to the `MODULES` table in `tests-e2e/helpers.py` (module type, model, `api_key_env`, a `silence_s` matching how long the backend needs to finalize an utterance, and the `ModuleAudio` — format + fixtures — to drive it with; a local-model module also gets a `download.py` in its package (`DEFAULT_REPO`, `is_cached`, a `python -m` entry point) and a `LOCAL_MODELS` entry) so `test_engine_modules.py` gives it e2e conformance coverage, ungated and (when it supports gating) behind the VAD gate (see [e2e-testing.md](e2e-testing.md)). Verify with `zsh -ic 'uv run pytest tests-e2e -k <name>'`.
 
 ## Module Constructor Contract
 

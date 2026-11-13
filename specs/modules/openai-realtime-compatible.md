@@ -199,10 +199,10 @@ A marker read while reconnecting is dropped, as in every module.
 ```toml
 [project.optional-dependencies]
 openai-realtime-compatible = ["websockets>=14"]
-all = ["asr-engine[deepgram,mcp,kyutai-mlx,kyutai-torch,mistral,openai-realtime-compatible,silero]"]
+all = ["asr-engine[deepgram,mcp,mistral,mlx-audio,openai-realtime-compatible,silero]"]  # Kyutai: own env, see project.md
 
 [dependency-groups]
-dev = ["asr-engine[deepgram,mcp,kyutai-mlx,mistral,openai-realtime-compatible,silero]", ...]  # light: joins dev
+dev = ["asr-engine[deepgram,mcp,mistral,openai-realtime-compatible,silero]", "mlx-audio[stt]>=0.6; …", ...]  # light: joins dev
 ```
 
 The module file imports `websockets` at top level, so without the extra the registry's `ImportError` names `openai-realtime-compatible`.
