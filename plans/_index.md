@@ -43,6 +43,7 @@ Implementation plans for ASR MCP — each plan turns a settled part of a spec (s
 | [202610131600_ci-on-github-actions.md](202610131600_ci-on-github-actions.md) | GitHub Actions CI: static gate on Linux, fast tier on Linux (x86_64 + arm64)/macOS/Windows, live tier on Linux (Deepgram via secret); supported-platforms statement; UTF-8 config read | Done |
 | [202611121029_mistral-realtime-module.md](202611121029_mistral-realtime-module.md) | `mistral_realtime` module over Mistral's Voxtral 3 realtime WebSocket (`mistral` extra): turn.end-closed finals with a silence fallback, stop flush, idle parking, reconnection; fake-connection fast tests, live e2e row, CI secret | Done |
 | [202611121301_vad-gate-and-end-of-speech.md](202611121301_vad-gate-and-end-of-speech.md) | Optional VAD gate (`VadGate` + `VADModule` registry, Silero on `onnxruntime` in a `silero` extra, model downloaded on first use), `END_OF_SPEECH` marker and `finalize()` in all five ASR modules, `engine.vad` config; live probes for Flux and Voxtral first; live VAD scenario run on all five rows (kyutai locally) | Done |
+| [202611131303_openai-realtime-compatible-module.md](202611131303_openai-realtime-compatible-module.md) | `openai_realtime_compatible` module over the OpenAI Realtime transcription protocol (`openai-realtime-compatible` extra): GA session handshake, item-ordered finals, VAD commit-or-clear, stop flush, reconnection; live probe, fake-connection fast tests, live e2e row, CI secret, example config | Done |
 
 ## Status legend
 

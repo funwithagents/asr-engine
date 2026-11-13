@@ -34,6 +34,13 @@ REGISTRY: dict[str, LazyModule | type[ASRModule]] = {
     "mistral_realtime": LazyModule(
         "asr_engine.modules.mistral.realtime:MistralRealtimeModule", extra="mistral"
     ),
+    # A protocol module: any server speaking OpenAI's Realtime transcription
+    # protocol (specs/modules/openai-realtime-compatible.md).
+    "openai_realtime_compatible": LazyModule(
+        "asr_engine.modules.openai_realtime_compatible.module:"
+        "OpenAIRealtimeCompatibleModule",
+        extra="openai-realtime-compatible",
+    ),
     # No `extra`: kyutai/module.py imports nothing third-party, and the module raises its
     # own install hint naming the backend's extra (kyutai-mlx / kyutai-torch).
     "kyutai": LazyModule("asr_engine.modules.kyutai.module:KyutaiModule"),

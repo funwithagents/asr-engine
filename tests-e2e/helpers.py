@@ -61,6 +61,8 @@ AUDIO_WAV_24000 = ModuleAudio(
 DEEPGRAM_API_KEY_ENV = "DEEPGRAM_API_KEY"
 # Mistral's, for the mistral_realtime row (same rules).
 MISTRAL_API_KEY_ENV = "MISTRAL_API_KEY"
+# OpenAI's, for the openai_realtime_compatible row (same rules).
+OPENAI_API_KEY_ENV = "OPENAI_API_KEY"
 
 
 def require_api_key(module_config: dict) -> None:
@@ -202,6 +204,16 @@ MODULES = [
         3.0,
         AUDIO_MP3_44100,
         id="mistral_realtime",
+    ),
+    # Hosted OpenAI takes 24 kHz only (measured, see
+    # specs/modules/openai-realtime-compatible.md); its server VAD finals land
+    # ~1.1 s after speech ends.
+    pytest.param(
+        "openai_realtime_compatible",
+        {"model": "gpt-4o-transcribe", "api_key_env": OPENAI_API_KEY_ENV},
+        3.0,
+        AUDIO_WAV_24000,
+        id="openai_realtime_compatible",
     ),
     # Local model: no key; opt-in via ASR_ENGINE_E2E_KYUTAI=1 (require_local_model).
     # silence_s must exceed the model's 0.5 s text delay + the 2.0 s fallback

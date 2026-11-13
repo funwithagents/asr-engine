@@ -33,7 +33,7 @@ One file, `.github/workflows/ci.yml`. It triggers on `pull_request`, on `push` t
 |---|---|---|
 | `check` | `ubuntu-24.04` | `uv sync --locked`, then `ruff check .`, `ruff format --check .`, `pyright` — the static gate |
 | `fast-tier` | `ubuntu-24.04`, `ubuntu-24.04-arm`, `macos-15`, `windows-2025` | `uv sync --locked`, then `pytest` — a four-entry matrix, `fail-fast: false` so one platform's failure leaves the others running |
-| `e2e` | `ubuntu-24.04` | `libportaudio2` from apt, `uv sync --locked`, then `pytest tests-e2e -rs` with `DEEPGRAM_API_KEY` and `MISTRAL_API_KEY` mapped from the repository secrets |
+| `e2e` | `ubuntu-24.04` | `libportaudio2` from apt, `uv sync --locked`, then `pytest tests-e2e -rs` with `DEEPGRAM_API_KEY`, `MISTRAL_API_KEY` and `OPENAI_API_KEY` mapped from the repository secrets |
 
 The six jobs run side by side and none waits on another: a run takes as long as its slowest job (the live tier, about a minute of real-time audio). Gating the tiers behind the static gate would only save runner time on a commit that fails lint — free on a public repo — and would add the gate's time to every green run.
 
@@ -44,7 +44,7 @@ The six jobs run side by side and none waits on another: a run takes as long as 
 
 ### Secrets, and the live tier's expected skips
 
-- **No secret is required.** Every job is green with none: the per-module conformance cases skip on the unset key ([e2e-testing.md](e2e-testing.md)). With the `DEEPGRAM_API_KEY` repository secret set, the Deepgram cases run on every pull request and push to `main`, and with `MISTRAL_API_KEY` set, the Voxtral cases do too — a few seconds of audio each. A fork's pull request never receives a secret, so they skip there.
+- **No secret is required.** Every job is green with none: the per-module conformance cases skip on the unset key ([e2e-testing.md](e2e-testing.md)). With the `DEEPGRAM_API_KEY` repository secret set, the Deepgram cases run on every pull request and push to `main`, with `MISTRAL_API_KEY` set, the Voxtral cases do too, and with `OPENAI_API_KEY` set, the `openai_realtime_compatible` cases do as well (against hosted OpenAI) — a few seconds of audio each. A fork's pull request never receives a secret, so they skip there.
 - **Expected skips.** A skip is not a pass. The live job runs with `-rs`, which prints every skip and its reason into the log; on the runner these skip by design, and any other skip is an environment regression to investigate:
 
 | Skips on the runner | Why |
@@ -52,6 +52,7 @@ The six jobs run side by side and none waits on another: a run takes as long as 
 | `kyutai` conformance cases (`test_engine_streams` and `test_engine_modules_vad`) | local model, opt-in only (`ASR_ENGINE_E2E_KYUTAI`), never set in CI |
 | `deepgram_v1`, `deepgram_v2` conformance cases (ungated, and the three VAD cases) | only when the repository holds no `DEEPGRAM_API_KEY` secret, or on a fork's pull request |
 | `mistral_realtime` conformance cases (ungated and VAD) | only when the repository holds no `MISTRAL_API_KEY` secret, or on a fork's pull request |
+| `openai_realtime_compatible` conformance cases (ungated and VAD) | only when the repository holds no `OPENAI_API_KEY` secret, or on a fork's pull request |
 
 The VAD cases add no skip of their own on the runner: the `silero` extra is in the `dev` group, and `onnxruntime` and `soxr` publish wheels for every CI platform, so a "needs onnxruntime" skip there is a regression.
 
