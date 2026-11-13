@@ -182,7 +182,7 @@ envoyer, valider, confirmer, soumettre, entree, entrée
 
 All three modes are valid for `listen` and dictation. In `utterance` mode a `listen` returns after exactly one final utterance, and a dictation with `end_on_final_segment=true` ends after one — coherent, if degenerate.
 
-Complete server configs for every ASR module ship in `examples/config/` (`deepgram_v1.json`, `deepgram_v2.json`, `mistral_realtime.json`, `kyutai.json`), each with the `engine.vad` setting recommended for its module ([vad.md](vad.md) "Which modules to use with VAD"). `tests/examples/test_configs.py` checks they parse and that their module and VAD combination is accepted.
+Complete server configs for every ASR module ship in `examples/config/` (`deepgram_v1.json`, `deepgram_v2.json`, `mistral_realtime.json`, `openai_realtime_compatible.json`, `kyutai.json`), each with the `engine.vad` setting recommended for its module ([vad.md](vad.md) "Which modules to use with VAD"). `tests/examples/test_configs.py` checks they parse and that their module and VAD combination is accepted.
 
 ## Example: Deepgram config
 
@@ -226,6 +226,31 @@ Requires the `mistral` extra (`pip install 'asr-engine[mistral]'`). See [modules
       "api_key_env": "MISTRAL_API_KEY",
       "language": "en",
       "context_bias": ["validate"]
+    },
+    "vad": { "type": "silero" }
+  }
+}
+```
+
+## Example: OpenAI Realtime config (24 kHz)
+
+Requires the `openai-realtime-compatible` extra (`pip install 'asr-engine[openai-realtime-compatible]'`). See [modules/openai-realtime-compatible.md](modules/openai-realtime-compatible.md) for the module fields, and for pointing `url` at another compatible server. **`engine.audio.sample_rate` must be `24000`**, the only rate hosted OpenAI accepts. A complete file ships as `examples/config/openai_realtime_compatible.json`, with `"vad": {"type": "silero"}` (needs the `silero` extra).
+
+```json
+{
+  "server": {
+    "host": "0.0.0.0",
+    "port": 8000
+  },
+  "engine": {
+    "auto_start": true,
+    "audio": { "device": null, "sample_rate": 24000 },
+    "module": {
+      "type": "openai_realtime_compatible",
+      "api_key_env": "OPENAI_API_KEY",
+      "model": "gpt-4o-transcribe",
+      "language": "en",
+      "prompt": "validate"
     },
     "vad": { "type": "silero" }
   }

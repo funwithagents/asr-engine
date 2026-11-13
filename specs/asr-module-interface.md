@@ -160,6 +160,11 @@ REGISTRY: dict[str, LazyModule | type[ASRModule]] = {
     "mistral_realtime": LazyModule(
         "asr_engine.modules.mistral.realtime:MistralRealtimeModule", extra="mistral"
     ),
+    "openai_realtime_compatible": LazyModule(
+        "asr_engine.modules.openai_realtime_compatible.module:"
+        "OpenAIRealtimeCompatibleModule",
+        extra="openai-realtime-compatible",
+    ),
     "kyutai": LazyModule("asr_engine.modules.kyutai.module:KyutaiModule"),  # see below
 }
 
@@ -178,7 +183,10 @@ def load_module(asr_config: dict) -> ASRModule: ...
 
 ## Optional dependencies (extras)
 
-Each real backend's third-party dependencies live in a `[project.optional-dependencies]` extra, named after the provider, never in core `dependencies`:
+Each real backend's third-party dependencies live in a `[project.optional-dependencies]` extra, never in core `dependencies`. The extra is named after what the user installs it for:
+
+- a **provider module** (one vendor's API or one model family) is named after the provider and API (`deepgram_v1`, `mistral_realtime`) or the model family (`kyutai`), and its extra after the provider (`deepgram`, `mistral`, `kyutai-mlx`);
+- a **protocol module** (any server implementing a de-facto standard API) is named `<origin>_<api>_compatible` (`openai_realtime_compatible`), and its extra after the module key with `_` → `-` (`openai-realtime-compatible`), even when another extra lists the same packages. The suffix leaves the plain name (`openai_realtime`) free for a vendor-only module.
 
 | Extra | Modules | Dependencies |
 |---|---|---|
@@ -186,6 +194,7 @@ Each real backend's third-party dependencies live in a `[project.optional-depend
 | `kyutai-mlx` | `kyutai` (MLX backend) | `moshi-mlx`, marker-guarded to Apple Silicon |
 | `kyutai-torch` | `kyutai` (PyTorch backend) | `moshi` |
 | `mistral` | `mistral_realtime` | `websockets` |
+| `openai-realtime-compatible` | `openai_realtime_compatible` | `websockets` |
 | *(core)* | `fake` | — |
 
 The optional VAD stage follows the same rule with its own registry: the `silero` extra (`onnxruntime`, `soxr`) serves `engine.vad.type: "silero"` ([vad.md](vad.md)).
@@ -197,7 +206,7 @@ A module file may import its SDK at module top level — the lazy registry guara
 ### Adding a module (checklist)
 
 1. Create a package `src/asr_engine/modules/<backend>/` — **one folder per backend**, never a loose file next to `base.py`. Put the `ASRModule` subclass in a file inside it (declare its supported/default audio formats — see "Audio Format Contract"): `module.py` for a single-module backend (`fake/`, `kyutai/`), or one file per module when a backend ships several (`deepgram/v1.py`, `deepgram/v2.py`). Its `__init__.py` may re-export the public names, but only when that imports nothing the registry is supposed to keep lazy — `deepgram/__init__.py` imports neither of its modules, so selecting `deepgram_v1` never imports `v2`.
-2. Register it lazily in `modules/__init__.py`: `REGISTRY["<name>"] = LazyModule("asr_engine.modules.<backend>.<file>:<ClassName>", extra="<provider>")`. Put its third-party dependencies in a `<provider>` extra under `[project.optional-dependencies]` in `pyproject.toml` (never in core `dependencies`), and **add `<provider>` to the `all` extra** — `all` means every extra, no exceptions. Then decide *separately* whether the `dev` group needs it: add it there too when contributors must have the module type-checked and tested (the usual case), or leave it out when it is heavy enough that not every contributor should pay for it (see [project.md](project.md) "`all` means every extra").
+2. Register it lazily in `modules/__init__.py`: `REGISTRY["<name>"] = LazyModule("asr_engine.modules.<backend>.<file>:<ClassName>", extra="<extra>")`. Put its third-party dependencies in an extra named per the rule above (`<provider>`, or the module key for a protocol module) under `[project.optional-dependencies]` in `pyproject.toml` (never in core `dependencies`), and **add it to the `all` extra** — `all` means every extra, no exceptions. Then decide *separately* whether the `dev` group needs it: add it there too when contributors must have the module type-checked and tested (the usual case), or leave it out when it is heavy enough that not every contributor should pay for it (see [project.md](project.md) "`all` means every extra").
 3. Document its config fields (the `engine.module` block accepts any fields beyond `type`); if it authenticates, resolve the key through `resolve_api_key` (`api_key` / `api_key_env`).
 4. Add the backend's spec as `specs/modules/<backend>.md` (or update the existing one, e.g. [modules/deepgram.md](modules/deepgram.md)), with its frontmatter `code:`/`tests:` lists, and a row in [_index.md](_index.md).
 5. Decide its `VAD_GATING` (see "VAD gating"): implement `finalize()` and the marker branch in the drain loop and declare `"supported"` — or `"required"` for a backend with no endpointing of its own. Leaving the default `"unsupported"` makes `engine.vad` a configuration error with this module.

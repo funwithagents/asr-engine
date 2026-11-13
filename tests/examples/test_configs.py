@@ -26,6 +26,7 @@ def test_there_is_one_example_config_per_module() -> None:
         "deepgram_v2",
         "kyutai",
         "mistral_realtime",
+        "openai_realtime_compatible",
     ]
 
 
@@ -50,7 +51,7 @@ def test_the_cloud_examples_gate_with_their_recommended_setting() -> None:
             str(CONFIG_DIR / f"{name}.json")
         ).engine.vad
 
-    for name in ("deepgram_v1", "mistral_realtime"):
+    for name in ("deepgram_v1", "mistral_realtime", "openai_realtime_compatible"):
         gate = vad(name)
         assert gate is not None and gate.min_silence_duration_ms == 500
     flux = vad("deepgram_v2")

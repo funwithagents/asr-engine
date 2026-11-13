@@ -39,6 +39,7 @@ The base installation contains the engine, `AsrTools` and the `fake` test module
 uv sync --no-default-groups --extra deepgram               # Deepgram modules
 uv sync --no-default-groups --extra deepgram --extra mcp   # + the MCP server (asr-engine-mcp)
 uv sync --no-default-groups --extra mistral                # Mistral Voxtral realtime
+uv sync --no-default-groups --extra openai-realtime-compatible   # OpenAI Realtime (or a compatible server)
 uv sync --no-default-groups --extra kyutai-mlx             # local Kyutai STT, Apple Silicon (MLX)
 uv sync --no-default-groups --extra kyutai-torch           # local Kyutai STT, elsewhere (PyTorch)
 uv sync --no-default-groups --extra deepgram --extra silero   # + the optional Silero VAD gate
@@ -48,6 +49,7 @@ uv sync --no-default-groups --extra all                    # every provider and 
 pip install 'asr-engine[deepgram]'
 pip install 'asr-engine[mcp,deepgram]'
 pip install 'asr-engine[mistral]'
+pip install 'asr-engine[openai-realtime-compatible]'
 pip install 'asr-engine[kyutai-mlx]'     # or 'asr-engine[kyutai-torch]'
 pip install 'asr-engine[deepgram,silero]'   # a provider + the optional Silero VAD gate
 pip install 'asr-engine[all]'
@@ -220,6 +222,7 @@ Provider modules are optional: each one ships in an extra, and none is a default
 | `deepgram_v1` | `deepgram` | Deepgram Listen v1 | General and multilingual transcription | `nova-3` |
 | `deepgram_v2` | `deepgram` | Deepgram Listen v2 | English conversational transcription with integrated turn detection | `flux-general-en` |
 | `mistral_realtime` | `mistral` | Mistral Voxtral 3 realtime | Multilingual transcription (45 languages, auto-detected) with turn detection and phrase boosting | `voxtral-mini-transcribe-realtime-3` |
+| `openai_realtime_compatible` | `openai-realtime-compatible` | OpenAI Realtime transcription, or any server speaking its protocol (LiteLLM, NVIDIA Dynamo, LocalAI, …) | OpenAI's transcription models; self-hosted or proxied models behind the same protocol | `gpt-4o-transcribe` |
 | `kyutai` | `kyutai-mlx` or `kyutai-torch` | None — runs on-device | Local English + French transcription: no network, no API key, no per-minute cost | `kyutai/stt-1b-en_fr-candle` |
 
 #### `fake` — test double, not an ASR backend
@@ -294,6 +297,29 @@ Do not use it for real speech recognition. See the [fake module specification](s
 | `finalize_after_silence_s` | `2.0` | Fallback: close an utterance after this long with no new text |
 
 Supported sample rates are 16, 24 and 44.1 kHz. Voxtral bills per audio minute ($0.008), silence included, so without a VAD gate the cost follows how long the engine runs, not how much is said (see [Voice activity detection](#voice-activity-detection)). A session left without audio for 20 s is closed and reopened on the next chunk. To check the live API's behaviour, run `zsh -ic 'uv run python scripts/probe_mistral_realtime.py'`. A complete server config is in [`examples/config/mistral_realtime.json`](examples/config/mistral_realtime.json).
+
+#### OpenAI Realtime (and compatible servers)
+
+```json
+{
+  "type": "openai_realtime_compatible",
+  "api_key_env": "OPENAI_API_KEY",
+  "model": "gpt-4o-transcribe",
+  "language": "en",
+  "prompt": "validate"
+}
+```
+
+| Field | Default | Description |
+|---|---|---|
+| `url` | `wss://api.openai.com/v1/realtime?intent=transcription` | WebSocket URL, query included, used as is. Point it at any server speaking the protocol |
+| `model` | `gpt-4o-transcribe` | Transcription model (`gpt-4o-mini-transcribe`, `whisper-1`, `gpt-realtime-whisper`, or the server's own) |
+| `language` | `null` | Two-letter ISO 639-1 code; `null` auto-detects |
+| `prompt` | `null` | Vocabulary and style hints, such as your trigger words |
+| `turn_detection` | `true` | The server's VAD closes utterances. `false` for models or servers without it (e.g. `gpt-realtime-whisper`); utterances then end on the VAD gate's markers, so set `engine.vad` |
+| `noise_reduction` | `null` | `"near_field"` or `"far_field"` |
+
+The key is required for hosted OpenAI and optional for other servers. **Set `engine.audio.sample_rate` to `24000`**: it is the only rate hosted OpenAI accepts. With `gpt-4o-transcribe` the text of an utterance arrives once the server has closed it, so interims come in a burst just before the final; `gpt-realtime-whisper` streams words as they are spoken. To check an endpoint's behaviour, run `zsh -ic 'uv run python scripts/probe_openai_realtime.py'` (`--url` for another server). A complete server config is in [`examples/config/openai_realtime_compatible.json`](examples/config/openai_realtime_compatible.json).
 
 #### Kyutai (local, on-device)
 
@@ -550,7 +576,7 @@ Every bundled module works behind the gate. Which setting suits it depends on wh
 
 | Module | Recommended `vad` block | Why |
 |---|---|---|
-| `deepgram_v1`, `mistral_realtime` | `{"type": "silero"}` | The gate ends each utterance; the bill follows speech time |
+| `deepgram_v1`, `mistral_realtime`, `openai_realtime_compatible` | `{"type": "silero"}` | The gate ends each utterance; the bill follows speech time |
 | `deepgram_v2` (Flux) | `{"type": "silero", "min_silence_duration_ms": 1500}` | The longer window lets Flux hear enough silence to end the turn by its own contextual judgement; the gate then only removes the idle time between utterances |
 | `kyutai` | Usually none; else as for Flux | Local and free, with its own end-of-turn detection; gating only saves compute |
 
@@ -626,7 +652,7 @@ cp examples/config/deepgram_v2.json config.json
 uv run asr-engine-mcp --config config.json
 ```
 
-[`examples/config/`](examples/config/) holds one complete server config per ASR module: `deepgram_v1.json`, `deepgram_v2.json`, `mistral_realtime.json` and `kyutai.json`. The three cloud ones enable the Silero VAD gate with the setting recommended for that module (hence the `silero` extra above); remove their `vad` block to stream everything, as before.
+[`examples/config/`](examples/config/) holds one complete server config per ASR module: `deepgram_v1.json`, `deepgram_v2.json`, `mistral_realtime.json`, `openai_realtime_compatible.json` and `kyutai.json`. The four cloud ones enable the Silero VAD gate with the setting recommended for that module (hence the `silero` extra above); remove their `vad` block to stream everything, as before.
 
 The default endpoint is `http://127.0.0.1:8000/mcp`. Logging is configured by the server command rather than the engine configuration:
 

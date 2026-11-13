@@ -67,6 +67,7 @@ Every bundled module supports the gate. Whether to turn it on depends on what th
 |---|---|---|
 | `deepgram_v1` | **Worth it when cost or privacy matters** | Deepgram has an explicit flush message, so a final arrives right after the marker with the connection kept open. Nothing of value is lost. |
 | `mistral_realtime` | **Worth it when cost or privacy matters** | Bills per audio minute. The server's `turn.end` no longer fires (it needs to hear the silence), so finals come from the marker instead. Gaps over `idle_close_s` (20 s) park the session, and the next utterance pays a handshake before its audio is sent (the audio waits in the queue, none is lost). |
+| `openai_realtime_compatible` | **Worth it when cost or privacy matters; required without server turn detection** | Hosted OpenAI bills audio by duration. The marker maps onto the protocol's own `input_audio_buffer.commit`, so no silence is injected. With server turn detection on, the server usually commits during the hangover and the marker only clears the trailing silence. With `turn_detection: false` (models or servers without it) the gate is what ends each utterance. |
 | `deepgram_v2` (Flux) | **Worth it when cost or privacy matters, with a longer hangover** | Flux's value is its own contextual turn detection, which works on the silence after speech. With the default 500 ms hangover the gate would usually cut that silence before Flux decides. With `min_silence_duration_ms` raised to about 1500, Flux hears enough real silence to end the turn itself, and the gate only removes the long idle stretches. See [Letting the backend end the turn first](#letting-the-backend-end-the-turn-first). |
 | `kyutai` | **Supported, rarely needed** | Free and local, with a semantic end-of-turn head. Gating saves compute and stretches the step budget. The same longer hangover keeps its semantic end-of-turn in charge. Worth it on battery or thermally limited hardware. |
 | `fake` | Supported, for tests | Its audio-time clock counts gated audio only. |
@@ -279,6 +280,7 @@ Each bundled module is `"supported"`. The detail is in each module's spec; in sh
 | `deepgram_v1` | `send_finalize()` on the open connection (the SDK exposes it separately from `send_close_stream()`). Deepgram answers with a normal `is_final` result on the existing receive path. Connection and context are kept. | Right after the marker |
 | `deepgram_v2` | Flux has no flush message; its turn ends on silence it hears. The module tracks whether a turn is open (a transcript received since the last `EndOfTurn`). **No turn open:** Flux already ended it during the hangover, so `finalize()` does nothing. **Turn open:** send one burst of encoded silence covering `eot_timeout_ms` plus a margin through `send_media`, so Flux ends the turn on its timeout path at the latest. Connection kept either way. | Usually before the marker (Flux's own `EndOfTurn`); otherwise up to `eot_timeout_ms` after it |
 | `mistral_realtime` | `input_audio.end` would end the session, so the flush is local. The text of audio already sent only arrives once the server receives about one streaming delay of further audio (measured), so: send one burst of silence of `streaming_delay_ms` + 200 ms, then emit the accumulated text as a final once no delta has arrived for `streaming_delay_ms + final_margin_ms` (each delta restarts the wait). | About 0.5 s + `streaming_delay_ms + final_margin_ms` after the marker |
+| `openai_realtime_compatible` | The protocol's own commit. With server turn detection on, it commits if the server's turn is still open (`speech_started` seen, no `committed` yet), and clears the buffered trailing silence otherwise. With it off, it commits at ≥ 100 ms of buffered audio (the server's minimum) and clears below that. Session kept. | ≈ 0.6 s after the commit (measured) |
 | `kyutai` | The timers count model steps, and no audio means no steps. Pad the partial frame with zeros, feed `ceil(audio_delay_s / 0.08)` + 2 silent frames to the worker, then force a final of what has accumulated (`confidence=None`). Silence is free here. A semantic-VAD final armed in the meantime is absorbed: an empty accumulator emits nothing. | About the model's text delay after the marker |
 | `fake` | Ignores the marker. Its script, not the audio, decides its finals. | Per script |
 
@@ -287,7 +289,7 @@ Two of these rested on backend behaviour that only a live run could show. Both w
 - **Flux** ([modules/deepgram.md](modules/deepgram.md) "VAD gating"): on real silence its own `EndOfTurn` arrives 0.2–1.2 s after the speech; with audio simply stopped the turn never ends; a burst of silence sent in one unpaced message ends it about half a second later. So the burst works, and the `send_close_stream()` fallback was not needed. If a transcript for the utterance only arrives after the marker, the burst is sent then.
 - **Voxtral** ([modules/mistral.md](modules/mistral.md) "Measured"): the tail text of audio already sent does **not** arrive without further audio, so the fallback is what was built — the silence burst before the wait. It is billed: about 0.7 s per utterance at the default delay.
 
-**During the gaps** nothing new is needed. Deepgram's keep-alive already fires after 5 s without a chunk. Mistral's idle parking already ends the session cleanly after 20 s and reopens it on the next chunk. Kyutai and `fake` simply wait.
+**During the gaps** nothing new is needed. Deepgram's keep-alive already fires after 5 s without a chunk. Mistral's idle parking already ends the session cleanly after 20 s and reopens it on the next chunk. OpenAI's sessions survive long silences (no idle close in 70 s, measured). Kyutai and `fake` simply wait.
 
 **Injected silence and μ-law.** `audio._silence(fmt, duration_s)` builds correctly encoded silence of any length for any pipeline format (μ-law silence is `0xFF`, not zero bytes).
 
@@ -359,10 +361,10 @@ silero = [
     "onnxruntime; sys_platform != 'darwin' or platform_machine != 'x86_64'",
     "soxr",
 ]
-all = ["asr-engine[deepgram,mcp,kyutai-mlx,kyutai-torch,mistral,silero]"]
+all = ["asr-engine[deepgram,mcp,kyutai-mlx,kyutai-torch,mistral,openai-realtime-compatible,silero]"]
 
 [dependency-groups]
-dev = ["asr-engine[deepgram,mcp,kyutai-mlx,mistral,silero]", ...]
+dev = ["asr-engine[deepgram,mcp,kyutai-mlx,mistral,openai-realtime-compatible,silero]", ...]
 ```
 
 - `soxr` (0.2 MB, numpy only) sits in the VAD backend's extra, not in core: only the gate uses it, and only when the pipeline rate is not one the VAD supports.

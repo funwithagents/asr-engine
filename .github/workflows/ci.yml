@@ -8,7 +8,7 @@
 # platform, and each architecture is where the lock's prebuilt wheels are proven to
 # exist; and `e2e`, the live tier on Linux, whose scenarios are platform-independent.
 # None waits on another: a run takes as long as its slowest job. No secret is needed:
-# without DEEPGRAM_API_KEY / MISTRAL_API_KEY the per-module cases skip, and the
+# without DEEPGRAM_API_KEY / MISTRAL_API_KEY / OPENAI_API_KEY the per-module cases skip, and the
 # spec's expected-skips table says which.
 
 name: CI
@@ -92,4 +92,5 @@ jobs:
         env:
           DEEPGRAM_API_KEY: ${{ secrets.DEEPGRAM_API_KEY }}
           MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: uv run pytest tests-e2e -rs

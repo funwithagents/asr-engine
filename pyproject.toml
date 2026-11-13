@@ -44,6 +44,12 @@ kyutai-torch = [
 mistral = [
     "websockets>=14",
 ]
+# Any server speaking the OpenAI Realtime transcription protocol (module type
+# `openai_realtime_compatible`) — see specs/modules/openai-realtime-compatible.md.
+# A protocol module has no provider, so its extra is named after the module.
+openai-realtime-compatible = [
+    "websockets>=14",
+]
 # Silero VAD (engine.vad.type `silero`) — see specs/vad.md. onnxruntime runs
 # upstream's ONNX model, downloaded on first use (the silero-vad package itself
 # depends on torch); soxr
@@ -58,7 +64,7 @@ silero = [
 # Add each new extra here — no exceptions — and *separately* decide whether the
 # dev group below needs it (see specs/project.md).
 all = [
-    "asr-engine[deepgram,mcp,kyutai-mlx,kyutai-torch,mistral,silero]",
+    "asr-engine[deepgram,mcp,kyutai-mlx,kyutai-torch,mistral,openai-realtime-compatible,silero]",
 ]
 
 [project.scripts]
@@ -115,7 +121,7 @@ dev = [
     # "everything" target. See specs/project.md. kyutai-mlx is in (a no-op off
     # Apple Silicon); kyutai-torch is not — it drags in ~2.5 GB of torch. silero
     # is light (onnxruntime + soxr), so the fast tier runs the real VAD model.
-    "asr-engine[deepgram,mcp,kyutai-mlx,mistral,silero]",
+    "asr-engine[deepgram,mcp,kyutai-mlx,mistral,openai-realtime-compatible,silero]",
     "pyright>=1.1.411",
     "pytest",
     "pytest-asyncio",

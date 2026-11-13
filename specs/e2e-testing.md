@@ -130,6 +130,7 @@ Parametrized over the `MODULES` table in `helpers.py`. Each row carries the modu
 | `deepgram_v1` | `nova-3` | `3.0` | `AUDIO_MP3_44100` | `DEEPGRAM_API_KEY` is set |
 | `deepgram_v2` | `flux-general-en` | `3.0` | `AUDIO_MP3_44100` | `DEEPGRAM_API_KEY` is set |
 | `mistral_realtime` | `voxtral-mini-transcribe-realtime-3` (default) | `3.0` | `AUDIO_MP3_44100` | `MISTRAL_API_KEY` is set |
+| `openai_realtime_compatible` | `gpt-4o-transcribe` (hosted OpenAI, 24 kHz only) | `3.0` | `AUDIO_WAV_24000` | `OPENAI_API_KEY` is set |
 | `kyutai` | `kyutai/stt-1b-en_fr-candle` | `4.0` | `AUDIO_WAV_24000` | `ASR_ENGINE_E2E_KYUTAI=1` and its backend is installed |
 
 Each row runs one `test_engine_streams` scenario on its `ModuleAudio`:
@@ -155,6 +156,7 @@ The same file runs each row a second time with `engine.vad` set to the Silero VA
 | `deepgram_v2-flux_ends_turn` | `+ "min_silence_duration_ms": 1500` | Flux's own `EndOfTurn`, on the silence the longer hangover lets through (the recommended setting) |
 | `deepgram_v2-marker_ends_turn` | `+ "min_silence_duration_ms": 300` | The silence burst the module sends on the marker, since the gate closed before Flux decided |
 | `mistral_realtime` | `{"type": "silero"}` | The local flush: silence burst, then the final once the text stops |
+| `openai_realtime_compatible` | `{"type": "silero"}` | The server's own VAD, on the hangover's silence; the marker then clears the trailing silence (or commits, if the server's turn is still open) |
 | `kyutai` | `{"type": "silero"}` | The flush frames stepped on the marker |
 
 Each case, on the row's existing fixtures (the 44.1 kHz MP3s and 24 kHz WAVs also exercise the gate's resampling path, since Silero analyses at 16 kHz):
