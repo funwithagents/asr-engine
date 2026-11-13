@@ -4,9 +4,8 @@ Only ``module.py`` imports this file, and only from the worker thread when the
 model loads. See specs/modules/mlx-audio.md "Runner".
 """
 
-# mlx / mlx-audio publish no Linux or Windows wheels, and mlx-audio cannot share an
-# environment with the kyutai extras, so these imports don't resolve in the main
-# dev environment; pyright checks the rest of the file.
+# mlx / mlx-audio publish no Linux or Windows wheels, so these imports don't
+# resolve there (CI's static gate runs on Linux); pyright checks the rest.
 # pyright: reportMissingImports=false, reportAttributeAccessIssue=false
 
 from __future__ import annotations

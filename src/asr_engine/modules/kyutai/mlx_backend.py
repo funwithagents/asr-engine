@@ -5,7 +5,8 @@ Needs the ``kyutai-mlx`` extra. Only ``module.py`` imports this file, and only
 once this backend is selected. See specs/modules/kyutai.md.
 """
 
-# moshi_mlx / mlx publish no Linux wheels, so these imports don't resolve there;
+# moshi_mlx / mlx publish no Linux wheels, and the kyutai extras are not in the dev
+# group (they conflict with mlx-audio), so these imports usually don't resolve;
 # where they do, moshi_mlx ships py.typed without re-exporting its public names and
 # sentencepiece/rustymimi's stubs reject the documented constructor arguments.
 # pyright: reportMissingImports=false, reportAttributeAccessIssue=false

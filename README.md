@@ -40,9 +40,9 @@ uv sync --no-default-groups --extra deepgram               # Deepgram modules
 uv sync --no-default-groups --extra deepgram --extra mcp   # + the MCP server (asr-engine-mcp)
 uv sync --no-default-groups --extra mistral                # Mistral Voxtral realtime
 uv sync --no-default-groups --extra openai-realtime-compatible   # OpenAI Realtime (or a compatible server)
-uv sync --no-default-groups --extra kyutai-mlx             # local Kyutai STT, Apple Silicon (MLX)
-uv sync --no-default-groups --extra kyutai-torch           # local Kyutai STT, elsewhere (PyTorch)
-uv sync --no-default-groups --extra mlx-audio --extra silero   # local Parakeet / Qwen3-ASR / Whisper…, Apple Silicon (not with kyutai)
+uv sync --no-default-groups --extra mlx-audio --extra silero   # local Parakeet / Qwen3-ASR / Whisper…, Apple Silicon
+uv sync --no-default-groups --extra kyutai-mlx             # local Kyutai STT, Apple Silicon (MLX) — not with mlx-audio
+uv sync --no-default-groups --extra kyutai-torch           # local Kyutai STT, elsewhere (PyTorch) — not with mlx-audio
 uv sync --no-default-groups --extra deepgram --extra silero   # + the optional Silero VAD gate
 uv sync --no-default-groups --extra all                    # every provider and the server
 
@@ -51,8 +51,8 @@ pip install 'asr-engine[deepgram]'
 pip install 'asr-engine[mcp,deepgram]'
 pip install 'asr-engine[mistral]'
 pip install 'asr-engine[openai-realtime-compatible]'
-pip install 'asr-engine[kyutai-mlx]'     # or 'asr-engine[kyutai-torch]'
-pip install 'asr-engine[mlx-audio,silero]'   # Apple Silicon; not in the same environment as kyutai
+pip install 'asr-engine[mlx-audio,silero]'   # Apple Silicon
+pip install 'asr-engine[kyutai-mlx]'     # or 'asr-engine[kyutai-torch]'; not in the same environment as mlx-audio or [all]
 pip install 'asr-engine[deepgram,silero]'   # a provider + the optional Silero VAD gate
 pip install 'asr-engine[all]'
 ```
@@ -328,6 +328,8 @@ The key is required for hosted OpenAI and optional for other servers. **Set `eng
 
 [Kyutai's streaming STT](https://github.com/kyutai-labs/delayed-streams-modeling) runs inside the process: no network, no API key. One module type covers two interchangeable backends — MLX on Apple Silicon (`kyutai-mlx` extra) and PyTorch elsewhere (`kyutai-torch` extra); `"backend": "auto"` picks MLX when it is available, so the same config works on both. The PyTorch backend has not yet been verified on real hardware.
 
+The Kyutai extras cannot be installed together with `mlx-audio`, and so are not part of `all`: install them in an environment of their own.
+
 ```json
 {
   "engine": {
@@ -377,7 +379,7 @@ The first `start()` downloads the weights (~2 GB for the 1B model) and loads the
 
 These are **batch** models: they transcribe a whole utterance at once, so **`engine.vad` is required**. The gate ends each utterance and the module decodes it (≈ 0.03 s for Parakeet once warm). Interims come from re-decoding the utterance as it grows. Audio is 16 kHz, the default. The model is downloaded on first use and stays loaded between `listen` calls.
 
-**`mlx-audio` cannot be installed with `kyutai-mlx` or `kyutai-torch`**: their dependencies pin incompatible `mlx` and `sounddevice` versions. Install it in its own environment. `all` does not include it. A complete server config is in [`examples/config/mlx_audio.json`](examples/config/mlx_audio.json).
+**`mlx-audio` cannot be installed with `kyutai-mlx` or `kyutai-torch`**: the Kyutai packages pin older `mlx`, `sounddevice` and `huggingface-hub` versions. `all` includes `mlx-audio` and leaves the Kyutai extras out; install Kyutai in an environment of its own. A complete server config is in [`examples/config/mlx_audio.json`](examples/config/mlx_audio.json).
 
 ### Credentials
 

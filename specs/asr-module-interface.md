@@ -195,18 +195,18 @@ Each real backend's third-party dependencies live in a `[project.optional-depend
 | Extra | Modules | Dependencies |
 |---|---|---|
 | `deepgram` | `deepgram_v1`, `deepgram_v2` | `deepgram-sdk` |
-| `kyutai-mlx` | `kyutai` (MLX backend) | `moshi-mlx`, marker-guarded to Apple Silicon |
-| `kyutai-torch` | `kyutai` (PyTorch backend) | `moshi` |
+| `kyutai-mlx` | `kyutai` (MLX backend) | `moshi-mlx`, marker-guarded to Apple Silicon; **exclusive with `mlx-audio`**, not in `all` / `dev` ([project.md](project.md) "Exclusive extras") |
+| `kyutai-torch` | `kyutai` (PyTorch backend) | `moshi`; **exclusive with `mlx-audio`**, not in `all` / `dev` |
 | `mistral` | `mistral_realtime` | `websockets` |
 | `openai-realtime-compatible` | `openai_realtime_compatible` | `websockets` |
-| `mlx-audio` | `mlx_audio` | `mlx-audio[stt]`, marker-guarded to Apple Silicon; **exclusive with `kyutai-mlx` / `kyutai-torch`** ([project.md](project.md) "Exclusive extras") |
+| `mlx-audio` | `mlx_audio` | `mlx-audio[stt]`, marker-guarded to Apple Silicon; exclusive with the Kyutai extras |
 | *(core)* | `fake` | — |
 
 The optional VAD stage follows the same rule with its own registry: the `silero` extra (`onnxruntime`, `soxr`) serves `engine.vad.type: "silero"` ([vad.md](vad.md)).
 
 A module file may import its SDK at module top level — the lazy registry guarantees it is only imported when selected. Adding a backend with new dependencies means adding an extra and naming it in the `LazyModule` entry.
 
-**A module that raises its own hint.** `mlx_audio` is registered with `extra=None` too: its extra is Apple Silicon only and exclusive with the Kyutai extras, so its `module.py` imports nothing third-party and raises an `ImportError` that says so ([modules/mlx-audio.md](modules/mlx-audio.md)).
+**A module that raises its own hint.** `mlx_audio` is registered with `extra=None` too: its extra is Apple Silicon only, so its `module.py` imports nothing third-party and raises an `ImportError` that says so, which also keeps the module testable on every platform ([modules/mlx-audio.md](modules/mlx-audio.md)).
 
 **One module over several extras.** A `LazyModule` names a single `extra`, which cannot describe `kyutai`: one registry key over two interchangeable backends, each with its own extra. It is therefore registered with `extra=None`, its module file imports no third-party package, and it resolves its backend in `__init__`, raising its own `ImportError` worded like the registry's (see [modules/kyutai.md](modules/kyutai.md) "Backend selection"). The error still surfaces at engine construction, so the fail-fast behaviour is unchanged.
 

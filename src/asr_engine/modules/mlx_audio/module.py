@@ -1,7 +1,7 @@
 """Local batch speech-to-text on Apple Silicon through the mlx-audio runner.
 
-Registry key ``mlx_audio``; needs the ``mlx-audio`` extra, which cannot share an
-environment with ``kyutai-mlx`` / ``kyutai-torch``. A generic runner: any of
+Registry key ``mlx_audio``; needs the ``mlx-audio`` extra (Apple Silicon; it
+cannot share an environment with ``kyutai-mlx`` / ``kyutai-torch``). A generic runner: any of
 mlx-audio's STT model families is a ``model`` value. A batch module
 (``BatchASRModule``): the VAD gate ends each utterance. This file imports nothing
 third-party; ``runner.py`` does, when the model loads.
@@ -23,9 +23,9 @@ _LABEL = "mlx_audio"
 DEFAULT_MODEL = "mlx-community/parakeet-tdt-0.6b-v3"
 _INSTALL_HINT = (
     f"ASR module '{_LABEL}' requires the optional dependency 'mlx-audio' (Apple "
-    f"Silicon only), which is not installed. It cannot share an environment with "
-    f"kyutai-mlx / kyutai-torch: install it with pip install 'asr-engine[mlx-audio]' "
-    f"in its own environment (see specs/modules/mlx-audio.md)."
+    f"Silicon only), which is not installed. Install it with: pip install "
+    f"'asr-engine[mlx-audio]' (from source: uv sync --extra mlx-audio). It cannot "
+    f"share an environment with kyutai-mlx / kyutai-torch."
 )
 
 

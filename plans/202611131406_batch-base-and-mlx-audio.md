@@ -9,7 +9,7 @@ Implements [specs/batch-asr-module.md](../specs/batch-asr-module.md) (the shared
 - `src/asr_engine/modules/batch.py` — `BatchASRModule`
 - `src/asr_engine/modules/mlx_audio/{__init__,module,runner}.py` — the module and its mlx-audio runner
 - `src/asr_engine/modules/__init__.py` — `mlx_audio` registry entry (`extra=None`)
-- `pyproject.toml`, `uv.lock`, `.gitignore` — `mlx-audio` extra, `[tool.uv] conflicts`, `dev` naming `moshi-mlx` directly, `.venv-mlx-audio/`
+- `pyproject.toml`, `uv.lock`, `.gitignore` — `mlx-audio` extra, `[tool.uv] conflicts`, `all`/`dev` holding mlx-audio (named directly in `dev`) and dropping the Kyutai extras, `.venv-kyutai/`
 - `tests/modules/test_batch.py`, `tests/modules/test_mlx_audio.py`
 - `tests-e2e/helpers.py`, `tests-e2e/test_engine_modules.py` — `AUDIO_WAV_16000`, the row, the opt-in, ungated cases skipping `"required"` modules
 - `examples/config/mlx_audio.json`, `tests/examples/test_configs.py`
@@ -17,11 +17,11 @@ Implements [specs/batch-asr-module.md](../specs/batch-asr-module.md) (the shared
 
 ## Steps
 
-1. **Dependencies.** Add the extra and conflicts, name `moshi-mlx` directly in `dev`, relock. Check that the main env still has `moshi-mlx` and that `.venv-mlx-audio` gets `mlx-audio` 0.6.x (done while designing).
+1. **Dependencies.** Add the extra and the conflicts, relock. *Changed in review:* the first version kept Kyutai in `all`/`dev` and gave mlx-audio its own environment; it was flipped, since `moshi-mlx` is the stale side. Now `all`/`dev` hold mlx-audio (`dev` names `mlx-audio[stt]` directly, for the uv quirk) and the Kyutai extras run in `.venv-kyutai`. Check that the main env has mlx-audio 0.6.x and that `.venv-kyutai` gets `moshi-mlx`.
 2. **`BatchASRModule`.** Config parsing, one-thread executor, resident load future, the drain loop (buffer, interim scheduling by audio clock, length cap, marker), generation-guarded interims, chained finals, stop flush with a bounded wait, load retry with backoff while draining.
 3. **`mlx_audio`.** `runner.py` (load and warm, transcribe via `mx.array`), and `module.py` (config, platform and package check unless a loader is injected, delegate to the runner). Register it.
 4. **Fast tests** per both specs' "Fast tier" lists.
-5. **E2E.** Add `AUDIO_WAV_16000` and the row, `LOCAL_MODEL_OPT_IN_ENV["mlx_audio"]`, and an ungated table that leaves out `"required"` modules. Run it live in `.venv-mlx-audio`.
+5. **E2E.** Add `AUDIO_WAV_16000` and the row, `LOCAL_MODEL_OPT_IN_ENV["mlx_audio"]`, and an ungated table that leaves out `"required"` modules. Run it live in the main environment, and the `kyutai` rows in `.venv-kyutai`.
 6. **Example config and docs.** Set the statuses (both specs `Implemented`, this plan `Done`) in the files and the indexes.
 
 ## Verification
@@ -29,5 +29,6 @@ Implements [specs/batch-asr-module.md](../specs/batch-asr-module.md) (the shared
 - `uv run ruff check .`, `uv run ruff format --check .`, `uv run pyright` clean (main env, no mlx-audio)
 - `uv run pytest tests/` green
 - `zsh -ic 'uv run pytest tests-e2e'` unchanged (the `mlx_audio` row skips: not opted in)
-- `ASR_ENGINE_E2E_MLX_AUDIO=1` live run of `-k mlx_audio` in `.venv-mlx-audio`, green
+- `ASR_ENGINE_E2E_MLX_AUDIO=1` live run of `-k mlx_audio` in the main environment, green
+- `ASR_ENGINE_E2E_KYUTAI=1` live run of `-k kyutai` in `.venv-kyutai`, green
 - CI on the pull request green, with the `mlx_audio` case among the expected skips

@@ -131,8 +131,8 @@ Parametrized over the `MODULES` table in `helpers.py`. Each row carries the modu
 | `deepgram_v2` | `flux-general-en` | `3.0` | `AUDIO_MP3_44100` | `DEEPGRAM_API_KEY` is set |
 | `mistral_realtime` | `voxtral-mini-transcribe-realtime-3` (default) | `3.0` | `AUDIO_MP3_44100` | `MISTRAL_API_KEY` is set |
 | `openai_realtime_compatible` | `gpt-4o-transcribe` (hosted OpenAI, 24 kHz only) | `3.0` | `AUDIO_WAV_24000` | `OPENAI_API_KEY` is set |
-| `kyutai` | `kyutai/stt-1b-en_fr-candle` | `4.0` | `AUDIO_WAV_24000` | `ASR_ENGINE_E2E_KYUTAI=1` and its backend is installed |
-| `mlx_audio` | `mlx-community/parakeet-tdt-0.6b-v3` | `2.0` | `AUDIO_WAV_16000` | `ASR_ENGINE_E2E_MLX_AUDIO=1` and mlx-audio is installed (its own environment: [modules/mlx-audio.md](modules/mlx-audio.md) "Installation") — **VAD case only** |
+| `kyutai` | `kyutai/stt-1b-en_fr-candle` | `4.0` | `AUDIO_WAV_24000` | `ASR_ENGINE_E2E_KYUTAI=1` and its backend is installed (its own environment: [modules/kyutai.md](modules/kyutai.md) "Installation") |
+| `mlx_audio` | `mlx-community/parakeet-tdt-0.6b-v3` | `2.0` | `AUDIO_WAV_16000` | `ASR_ENGINE_E2E_MLX_AUDIO=1` and mlx-audio is installed (Apple Silicon) — **VAD case only** |
 
 Each row runs one `test_engine_streams` scenario on its `ModuleAudio`, except the rows of `"required"` modules, which produce no final without the gate. `helpers.VAD_REQUIRED_MODULES` names them, `MODULES_UNGATED` leaves them out, and a fast-tier test keeps that set equal to the registry's `"required"` modules:
 

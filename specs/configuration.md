@@ -259,7 +259,7 @@ Requires the `openai-realtime-compatible` extra (`pip install 'asr-engine[openai
 
 ## Example: mlx-audio config (local batch model, Apple Silicon)
 
-Requires the `mlx-audio` extra, in an environment **without** the Kyutai extras ([modules/mlx-audio.md](modules/mlx-audio.md) "Installation"), plus `silero`: **`engine.vad` is mandatory**, since a batch module has no end-of-utterance signal of its own ([batch-asr-module.md](batch-asr-module.md)). A complete file ships as `examples/config/mlx_audio.json`.
+Requires the `mlx-audio` extra (Apple Silicon), plus `silero`: **`engine.vad` is mandatory**, since a batch module has no end-of-utterance signal of its own ([batch-asr-module.md](batch-asr-module.md)). A complete file ships as `examples/config/mlx_audio.json`.
 
 ```json
 {
@@ -277,7 +277,7 @@ Requires the `mlx-audio` extra, in an environment **without** the Kyutai extras 
 
 ## Example: Kyutai config (local model, 24 kHz)
 
-Requires the `kyutai-mlx` (Apple Silicon) or `kyutai-torch` extra. No key: the model runs on-device (see [modules/kyutai.md](modules/kyutai.md) for the module fields). A complete file ships as `examples/config/kyutai.json`, with `"vad": null`: the model is local and free and has its own end-of-turn head, so the gate is rarely worth it. Do not confuse `module.vad` (that head) with `engine.vad` (the gate).
+Requires the `kyutai-mlx` (Apple Silicon) or `kyutai-torch` extra, in an environment without `mlx-audio` ([modules/kyutai.md](modules/kyutai.md) "Installation"). No key: the model runs on-device (see [modules/kyutai.md](modules/kyutai.md) for the module fields). A complete file ships as `examples/config/kyutai.json`, with `"vad": null`: the model is local and free and has its own end-of-turn head, so the gate is rarely worth it. Do not confuse `module.vad` (that head) with `engine.vad` (the gate).
 
 ```json
 {

@@ -89,19 +89,19 @@ zsh -ic 'uv run pytest tests-e2e -k deepgram_v1'   # one backend, by its paramet
 
 Never `echo`/print a key itself; when checking whether one is set, redact the value (e.g. `env | grep DEEPGRAM | sed -E 's/=.*/=<set>/'`).
 
-**Local-model cases are opt-in, not key-gated.** The `kyutai` row runs a real on-device model, so it has no key to skip on; instead it skips unless `ASR_ENGINE_E2E_KYUTAI=1` is set, which also vouches that the weights are already downloaded (`uv run python scripts/benchmark_kyutai.py` fetches them):
+**Local-model cases are opt-in, not key-gated.** The `kyutai` and `mlx_audio` rows run real on-device models, so they have no key to skip on; instead each skips unless its variable is set (`ASR_ENGINE_E2E_KYUTAI=1`, `ASR_ENGINE_E2E_MLX_AUDIO=1`), which also vouches that the weights are already downloaded. `mlx_audio` (Apple Silicon) is in the dev environment:
 
 ```bash
-zsh -ic 'ASR_ENGINE_E2E_KYUTAI=1 uv run pytest tests-e2e -k kyutai'
+zsh -ic 'ASR_ENGINE_E2E_MLX_AUDIO=1 uv run pytest tests-e2e -k mlx_audio'
 ```
 
-The `mlx_audio` row is opt-in the same way (`ASR_ENGINE_E2E_MLX_AUDIO=1`), but its extra cannot share an environment with the Kyutai extras in `dev` ([specs/project.md](specs/project.md) "Exclusive extras"), so it runs in a second, git-ignored environment:
+The Kyutai extras cannot share an environment with mlx-audio ([specs/project.md](specs/project.md) "Exclusive extras"), so `kyutai` runs in a second, git-ignored environment (`uv run python scripts/benchmark_kyutai.py`, run the same way, fetches its weights):
 
 ```bash
-UV_PROJECT_ENVIRONMENT=.venv-mlx-audio ASR_ENGINE_E2E_MLX_AUDIO=1 uv run --no-default-groups \
-    --extra mlx-audio --extra silero \
+UV_PROJECT_ENVIRONMENT=.venv-kyutai ASR_ENGINE_E2E_KYUTAI=1 uv run --no-default-groups \
+    --extra kyutai-mlx --extra silero \
     --with pytest --with pytest-asyncio --with pytest-timeout --with pytest-mock \
-    pytest tests-e2e -k mlx_audio
+    pytest tests-e2e -k kyutai
 ```
 
 ## Implementation plans
@@ -118,7 +118,7 @@ After any code change, run linting, type checking, and tests, and fix any failur
 ## Commands
 
 ```bash
-uv sync --dev                # full contributor environment (dev names the extras it needs: deepgram, mcp, kyutai-mlx, mistral, openai-realtime-compatible, silero — not kyutai-torch nor mlx-audio, see specs/project.md)
+uv sync --dev                # full contributor environment (dev names the extras it needs: deepgram, mcp, mistral, mlx-audio, openai-realtime-compatible, silero — not the Kyutai extras, see specs/project.md)
 uv run ruff check .
 uv run ruff format .
 uv run pyright

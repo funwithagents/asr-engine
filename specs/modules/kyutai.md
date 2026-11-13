@@ -292,19 +292,30 @@ kyutai-mlx = [
 ]
 kyutai-torch = ["moshi>=0.2.11"]
 
-# Public "everything" target — every extra, no exceptions.
-all = ["asr-engine[deepgram,mcp,kyutai-mlx,kyutai-torch]"]
-
-[dependency-groups]
-# Contributors get the MLX backend, not torch. See specs/project.md.
-dev = ["asr-engine[deepgram,mcp,kyutai-mlx]", ...]
+[tool.uv]
+conflicts = [  # with mlx-audio, and with `all` / `dev`, which hold mlx-audio
+    [{ extra = "kyutai-mlx" }, { extra = "mlx-audio" }],
+    [{ extra = "kyutai-torch" }, { extra = "mlx-audio" }],
+    [{ extra = "kyutai-mlx" }, { extra = "all" }],
+    [{ extra = "kyutai-torch" }, { extra = "all" }],
+    [{ extra = "kyutai-mlx" }, { group = "dev" }],
+    [{ extra = "kyutai-torch" }, { group = "dev" }],
+]
 ```
 
-- The **environment marker is load-bearing**, not cosmetic: `mlx` publishes no Linux wheels, so an unmarked `kyutai-mlx` inside `all` would break `uv sync` on Linux outright. With the marker the extra resolves to nothing there.
-- **Both extras join `all`; only `kyutai-mlx` joins `dev`.** This is what the `all`-vs-`dev` split in [project.md](../project.md) exists for: `pip install 'asr-engine[all]'` stays honest and ships the torch backend, while a plain `uv sync` does not drag ~2.5 GB of torch into every contributor's venv. On an Apple Silicon machine `dev` therefore gets a working, type-checked, e2e-runnable MLX path; on Linux the marker makes `kyutai-mlx` resolve to nothing, so a Linux contributor working on this module adds `--extra kyutai-torch` explicitly.
-- Consequence: `torch_backend.py` is not type-checkable in a default dev environment and needs a file-level pyright suppression for the missing `moshi` import. The same is true of `mlx_backend.py` on Linux, so **both** backend files carry one.
-- Both packages pin **`sounddevice==0.5`**, which this project depends on unpinned. It has bitten once already: 0.5.0's `query_devices()` types differently from 0.5.5's under pyright, so `AudioCapture.list_devices()` annotates the result as `Any`.
-- **The pins ripple through the dev venv.** `moshi-mlx` also caps `numpy` (< 2.3), `huggingface-hub` (< 1) and others, so adding it to the `dev` group moved the lock back on numpy, pydantic, starlette, websockets and gradio (6.26 → 5.38 in the synced venv). Every test tier passes on the older set; it is the price of type-checking and e2e-testing this module by default.
+- The **environment marker is load-bearing**, not cosmetic: `mlx` publishes no Linux wheels, so an unmarked `kyutai-mlx` would break `uv lock` for Linux. With the marker the extra resolves to nothing there.
+- **Neither extra is in `all` or `dev`.** Both pin `sounddevice==0.5` (and `moshi-mlx` `mlx<0.27`, `moshi` `huggingface-hub<1.0`), which `mlx-audio` cannot share, and mlx-audio keeps the main environment ([project.md](../project.md) "Exclusive extras"). Users install `asr-engine[kyutai-mlx]` or `asr-engine[kyutai-torch]` in an environment of their own. The module's install hint says so.
+- **Contributors:** the fast tier needs neither package (`tests/modules/test_kyutai.py` injects recording backends). The live cases run in a second, git-ignored environment:
+
+  ```bash
+  UV_PROJECT_ENVIRONMENT=.venv-kyutai ASR_ENGINE_E2E_KYUTAI=1 uv run --no-default-groups \
+    --extra kyutai-mlx --extra silero \
+    --with pytest --with pytest-asyncio --with pytest-timeout --with pytest-mock \
+    pytest tests-e2e -k kyutai
+  ```
+
+- Consequence: neither backend file is type-checkable in the dev environment, so **both** carry a file-level pyright suppression for their missing imports.
+- Before this split, `moshi-mlx`'s caps (`huggingface-hub` < 1, `sounddevice==0.5`, `numpy` < 2.3) held the whole dev lock back. Taking it out of `dev` moved `sounddevice` to 0.5.6, `huggingface-hub` to 1.x and gradio from 5.38 to 6.17.
 - `moshi_mlx` ships `py.typed` without re-exporting its public names, and the `sentencepiece` / `rustymimi` stubs reject their documented constructor arguments, so `mlx_backend.py`'s suppression also covers `reportPrivateImportUsage` and `reportCallIssue`.
 
 ## Testing

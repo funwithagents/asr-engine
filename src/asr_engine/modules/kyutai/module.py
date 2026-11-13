@@ -85,7 +85,9 @@ def _resolve_backend_name(requested: str) -> str:
         raise ImportError(
             f"ASR module 'kyutai' with backend '{name}' requires the optional "
             f"dependency '{extra}' which is not installed. Install it with: "
-            f"pip install 'asr-engine[{extra}]' (from source: uv sync --extra {extra})"
+            f"pip install 'asr-engine[{extra}]' (from source: uv sync --extra {extra}), "
+            f"in an environment without mlx-audio or [all]: the two cannot be "
+            f'installed together (see specs/project.md "Exclusive extras")'
         )
     return name
 

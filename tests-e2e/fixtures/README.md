@@ -36,7 +36,7 @@ through an engine configured with a matching `sample_rate` / `encoding`.
 
 The 24 kHz WAVs exist for modules with a strict 24 kHz contract (`kyutai`). They
 are not new recordings: they were resampled once from the 44.1 kHz MP3s with this
-script (`sphn` comes with the `kyutai-mlx` extra), run as `uv run python <file>`:
+script (`sphn` comes with the `kyutai-mlx` extra, so run it in the Kyutai environment described in `specs/modules/kyutai.md` "Installation"):
 
 ```python
 import sphn, soundfile as sf

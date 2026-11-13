@@ -234,8 +234,8 @@ MODULES = [
         id="kyutai",
     ),
     # Local batch model on Apple Silicon, opt-in like kyutai. It needs the
-    # mlx-audio extra, which has its own environment (specs/modules/mlx-audio.md
-    # "Installation"); without it require_local_model skips. VAD-required, so it
+    # mlx-audio extra (in dev on Apple Silicon); without it require_local_model
+    # skips. VAD-required, so it
     # runs only behind the gate (MODULES_UNGATED leaves it out). A final lands
     # one decode (~0.03 s) after the gate's marker.
     pytest.param(

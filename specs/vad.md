@@ -362,10 +362,10 @@ silero = [
     "onnxruntime; sys_platform != 'darwin' or platform_machine != 'x86_64'",
     "soxr",
 ]
-all = ["asr-engine[deepgram,mcp,kyutai-mlx,kyutai-torch,mistral,openai-realtime-compatible,silero]"]
+all = ["asr-engine[deepgram,mcp,mistral,mlx-audio,openai-realtime-compatible,silero]"]  # Kyutai: own env, see project.md
 
 [dependency-groups]
-dev = ["asr-engine[deepgram,mcp,kyutai-mlx,mistral,openai-realtime-compatible,silero]", ...]
+dev = ["asr-engine[deepgram,mcp,mistral,openai-realtime-compatible,silero]", "mlx-audio[stt]>=0.6; …", ...]
 ```
 
 - `soxr` (0.2 MB, numpy only) sits in the VAD backend's extra, not in core: only the gate uses it, and only when the pipeline rate is not one the VAD supports.
