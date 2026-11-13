@@ -50,6 +50,13 @@ mistral = [
 openai-realtime-compatible = [
     "websockets>=14",
 ]
+# Local batch STT on Apple Silicon through the mlx-audio runner (module type
+# `mlx_audio`) — see specs/modules/mlx-audio.md. One runner, many model families
+# (Parakeet, Whisper, Qwen3-ASR, …). The marker is load-bearing, as for
+# kyutai-mlx: mlx publishes no Linux/Windows wheels.
+mlx-audio = [
+    "mlx-audio[stt]>=0.6; sys_platform == 'darwin' and platform_machine == 'arm64'",
+]
 # Silero VAD (engine.vad.type `silero`) — see specs/vad.md. onnxruntime runs
 # upstream's ONNX model, downloaded on first use (the silero-vad package itself
 # depends on torch); soxr
@@ -87,6 +94,7 @@ select = ["E4", "E7", "E9", "F", "I"]  # ruff defaults (E4/E7/E9/F) + isort impo
 
 [tool.pyright]
 include = ["src", "tests", "tests-e2e", "examples"]
+extraPaths = ["tests-e2e"]  # as pytest's pythonpath: tests/ may import the e2e helpers
 venvPath = "."
 venv = ".venv"
 typeCheckingMode = "standard"
@@ -112,6 +120,15 @@ filterwarnings = [
 # is synced by default — the dev venv always has gradio. gradio stays out of
 # [project.dependencies], so library consumers never pull it.
 default-groups = ["dev", "demo"]
+# kyutai-torch (moshi: sounddevice==0.5) and mlx-audio (sounddevice>=0.5.3) cannot
+# be installed together; mlx-audio only installs on Apple Silicon, where kyutai
+# uses MLX. See the `all` extra above.
+conflicts = [
+    [{ extra = "kyutai-mlx" }, { extra = "mlx-audio" }],
+    [{ extra = "kyutai-torch" }, { extra = "mlx-audio" }],
+    [{ extra = "all" }, { extra = "mlx-audio" }],
+    [{ group = "dev" }, { extra = "mlx-audio" }],
+]
 
 [dependency-groups]
 dev = [
@@ -121,7 +138,12 @@ dev = [
     # "everything" target. See specs/project.md. kyutai-mlx is in (a no-op off
     # Apple Silicon); kyutai-torch is not — it drags in ~2.5 GB of torch. silero
     # is light (onnxruntime + soxr), so the fast tier runs the real VAD model.
-    "asr-engine[deepgram,mcp,kyutai-mlx,mistral,openai-realtime-compatible,silero]",
+    "asr-engine[deepgram,mcp,mistral,openai-realtime-compatible,silero]",
+    # kyutai-mlx's package, named directly: uv (0.11) drops a self-referenced
+    # extra that sits in a declared conflict from a group, so
+    # "asr-engine[kyutai-mlx]" here would silently install nothing. Keep in sync
+    # with the kyutai-mlx extra above.
+    "moshi-mlx>=0.3; sys_platform == 'darwin' and platform_machine == 'arm64'",
     "pyright>=1.1.411",
     "pytest",
     "pytest-asyncio",
@@ -134,3 +156,4 @@ dev = [
 demo = [
     "gradio",
 ]
+

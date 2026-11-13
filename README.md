@@ -42,6 +42,7 @@ uv sync --no-default-groups --extra mistral                # Mistral Voxtral rea
 uv sync --no-default-groups --extra openai-realtime-compatible   # OpenAI Realtime (or a compatible server)
 uv sync --no-default-groups --extra kyutai-mlx             # local Kyutai STT, Apple Silicon (MLX)
 uv sync --no-default-groups --extra kyutai-torch           # local Kyutai STT, elsewhere (PyTorch)
+uv sync --no-default-groups --extra mlx-audio --extra silero   # local Parakeet / Qwen3-ASR / Whisper…, Apple Silicon (not with kyutai)
 uv sync --no-default-groups --extra deepgram --extra silero   # + the optional Silero VAD gate
 uv sync --no-default-groups --extra all                    # every provider and the server
 
@@ -51,6 +52,7 @@ pip install 'asr-engine[mcp,deepgram]'
 pip install 'asr-engine[mistral]'
 pip install 'asr-engine[openai-realtime-compatible]'
 pip install 'asr-engine[kyutai-mlx]'     # or 'asr-engine[kyutai-torch]'
+pip install 'asr-engine[mlx-audio,silero]'   # Apple Silicon; not in the same environment as kyutai
 pip install 'asr-engine[deepgram,silero]'   # a provider + the optional Silero VAD gate
 pip install 'asr-engine[all]'
 ```
@@ -224,6 +226,7 @@ Provider modules are optional: each one ships in an extra, and none is a default
 | `mistral_realtime` | `mistral` | Mistral Voxtral 3 realtime | Multilingual transcription (45 languages, auto-detected) with turn detection and phrase boosting | `voxtral-mini-transcribe-realtime-3` |
 | `openai_realtime_compatible` | `openai-realtime-compatible` | OpenAI Realtime transcription, or any server speaking its protocol (LiteLLM, NVIDIA Dynamo, LocalAI, …) | OpenAI's transcription models; self-hosted or proxied models behind the same protocol | `gpt-4o-transcribe` |
 | `kyutai` | `kyutai-mlx` or `kyutai-torch` | None — runs on-device | Local English + French transcription: no network, no API key, no per-minute cost | `kyutai/stt-1b-en_fr-candle` |
+| `mlx_audio` | `mlx-audio` | None — runs on-device (Apple Silicon) | Local multilingual transcription with any mlx-audio model (Parakeet, Qwen3-ASR, Whisper, …); needs the VAD gate | `mlx-community/parakeet-tdt-0.6b-v3` |
 
 #### `fake` — test double, not an ASR backend
 
@@ -352,6 +355,29 @@ The key is required for hosted OpenAI and optional for other servers. **Set `eng
 | `lag_warn_s` / `lag_drop_s` | `2.0` / `10.0` | If the model falls behind real time: warn, then drop the oldest audio |
 
 The first `start()` downloads the weights (~2 GB for the 1B model) and loads them; `connected` turns true once the model is warm. The model then stays in memory across `stop()`/`start()` and `listen()` calls. To check that a machine keeps up with real time, run `uv run python scripts/benchmark_kyutai.py` (Apple M5 Pro: real-time factor ≈ 0.45). See the [Kyutai module specification](specs/modules/kyutai.md).
+
+#### mlx-audio (local, Apple Silicon)
+
+[mlx-audio](https://github.com/Blaizzy/mlx-audio) runs about thirty speech-to-text model families on Apple Silicon. The model is a config value:
+
+```json
+{
+  "type": "mlx_audio",
+  "model": "mlx-community/Qwen3-ASR-0.6B-8bit",
+  "generate_kwargs": {"language": "English"}
+}
+```
+
+| Field | Default | Description |
+|---|---|---|
+| `model` | `mlx-community/parakeet-tdt-0.6b-v3` | Any mlx-audio STT model on Hugging Face (or a local path). Measured: Parakeet v3, Qwen3-ASR 0.6B, `whisper-large-v3-turbo-asr-4bit` |
+| `generate_kwargs` | `{}` | Passed to the model's `generate()`; differs per family (Whisper `{"language": "en"}`, Qwen3-ASR `{"language": "English"}`) |
+| `interim_interval_s` | `0.5` | Re-decode the utterance for an interim after this much more speech; `0` disables interims |
+| `max_utterance_s` | `30` | Cut longer utterances into several finals |
+
+These are **batch** models: they transcribe a whole utterance at once, so **`engine.vad` is required**. The gate ends each utterance and the module decodes it (≈ 0.03 s for Parakeet once warm). Interims come from re-decoding the utterance as it grows. Audio is 16 kHz, the default. The model is downloaded on first use and stays loaded between `listen` calls.
+
+**`mlx-audio` cannot be installed with `kyutai-mlx` or `kyutai-torch`**: their dependencies pin incompatible `mlx` and `sounddevice` versions. Install it in its own environment. `all` does not include it. A complete server config is in [`examples/config/mlx_audio.json`](examples/config/mlx_audio.json).
 
 ### Credentials
 
@@ -578,6 +604,7 @@ Every bundled module works behind the gate. Which setting suits it depends on wh
 |---|---|---|
 | `deepgram_v1`, `mistral_realtime`, `openai_realtime_compatible` | `{"type": "silero"}` | The gate ends each utterance; the bill follows speech time |
 | `deepgram_v2` (Flux) | `{"type": "silero", "min_silence_duration_ms": 1500}` | The longer window lets Flux hear enough silence to end the turn by its own contextual judgement; the gate then only removes the idle time between utterances |
+| `mlx_audio` | `{"type": "silero"}` (required) | A batch model has no end-of-utterance signal of its own; the gate provides it |
 | `kyutai` | Usually none; else as for Flux | Local and free, with its own end-of-turn detection; gating only saves compute |
 
 With the gate on, the boundaries of final utterances follow `min_silence_duration_ms` unless the backend ends the turn first, so a larger value gives fewer, longer finals. Segmentation (`trigger_word`, `timeout`) is unchanged: it still works on the module's utterances.
@@ -652,7 +679,7 @@ cp examples/config/deepgram_v2.json config.json
 uv run asr-engine-mcp --config config.json
 ```
 
-[`examples/config/`](examples/config/) holds one complete server config per ASR module: `deepgram_v1.json`, `deepgram_v2.json`, `mistral_realtime.json`, `openai_realtime_compatible.json` and `kyutai.json`. The four cloud ones enable the Silero VAD gate with the setting recommended for that module (hence the `silero` extra above); remove their `vad` block to stream everything, as before.
+[`examples/config/`](examples/config/) holds one complete server config per ASR module: `deepgram_v1.json`, `deepgram_v2.json`, `mistral_realtime.json`, `openai_realtime_compatible.json`, `kyutai.json` and `mlx_audio.json`. The four cloud ones and `mlx_audio` (which needs it) enable the Silero VAD gate with the setting recommended for that module (hence the `silero` extra above); remove their `vad` block to stream everything, as before.
 
 The default endpoint is `http://127.0.0.1:8000/mcp`. Logging is configured by the server command rather than the engine configuration:
 

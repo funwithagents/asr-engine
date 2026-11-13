@@ -12,7 +12,7 @@ Where things live. This is a coarse, module-level map — for the full file inve
 
 | Path | What's there |
 |---|---|
-| `src/asr_engine/` | The library itself — one module per core concept (see below); pluggable ASR backends in `modules/` — the registry and `base.py` at its root, then **one package per backend** (`modules/deepgram/`, `modules/mistral/`, `modules/openai_realtime_compatible/`, `modules/kyutai/`, `modules/fake/`); the optional VAD stage in `vad/` — its registry, `base.py` and the shared `gate.py` at its root, then one package per VAD backend (`vad/silero/`) — see [specs/vad.md](specs/vad.md); bundled cues in `sounds/` |
+| `src/asr_engine/` | The library itself — one module per core concept (see below); pluggable ASR backends in `modules/` — the registry, `base.py` and the batch base class `batch.py` at its root, then **one package per backend** (`modules/deepgram/`, `modules/mistral/`, `modules/openai_realtime_compatible/`, `modules/kyutai/`, `modules/mlx_audio/`, `modules/fake/`); the optional VAD stage in `vad/` — its registry, `base.py` and the shared `gate.py` at its root, then one package per VAD backend (`vad/silero/`) — see [specs/vad.md](specs/vad.md); bundled cues in `sounds/` |
 | `specs/` | Pre-implementation design docs, one per concept, each with a `**Status:**` — indexed by [specs/_index.md](specs/_index.md). Per-backend specs live in `specs/modules/` (one `<backend>.md` each, mirroring `src/asr_engine/modules/<backend>/`); the contract they all implement stays at the top level ([asr-module-interface.md](specs/asr-module-interface.md)) |
 | `plans/` | Implementation plans turning settled specs into buildable steps — indexed by [plans/_index.md](plans/_index.md) |
 | `tests/` | Fast, deterministic, no-network tests; mirrors the `src/asr_engine/` module structure (`tests/examples/` covers `examples/`); `tests/modules/` stays flat — one `test_<module>.py` per backend module, not a folder per backend; `tests/vad/` covers `src/asr_engine/vad/` (its `scripted.py` holds the deterministic VAD and hand-fed source other tests reuse) |
@@ -95,6 +95,15 @@ Never `echo`/print a key itself; when checking whether one is set, redact the va
 zsh -ic 'ASR_ENGINE_E2E_KYUTAI=1 uv run pytest tests-e2e -k kyutai'
 ```
 
+The `mlx_audio` row is opt-in the same way (`ASR_ENGINE_E2E_MLX_AUDIO=1`), but its extra cannot share an environment with the Kyutai extras in `dev` ([specs/project.md](specs/project.md) "Exclusive extras"), so it runs in a second, git-ignored environment:
+
+```bash
+UV_PROJECT_ENVIRONMENT=.venv-mlx-audio ASR_ENGINE_E2E_MLX_AUDIO=1 uv run --no-default-groups \
+    --extra mlx-audio --extra silero \
+    --with pytest --with pytest-asyncio --with pytest-timeout --with pytest-mock \
+    pytest tests-e2e -k mlx_audio
+```
+
 ## Implementation plans
 
 - Write implementation plans as files in the [plans](plans/) folder.
@@ -109,7 +118,7 @@ After any code change, run linting, type checking, and tests, and fix any failur
 ## Commands
 
 ```bash
-uv sync --dev                # full contributor environment (dev names the extras it needs: deepgram, mcp, kyutai-mlx, mistral, openai-realtime-compatible, silero — not kyutai-torch, see specs/project.md)
+uv sync --dev                # full contributor environment (dev names the extras it needs: deepgram, mcp, kyutai-mlx, mistral, openai-realtime-compatible, silero — not kyutai-torch nor mlx-audio, see specs/project.md)
 uv run ruff check .
 uv run ruff format .
 uv run pyright

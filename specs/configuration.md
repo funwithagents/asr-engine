@@ -182,7 +182,7 @@ envoyer, valider, confirmer, soumettre, entree, entrée
 
 All three modes are valid for `listen` and dictation. In `utterance` mode a `listen` returns after exactly one final utterance, and a dictation with `end_on_final_segment=true` ends after one — coherent, if degenerate.
 
-Complete server configs for every ASR module ship in `examples/config/` (`deepgram_v1.json`, `deepgram_v2.json`, `mistral_realtime.json`, `openai_realtime_compatible.json`, `kyutai.json`), each with the `engine.vad` setting recommended for its module ([vad.md](vad.md) "Which modules to use with VAD"). `tests/examples/test_configs.py` checks they parse and that their module and VAD combination is accepted.
+Complete server configs for every ASR module ship in `examples/config/` (`deepgram_v1.json`, `deepgram_v2.json`, `mistral_realtime.json`, `openai_realtime_compatible.json`, `kyutai.json`, `mlx_audio.json`), each with the `engine.vad` setting recommended for its module ([vad.md](vad.md) "Which modules to use with VAD"). `tests/examples/test_configs.py` checks they parse and that their module and VAD combination is accepted.
 
 ## Example: Deepgram config
 
@@ -251,6 +251,24 @@ Requires the `openai-realtime-compatible` extra (`pip install 'asr-engine[openai
       "model": "gpt-4o-transcribe",
       "language": "en",
       "prompt": "validate"
+    },
+    "vad": { "type": "silero" }
+  }
+}
+```
+
+## Example: mlx-audio config (local batch model, Apple Silicon)
+
+Requires the `mlx-audio` extra, in an environment **without** the Kyutai extras ([modules/mlx-audio.md](modules/mlx-audio.md) "Installation"), plus `silero`: **`engine.vad` is mandatory**, since a batch module has no end-of-utterance signal of its own ([batch-asr-module.md](batch-asr-module.md)). A complete file ships as `examples/config/mlx_audio.json`.
+
+```json
+{
+  "engine": {
+    "audio": { "device": null, "sample_rate": 16000 },
+    "module": {
+      "type": "mlx_audio",
+      "model": "mlx-community/Qwen3-ASR-0.6B-8bit",
+      "generate_kwargs": { "language": "English" }
     },
     "vad": { "type": "silero" }
   }

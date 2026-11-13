@@ -50,6 +50,7 @@ The six jobs run side by side and none waits on another: a run takes as long as 
 | Skips on the runner | Why |
 |---|---|
 | `kyutai` conformance cases (`test_engine_streams` and `test_engine_modules_vad`) | local model, opt-in only (`ASR_ENGINE_E2E_KYUTAI`), never set in CI |
+| `mlx_audio` conformance case (`test_engine_modules_vad` only) | local model, opt-in only (`ASR_ENGINE_E2E_MLX_AUDIO`), and Apple Silicon only, in an environment of its own; the fast tier covers the module with a fake loader |
 | `deepgram_v1`, `deepgram_v2` conformance cases (ungated, and the three VAD cases) | only when the repository holds no `DEEPGRAM_API_KEY` secret, or on a fork's pull request |
 | `mistral_realtime` conformance cases (ungated and VAD) | only when the repository holds no `MISTRAL_API_KEY` secret, or on a fork's pull request |
 | `openai_realtime_compatible` conformance cases (ungated and VAD) | only when the repository holds no `OPENAI_API_KEY` secret, or on a fork's pull request |

@@ -31,6 +31,6 @@ cp examples/config/deepgram_v2.json config.json   # or another file in examples/
 uv run asr-engine-mcp --config config.json
 ```
 
-[`config/`](config/) holds one complete server config per ASR module (`deepgram_v1`, `deepgram_v2`, `mistral_realtime`, `openai_realtime_compatible`, `kyutai`); the cloud ones enable the Silero VAD gate.
+[`config/`](config/) holds one complete server config per ASR module (`deepgram_v1`, `deepgram_v2`, `mistral_realtime`, `openai_realtime_compatible`, `kyutai`, `mlx_audio`); the cloud ones and `mlx_audio` enable the Silero VAD gate.
 
 Run examples from the repository root with `python -m` so their cross-example imports resolve correctly. See each example's README for its configuration, system requirements, and complete command line.

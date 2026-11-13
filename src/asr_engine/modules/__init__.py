@@ -41,6 +41,10 @@ REGISTRY: dict[str, LazyModule | type[ASRModule]] = {
         "OpenAIRealtimeCompatibleModule",
         extra="openai-realtime-compatible",
     ),
+    # No `extra`, as for kyutai below: mlx_audio/module.py imports nothing
+    # third-party and raises its own install hint (the mlx-audio extra is Apple
+    # Silicon only and exclusive with the kyutai extras).
+    "mlx_audio": LazyModule("asr_engine.modules.mlx_audio.module:MlxAudioModule"),
     # No `extra`: kyutai/module.py imports nothing third-party, and the module raises its
     # own install hint naming the backend's extra (kyutai-mlx / kyutai-torch).
     "kyutai": LazyModule("asr_engine.modules.kyutai.module:KyutaiModule"),

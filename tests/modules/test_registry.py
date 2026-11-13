@@ -65,3 +65,16 @@ def test_importing_the_package_loads_no_provider_sdk():
         [sys.executable, "-c", code], capture_output=True, text=True
     )
     assert result.returncode == 0, result.stderr
+
+
+def test_the_e2e_tier_knows_every_vad_required_module() -> None:
+    # tests-e2e/helpers.py names them so the ungated conformance case skips them
+    # without importing module classes at collection time.
+    from helpers import VAD_REQUIRED_MODULES
+
+    from asr_engine.modules import REGISTRY, resolve_module_class
+
+    required = {
+        key for key in REGISTRY if resolve_module_class(key).VAD_GATING == "required"
+    }
+    assert required == VAD_REQUIRED_MODULES

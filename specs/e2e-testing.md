@@ -132,8 +132,9 @@ Parametrized over the `MODULES` table in `helpers.py`. Each row carries the modu
 | `mistral_realtime` | `voxtral-mini-transcribe-realtime-3` (default) | `3.0` | `AUDIO_MP3_44100` | `MISTRAL_API_KEY` is set |
 | `openai_realtime_compatible` | `gpt-4o-transcribe` (hosted OpenAI, 24 kHz only) | `3.0` | `AUDIO_WAV_24000` | `OPENAI_API_KEY` is set |
 | `kyutai` | `kyutai/stt-1b-en_fr-candle` | `4.0` | `AUDIO_WAV_24000` | `ASR_ENGINE_E2E_KYUTAI=1` and its backend is installed |
+| `mlx_audio` | `mlx-community/parakeet-tdt-0.6b-v3` | `2.0` | `AUDIO_WAV_16000` | `ASR_ENGINE_E2E_MLX_AUDIO=1` and mlx-audio is installed (its own environment: [modules/mlx-audio.md](modules/mlx-audio.md) "Installation") — **VAD case only** |
 
-Each row runs one `test_engine_streams` scenario on its `ModuleAudio`:
+Each row runs one `test_engine_streams` scenario on its `ModuleAudio`, except the rows of `"required"` modules, which produce no final without the gate. `helpers.VAD_REQUIRED_MODULES` names them, `MODULES_UNGATED` leaves them out, and a fast-tier test keeps that set equal to the registry's `"required"` modules:
 
 1. Start and wait for `connected=true`.
 2. Play the first fixture followed by `silence_s`; require an interim before a
@@ -158,6 +159,7 @@ The same file runs each row a second time with `engine.vad` set to the Silero VA
 | `mistral_realtime` | `{"type": "silero"}` | The local flush: silence burst, then the final once the text stops |
 | `openai_realtime_compatible` | `{"type": "silero"}` | The server's own VAD, on the hangover's silence; the marker then clears the trailing silence (or commits, if the server's turn is still open) |
 | `kyutai` | `{"type": "silero"}` | The flush frames stepped on the marker |
+| `mlx_audio` | `{"type": "silero"}` | The batch decode of the utterance on the marker |
 
 Each case, on the row's existing fixtures (the 44.1 kHz MP3s and 24 kHz WAVs also exercise the gate's resampling path, since Silero analyses at 16 kHz):
 

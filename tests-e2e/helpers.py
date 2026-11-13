@@ -35,6 +35,7 @@ FIXTURE_BLUE_VALIDATE = (  # "the sky is blue validate" (trigger word)
 )
 FIXTURE_BLUE_WAV_16000 = FIXTURES_DIR / "sample_16000_theskyisblue.wav"
 FIXTURE_BLUE_WAV_24000 = FIXTURES_DIR / "sample_24000_theskyisblue.wav"
+FIXTURE_BLUE_VALIDATE_WAV_16000 = FIXTURES_DIR / "sample_16000_theskyisbluevalidate.wav"
 FIXTURE_BLUE_VALIDATE_WAV_24000 = FIXTURES_DIR / "sample_24000_theskyisbluevalidate.wav"
 
 
@@ -49,6 +50,10 @@ class ModuleAudio:
 
 
 AUDIO_MP3_44100 = ModuleAudio(FORMAT_MP3_44100, FIXTURE_BLUE, FIXTURE_BLUE_VALIDATE)
+# 16 kHz mono: the rate batch models take (specs/batch-asr-module.md).
+AUDIO_WAV_16000 = ModuleAudio(
+    FORMAT_WAV_16000, FIXTURE_BLUE_WAV_16000, FIXTURE_BLUE_VALIDATE_WAV_16000
+)
 AUDIO_WAV_24000 = ModuleAudio(
     FORMAT_WAV_24000, FIXTURE_BLUE_WAV_24000, FIXTURE_BLUE_VALIDATE_WAV_24000
 )
@@ -87,7 +92,10 @@ def require_api_key(module_config: dict) -> None:
 # Local-model modules, by type → the env var that opts their e2e case in. They need
 # no API key, so ``require_api_key`` never skips them — and an unguarded run would
 # try to download gigabytes of weights inside the per-test timeout.
-LOCAL_MODEL_OPT_IN_ENV = {"kyutai": "ASR_ENGINE_E2E_KYUTAI"}
+LOCAL_MODEL_OPT_IN_ENV = {
+    "kyutai": "ASR_ENGINE_E2E_KYUTAI",
+    "mlx_audio": "ASR_ENGINE_E2E_MLX_AUDIO",
+}
 
 
 def require_local_model(module_type: str, module_config: dict) -> None:
@@ -225,7 +233,27 @@ MODULES = [
         AUDIO_WAV_24000,
         id="kyutai",
     ),
+    # Local batch model on Apple Silicon, opt-in like kyutai. It needs the
+    # mlx-audio extra, which has its own environment (specs/modules/mlx-audio.md
+    # "Installation"); without it require_local_model skips. VAD-required, so it
+    # runs only behind the gate (MODULES_UNGATED leaves it out). A final lands
+    # one decode (~0.03 s) after the gate's marker.
+    pytest.param(
+        "mlx_audio",
+        {"model": "mlx-community/parakeet-tdt-0.6b-v3"},
+        2.0,
+        AUDIO_WAV_16000,
+        id="mlx_audio",
+    ),
 ]
+
+# Modules declaring VAD_GATING = "required" (batch modules): they produce no final
+# without the gate, so they have no ungated conformance case. Named here rather
+# than read from the class, so collecting the table imports no module.
+VAD_REQUIRED_MODULES = frozenset({"mlx_audio"})
+
+# Param table for ``test_engine_streams``: every row a module can run ungated.
+MODULES_UNGATED = [row for row in MODULES if row.values[0] not in VAD_REQUIRED_MODULES]
 
 
 def _vad_cases() -> list:
