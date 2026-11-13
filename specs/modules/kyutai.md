@@ -7,6 +7,7 @@ code:
   - src/asr_engine/modules/kyutai/torch_backend.py
   - src/asr_engine/modules/__init__.py
   - pyproject.toml
+  - src/asr_engine/modules/kyutai/download.py
   - scripts/benchmark_kyutai.py
 tests:
   - tests/modules/test_kyutai.py
@@ -131,7 +132,7 @@ This seam does triple duty: it is the MLX/PyTorch split, it is where a scripted 
 
 ### Backend selection
 
-`backend: "auto"` resolves to `mlx` when `sys.platform == "darwin"` and `platform.machine() == "arm64"` **and** `moshi_mlx` imports; otherwise `torch`. `"mlx"` / `"torch"` force one and raise if unavailable.
+`backend: "auto"` resolves to `mlx` when `sys.platform == "darwin"` and `platform.machine() == "arm64"`, unless only the torch backend (`moshi`) is installed there; otherwise `torch`. So on a Mac with neither installed, which is the default dev environment since the Kyutai extras left it, the install hint names `kyutai-mlx`. `"mlx"` / `"torch"` force one and raise if unavailable.
 
 Because the registry's `LazyModule` carries a single `extra`, `kyutai` is registered with `extra=None` and `modules/kyutai/module.py` imports **neither** backend at top level. The module resolves the backend in `__init__` and raises its own `ImportError` naming the right extra:
 
@@ -308,10 +309,12 @@ conflicts = [  # with mlx-audio, and with `all` / `dev`, which hold mlx-audio
 - **Contributors:** the fast tier needs neither package (`tests/modules/test_kyutai.py` injects recording backends). The live cases run in a second, git-ignored environment:
 
   ```bash
-  UV_PROJECT_ENVIRONMENT=.venv-kyutai ASR_ENGINE_E2E_KYUTAI=1 uv run --no-default-groups \
-    --extra kyutai-mlx --extra silero \
-    --with pytest --with pytest-asyncio --with pytest-timeout --with pytest-mock \
-    pytest tests-e2e -k kyutai
+  UV_PROJECT_ENVIRONMENT=.venv-kyutai uv run --no-default-groups \
+      --extra kyutai-mlx --extra silero \
+      --with pytest --with pytest-asyncio --with pytest-timeout --with pytest-mock python -m asr_engine.modules.kyutai.download   # once
+  UV_PROJECT_ENVIRONMENT=.venv-kyutai uv run --no-default-groups \
+      --extra kyutai-mlx --extra silero \
+      --with pytest --with pytest-asyncio --with pytest-timeout --with pytest-mock pytest tests-e2e -k kyutai
   ```
 
 - Consequence: neither backend file is type-checkable in the dev environment, so **both** carry a file-level pyright suppression for their missing imports.
@@ -342,12 +345,9 @@ The [speed rule](../testing.md) forbids loading a real model here, so every test
 A `MODULES` row in `tests-e2e/helpers.py` gives it the standard `test_engine_streams` conformance run, on the MLX backend. It needed two things from [e2e-testing.md](../e2e-testing.md):
 
 1. **24 kHz fixtures.** File sources are validated, not resampled, so `sample_24000_theskyisblue.wav` and `sample_24000_theskyisbluevalidate.wav` were resampled from the 44.1 kHz MP3s, and each `MODULES` row now names the `ModuleAudio` (format + fixtures) it is driven with.
-2. **A second skip axis.** `require_api_key` skips on a missing key; this module has no key, so it would never skip and would instead try to download gigabytes inside the per-test timeout. `require_local_model(...)` skips unless `ASR_ENGINE_E2E_KYUTAI=1` is set (the caller vouching the weights are pre-fetched) **and** the backend imports.
+2. **A second skip axis.** `require_api_key` skips on a missing key; this module has no key, so it would never skip and would instead try to download gigabytes inside the per-test timeout. `require_local_model(...)` skips unless the backend imports **and** the weights are cached. `download.py` checks exactly the files the backends load (`config.json` and the three it names), without network.
 
-```bash
-uv run python scripts/benchmark_kyutai.py                              # pre-fetches the weights
-zsh -ic 'ASR_ENGINE_E2E_KYUTAI=1 uv run pytest tests-e2e -k kyutai'
-```
+The Kyutai environment and both commands (fetch once, then test) are under [Installation](#installation). `python -m asr_engine.modules.kyutai.download [hf_repo]` fetches the same files the backends read, through `hf_hub_download`.
 
 Its `silence_s` is 4.0 s: it must exceed `audio_delay_seconds + finalize_after_silence_s` (≈ 2.5 s) so that even the timer path finalizes inside the trailing silence.
 
@@ -360,7 +360,8 @@ Its `silence_s` is 4.0 s: it must exceed `audio_delay_seconds + finalize_after_s
 | `src/asr_engine/modules/kyutai/backend.py` | The seam: `KyutaiBackend` protocol + `StepResult` |
 | `src/asr_engine/modules/kyutai/mlx_backend.py` | MLX backend (`moshi_mlx`) |
 | `src/asr_engine/modules/kyutai/torch_backend.py` | PyTorch backend (`moshi`) — **unverified**, see Open questions |
-| `scripts/benchmark_kyutai.py` | Real-time-factor benchmark (MLX); also pre-fetches the weights |
+| `src/asr_engine/modules/kyutai/download.py` | `python -m asr_engine.modules.kyutai.download`: fetches the weights; `is_cached()` for the e2e gate; `weight_files()` shared with `mlx_backend.py` |
+| `scripts/benchmark_kyutai.py` | Real-time-factor benchmark (MLX) |
 | `tests/modules/test_kyutai.py` | Fast tier, on the scripted fake backend |
 | `tests-e2e/fixtures/sample_24000_*.wav` | 24 kHz conformance fixtures |
 | `examples/config/kyutai.json` | A complete server config for this module (`engine.vad` left `null`) |

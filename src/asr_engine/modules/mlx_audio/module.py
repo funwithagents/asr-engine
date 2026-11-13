@@ -18,9 +18,9 @@ from typing import Any, Callable, Protocol
 import numpy as np
 
 from asr_engine.modules.batch import BatchASRModule
+from asr_engine.modules.mlx_audio.download import DEFAULT_REPO as DEFAULT_MODEL
 
 _LABEL = "mlx_audio"
-DEFAULT_MODEL = "mlx-community/parakeet-tdt-0.6b-v3"
 _INSTALL_HINT = (
     f"ASR module '{_LABEL}' requires the optional dependency 'mlx-audio' (Apple "
     f"Silicon only), which is not installed. Install it with: pip install "

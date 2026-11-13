@@ -89,19 +89,22 @@ zsh -ic 'uv run pytest tests-e2e -k deepgram_v1'   # one backend, by its paramet
 
 Never `echo`/print a key itself; when checking whether one is set, redact the value (e.g. `env | grep DEEPGRAM | sed -E 's/=.*/=<set>/'`).
 
-**Local-model cases are opt-in, not key-gated.** The `kyutai` and `mlx_audio` rows run real on-device models, so they have no key to skip on; instead each skips unless its variable is set (`ASR_ENGINE_E2E_KYUTAI=1`, `ASR_ENGINE_E2E_MLX_AUDIO=1`), which also vouches that the weights are already downloaded. `mlx_audio` (Apple Silicon) is in the dev environment:
+**Local-model cases run once their weights are cached, not on a key.** The `kyutai` and `mlx_audio` rows run real on-device models, so they have no key to skip on. Each skips unless its module builds here (its extra is installed) **and** its weights are already in the Hugging Face cache, so a run never downloads gigabytes inside the per-test timeout. The skip message names the fetch command. Each local module ships one in its own package. `mlx_audio` (Apple Silicon) is in the dev environment:
 
 ```bash
-zsh -ic 'ASR_ENGINE_E2E_MLX_AUDIO=1 uv run pytest tests-e2e -k mlx_audio'
+uv run python -m asr_engine.modules.mlx_audio.download   # once: fetches the default model
+zsh -ic 'uv run pytest tests-e2e -k mlx_audio'
 ```
 
-The Kyutai extras cannot share an environment with mlx-audio ([specs/project.md](specs/project.md) "Exclusive extras"), so `kyutai` runs in a second, git-ignored environment (`uv run python scripts/benchmark_kyutai.py`, run the same way, fetches its weights):
+The Kyutai extras cannot share an environment with mlx-audio ([specs/project.md](specs/project.md) "Exclusive extras"), so `kyutai` runs in a second, git-ignored environment:
 
 ```bash
-UV_PROJECT_ENVIRONMENT=.venv-kyutai ASR_ENGINE_E2E_KYUTAI=1 uv run --no-default-groups \
+UV_PROJECT_ENVIRONMENT=.venv-kyutai uv run --no-default-groups \
     --extra kyutai-mlx --extra silero \
-    --with pytest --with pytest-asyncio --with pytest-timeout --with pytest-mock \
-    pytest tests-e2e -k kyutai
+    --with pytest --with pytest-asyncio --with pytest-timeout --with pytest-mock python -m asr_engine.modules.kyutai.download   # once
+UV_PROJECT_ENVIRONMENT=.venv-kyutai uv run --no-default-groups \
+    --extra kyutai-mlx --extra silero \
+    --with pytest --with pytest-asyncio --with pytest-timeout --with pytest-mock pytest tests-e2e -k kyutai
 ```
 
 ## Implementation plans

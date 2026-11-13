@@ -3,6 +3,7 @@ code:
   - src/asr_engine/modules/mlx_audio/__init__.py
   - src/asr_engine/modules/mlx_audio/module.py
   - src/asr_engine/modules/mlx_audio/runner.py
+  - src/asr_engine/modules/mlx_audio/download.py
   - src/asr_engine/modules/__init__.py
   - pyproject.toml
 tests:
@@ -94,17 +95,18 @@ dev = [..., "mlx-audio[stt]>=0.6; sys_platform == 'darwin' and platform_machine 
 
 ### Fast tier: `tests/modules/test_mlx_audio.py`
 
-Through the injected `load_model`: the configured model and `generate_kwargs` reach the loader, and the loader's text comes out as the final. The install hint is raised off Apple Silicon or without the package, monkeypatched in both directions. Validation, one case per rule. The registry resolves the key without importing mlx-audio. The batch behaviour itself is pinned once, in `test_batch.py`.
+`is_cached` against a fake Hugging Face cache (config and weights, config only, nothing, a local path). Through the injected `load_model`: the configured model and `generate_kwargs` reach the loader, and the loader's text comes out as the final. The install hint is raised off Apple Silicon or without the package, monkeypatched in both directions. Validation, one case per rule. The registry resolves the key without importing mlx-audio. The batch behaviour itself is pinned once, in `test_batch.py`.
 
 ### Live tier: `tests-e2e/test_engine_modules.py`
 
-A `MODULES` row: type `mlx_audio`, the default model, the 16 kHz WAV `ModuleAudio`, and a `silence_s` of 2.0. The row is opt-in like `kyutai`: `LOCAL_MODEL_OPT_IN_ENV` gains `"mlx_audio": "ASR_ENGINE_E2E_MLX_AUDIO"`, which vouches that the weights are downloaded, and `require_local_model` skips when the module can't be built (no package). Being `"required"`, it runs only in `test_engine_modules_vad`. Verify with `zsh -ic 'ASR_ENGINE_E2E_MLX_AUDIO=1 uv run pytest tests-e2e -k mlx_audio'`. CI never runs it: the live job is Linux, and mlx-audio is Apple Silicon only.
+A `MODULES` row: type `mlx_audio`, the default model, the 16 kHz WAV `ModuleAudio`, and a `silence_s` of 2.0. The row runs only where it can, like `kyutai`: `helpers.LOCAL_MODELS` maps `mlx_audio` to `asr_engine.modules.mlx_audio.download` and the `model` key, and `require_local_model` skips unless the module builds (mlx-audio installed) and the model is cached. Being `"required"`, it runs only in `test_engine_modules_vad`. Verify with `uv run python -m asr_engine.modules.mlx_audio.download` (once) and then `zsh -ic 'uv run pytest tests-e2e -k mlx_audio'`. CI never runs it: the live job is Linux, and mlx-audio is Apple Silicon only.
 
 ## Files
 
 - `src/asr_engine/modules/mlx_audio/__init__.py`: imports nothing
 - `src/asr_engine/modules/mlx_audio/module.py`: `MlxAudioModule(BatchASRModule)`
 - `src/asr_engine/modules/mlx_audio/runner.py`: `MlxAudioRunner`
+- `src/asr_engine/modules/mlx_audio/download.py`: `python -m asr_engine.modules.mlx_audio.download [model]` fetches a model through mlx-audio's own `get_model_path`; `is_cached()` (no network) for the e2e gate. It reads the cache directly, because `snapshot_download(local_files_only=True)` treats mlx-audio's pattern-filtered snapshot as incomplete.
 - `src/asr_engine/modules/__init__.py`: `"mlx_audio": LazyModule("asr_engine.modules.mlx_audio.module:MlxAudioModule")`
 - `pyproject.toml` / `uv.lock`, `.gitignore` (`.venv-kyutai/`)
 - `examples/config/mlx_audio.json`, `tests/examples/test_configs.py`

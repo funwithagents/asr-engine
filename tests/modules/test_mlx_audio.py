@@ -131,3 +131,36 @@ def test_invalid_config_is_rejected(config: dict[str, Any], field: str) -> None:
 
 def test_the_registry_resolves_the_module_without_mlx_audio() -> None:
     assert resolve_module_class("mlx_audio") is MlxAudioModule
+
+
+# ------------------------------------------------- weights download (download.py)
+
+
+def _fake_hf_cache(root, repo: str, files: list[str]) -> str:
+    repo_dir = root / f"models--{repo.replace('/', '--')}"
+    (repo_dir / "refs").mkdir(parents=True)
+    (repo_dir / "refs" / "main").write_text("abc123")
+    snapshot = repo_dir / "snapshots" / "abc123"
+    snapshot.mkdir(parents=True)
+    for name in files:
+        (snapshot / name).write_text("")
+    return str(root)
+
+
+def test_a_model_is_cached_once_its_config_and_weights_are(tmp_path) -> None:
+    pytest.importorskip("huggingface_hub")
+    from asr_engine.modules.mlx_audio.download import is_cached
+
+    repo = "mlx-community/test-asr"
+    cached = _fake_hf_cache(tmp_path / "a", repo, ["config.json", "model.safetensors"])
+    assert is_cached(repo, cache_dir=cached)
+
+    no_weights = _fake_hf_cache(tmp_path / "b", repo, ["config.json"])
+    assert not is_cached(repo, cache_dir=no_weights)
+    assert not is_cached(repo, cache_dir=str(tmp_path / "empty"))
+
+
+def test_a_local_model_path_counts_as_cached(tmp_path) -> None:
+    from asr_engine.modules.mlx_audio.download import is_cached
+
+    assert is_cached(str(tmp_path))

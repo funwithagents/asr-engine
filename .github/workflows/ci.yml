@@ -87,8 +87,8 @@ jobs:
       - name: Live tier
         # Provider keys, when the repository holds them as secrets: the Deepgram and
         # Voxtral conformance cases run; absent (or on a fork's pull request, which
-        # never receives a secret) the variable is empty and they skip. kyutai always
-        # skips: local models are opt-in (specs/ci.md "Expected skips").
+        # never receives a secret) the variable is empty and they skip. The local models
+        # (kyutai, mlx_audio) always skip here (specs/ci.md "Expected skips").
         env:
           DEEPGRAM_API_KEY: ${{ secrets.DEEPGRAM_API_KEY }}
           MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}

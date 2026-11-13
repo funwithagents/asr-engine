@@ -131,8 +131,8 @@ Parametrized over the `MODULES` table in `helpers.py`. Each row carries the modu
 | `deepgram_v2` | `flux-general-en` | `3.0` | `AUDIO_MP3_44100` | `DEEPGRAM_API_KEY` is set |
 | `mistral_realtime` | `voxtral-mini-transcribe-realtime-3` (default) | `3.0` | `AUDIO_MP3_44100` | `MISTRAL_API_KEY` is set |
 | `openai_realtime_compatible` | `gpt-4o-transcribe` (hosted OpenAI, 24 kHz only) | `3.0` | `AUDIO_WAV_24000` | `OPENAI_API_KEY` is set |
-| `kyutai` | `kyutai/stt-1b-en_fr-candle` | `4.0` | `AUDIO_WAV_24000` | `ASR_ENGINE_E2E_KYUTAI=1` and its backend is installed (its own environment: [modules/kyutai.md](modules/kyutai.md) "Installation") |
-| `mlx_audio` | `mlx-community/parakeet-tdt-0.6b-v3` | `2.0` | `AUDIO_WAV_16000` | `ASR_ENGINE_E2E_MLX_AUDIO=1` and mlx-audio is installed (Apple Silicon) — **VAD case only** |
+| `kyutai` | `kyutai/stt-1b-en_fr-candle` | `4.0` | `AUDIO_WAV_24000` | its backend is installed (its own environment: [modules/kyutai.md](modules/kyutai.md) "Installation") and its weights are cached |
+| `mlx_audio` | `mlx-community/parakeet-tdt-0.6b-v3` | `2.0` | `AUDIO_WAV_16000` | mlx-audio is installed (Apple Silicon) and the model is cached — **VAD case only** |
 
 Each row runs one `test_engine_streams` scenario on its `ModuleAudio`, except the rows of `"required"` modules, which produce no final without the gate. `helpers.VAD_REQUIRED_MODULES` names them, `MODULES_UNGATED` leaves them out, and a fast-tier test keeps that set equal to the registry's `"required"` modules:
 
@@ -253,15 +253,20 @@ sequences where the scenario defines them, since the script fixes the output.
 - **Local models — the second skip axis:** a module that runs a model in-process
   needs no key, so `require_api_key()` would never skip it — and an unguarded run
   would try to download gigabytes of weights inside the per-test timeout.
-  `require_local_model(module_type, module_config)` covers these: for a module
-  listed in `helpers.LOCAL_MODEL_OPT_IN_ENV` (`kyutai` → `ASR_ENGINE_E2E_KYUTAI`)
-  the case skips unless that variable is `1` — the caller vouching that the
-  weights are already fetched — **and** the module constructs (its backend extra
-  is installed). Every other module passes through untouched.
+  `require_local_model(module_type, module_config)` covers these. For a module
+  listed in `helpers.LOCAL_MODELS` (`kyutai`, `mlx_audio`), the case skips unless
+  the module constructs (its backend extra is installed) **and** its weights are
+  already in the Hugging Face cache. Each local module owns a `download.py` in its
+  package that knows exactly which files its loader reads. It exposes
+  `DEFAULT_REPO`, `is_cached(repo)` (no network) and a
+  `python -m asr_engine.modules.<module>.download [repo]` entry point, which the
+  skip message names. `LOCAL_MODELS` maps each type to that download module and
+  to the config key that names its repo (`hf_repo`, `model`). Every other module
+  passes through untouched.
 
 ## Non-Goals
 
 - Mocking a provider's API — per-module conformance must hit the real backend. (The `fake` module is not a mock of any provider: it replaces the module entirely, and is only used where the module is irrelevant to what is tested.)
 - Testing lifecycle races or backend reconnection logic.
 - Running the per-module live scenarios in CI without a real API key. (The `fake` scenarios need none; CI runs the tier on Linux and the Deepgram cases only where the repository holds the key — see [ci.md](ci.md).)
-- Downloading model weights from a test: local-model cases are opt-in and assume pre-fetched weights.
+- Downloading model weights from a test: local-model cases skip until their weights are cached, and the module's own download command fetches them.

@@ -49,8 +49,8 @@ The six jobs run side by side and none waits on another: a run takes as long as 
 
 | Skips on the runner | Why |
 |---|---|
-| `kyutai` conformance cases (`test_engine_streams` and `test_engine_modules_vad`) | local model, opt-in only (`ASR_ENGINE_E2E_KYUTAI`), never set in CI; its extras are not in the CI environment either ([project.md](project.md) "Exclusive extras") |
-| `mlx_audio` conformance case (`test_engine_modules_vad` only) | local model, opt-in only (`ASR_ENGINE_E2E_MLX_AUDIO`), and Apple Silicon only, while the live job is Linux; the fast tier covers the module with a fake loader |
+| `kyutai` conformance cases (`test_engine_streams` and `test_engine_modules_vad`) | local model: its extras are not in the CI environment ([project.md](project.md) "Exclusive extras"), and no weights are cached there |
+| `mlx_audio` conformance case (`test_engine_modules_vad` only) | local model, Apple Silicon only, while the live job is Linux (and no weights are cached there); the fast tier covers the module with a fake loader |
 | `deepgram_v1`, `deepgram_v2` conformance cases (ungated, and the three VAD cases) | only when the repository holds no `DEEPGRAM_API_KEY` secret, or on a fork's pull request |
 | `mistral_realtime` conformance cases (ungated and VAD) | only when the repository holds no `MISTRAL_API_KEY` secret, or on a fork's pull request |
 | `openai_realtime_compatible` conformance cases (ungated and VAD) | only when the repository holds no `OPENAI_API_KEY` secret, or on a fork's pull request |
@@ -62,10 +62,10 @@ The VAD cases add no skip of their own on the runner: the `silero` extra is in t
 ## Relationship to the other specs
 
 - **[testing.md](testing.md):** the two tiers and the functional-test rules CI runs; CI adds no rule about what a test does.
-- **[e2e-testing.md](e2e-testing.md):** the live tier's two skip axes (credentials by name, local-model opt-in) that make it safe to run on a runner with no key and no weights.
+- **[e2e-testing.md](e2e-testing.md):** the live tier's two skip axes (credentials by name, local models only once their weights are cached) that make it safe to run on a runner with no key and no weights.
 - **[project.md](project.md):** the supported platforms the fast-tier matrix mirrors, the dependency groups CI installs, `.github/workflows/` in the repo shape.
 
 ## Open questions
 
-1. **A Kyutai live run in CI.** A scheduled or manually dispatched `macos-15` job, caching the Hugging Face weights, could cover the MLX path end to end. Deferred until the local opt-in run proves insufficient — and until a runner's real-time margin for the model is measured.
+1. **A Kyutai live run in CI.** A scheduled or manually dispatched `macos-15` job, caching the Hugging Face weights, could cover the MLX path end to end. Deferred until the local run proves insufficient — and until a runner's real-time margin for the model is measured.
 2. **More than one Python.** The matrix pins the floor (3.11). Adding the newest supported Python is a one-word change, deferred until a version-specific break shows up.

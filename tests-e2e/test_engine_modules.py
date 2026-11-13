@@ -11,7 +11,7 @@ final has to come from the module's handling of the end-of-speech marker.
 
 Run one module with ``-k``, e.g. ``uv run pytest tests-e2e -k deepgram_v1``.
 Needs each module's API key env var set (see helpers); modules lacking one skip.
-Local-model modules (kyutai, mlx_audio) are opt-in instead: see
+Local-model modules (kyutai, mlx_audio) run once their weights are cached: see
 ``helpers.require_local_model``. VAD-required (batch) modules run only behind the
 gate: ``MODULES_UNGATED`` leaves them out of ``test_engine_streams``.
 """

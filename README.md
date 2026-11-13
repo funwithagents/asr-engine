@@ -356,7 +356,7 @@ The Kyutai extras cannot be installed together with `mlx-audio`, and so are not 
 | `device` | `auto` | PyTorch backend only: `auto`, `cuda`, `mps`, or `cpu` |
 | `lag_warn_s` / `lag_drop_s` | `2.0` / `10.0` | If the model falls behind real time: warn, then drop the oldest audio |
 
-The first `start()` downloads the weights (~2 GB for the 1B model) and loads them; `connected` turns true once the model is warm. The model then stays in memory across `stop()`/`start()` and `listen()` calls. To check that a machine keeps up with real time, run `uv run python scripts/benchmark_kyutai.py` (Apple M5 Pro: real-time factor ≈ 0.45). See the [Kyutai module specification](specs/modules/kyutai.md).
+The first `start()` downloads the weights (~2 GB for the 1B model) and loads them (to fetch them ahead of time: `python -m asr_engine.modules.kyutai.download`); `connected` turns true once the model is warm. The model then stays in memory across `stop()`/`start()` and `listen()` calls. To check that a machine keeps up with real time, run `uv run python scripts/benchmark_kyutai.py` (Apple M5 Pro: real-time factor ≈ 0.45). See the [Kyutai module specification](specs/modules/kyutai.md).
 
 #### mlx-audio (local, Apple Silicon)
 
@@ -377,7 +377,7 @@ The first `start()` downloads the weights (~2 GB for the 1B model) and loads the
 | `interim_interval_s` | `0.5` | Re-decode the utterance for an interim after this much more speech; `0` disables interims |
 | `max_utterance_s` | `30` | Cut longer utterances into several finals |
 
-These are **batch** models: they transcribe a whole utterance at once, so **`engine.vad` is required**. The gate ends each utterance and the module decodes it (≈ 0.03 s for Parakeet once warm). Interims come from re-decoding the utterance as it grows. Audio is 16 kHz, the default. The model is downloaded on first use and stays loaded between `listen` calls.
+These are **batch** models: they transcribe a whole utterance at once, so **`engine.vad` is required**. The gate ends each utterance and the module decodes it (≈ 0.03 s for Parakeet once warm). Interims come from re-decoding the utterance as it grows. Audio is 16 kHz, the default. The model is downloaded on first use (or ahead of time with `python -m asr_engine.modules.mlx_audio.download [model]`) and stays loaded between `listen` calls.
 
 **`mlx-audio` cannot be installed with `kyutai-mlx` or `kyutai-torch`**: the Kyutai packages pin older `mlx`, `sounddevice` and `huggingface-hub` versions. `all` includes `mlx-audio` and leaves the Kyutai extras out; install Kyutai in an environment of its own. A complete server config is in [`examples/config/mlx_audio.json`](examples/config/mlx_audio.json).
 
@@ -739,7 +739,7 @@ uv run pyright
 uv run pytest tests/
 ```
 
-A bare `uv sync` syncs the default groups: `dev`, which depends on `asr-engine[all]` and so installs every provider extra and the `mcp` extra, and `demo`, which adds Gradio for the example UI. The whole suite then runs with nothing skipped for a missing extra. Fast deterministic tests live in `tests/`; opt-in real-time pipeline tests live in `tests-e2e/` (live provider conformance, plus keyless scenarios on the `fake` module) and must be invoked explicitly.
+A bare `uv sync` syncs the default groups: `dev`, which installs every provider extra except the Kyutai ones (they cannot share an environment with `mlx-audio`, see [the project spec](specs/project.md)) plus the `mcp` extra, and `demo`, which adds Gradio for the example UI. The fast suite then runs with nothing skipped for a missing extra. Fast deterministic tests live in `tests/`; opt-in real-time pipeline tests live in `tests-e2e/` (live provider conformance, plus keyless scenarios on the `fake` module) and must be invoked explicitly.
 
 ## License
 
