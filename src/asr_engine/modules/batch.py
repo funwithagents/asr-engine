@@ -52,13 +52,19 @@ class BatchASRModule(ASRModule):
     VAD_GATING = "required"
 
     LABEL: ClassVar[str] = "batch"  # the registry key, for messages
+    # Default for the interim_interval_s field. A subclass whose decodes cost
+    # money (an HTTP API billed per request) defaults to 0: no interims.
+    DEFAULT_INTERIM_INTERVAL_S: ClassVar[float] = 0.5
 
     _BACKOFF_S: tuple[float, ...] = (1.0, 2.0, 4.0, 8.0)
 
     def __init__(self, config: dict) -> None:
         super().__init__(config)
         self._interim_interval_s = self._number(
-            config, "interim_interval_s", 0.5, allow_zero=True
+            config,
+            "interim_interval_s",
+            self.DEFAULT_INTERIM_INTERVAL_S,
+            allow_zero=True,
         )
         self._max_utterance_s = self._number(config, "max_utterance_s", 30.0)
         self._stop_timeout_s = self._number(config, "stop_timeout_s", 10.0)

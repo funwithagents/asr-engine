@@ -71,7 +71,7 @@ Every bundled module supports the gate. Whether to turn it on depends on what th
 | `deepgram_v2` (Flux) | **Worth it when cost or privacy matters, with a longer hangover** | Flux's value is its own contextual turn detection, which works on the silence after speech. With the default 500 ms hangover the gate would usually cut that silence before Flux decides. With `min_silence_duration_ms` raised to about 1500, Flux hears enough real silence to end the turn itself, and the gate only removes the long idle stretches. See [Letting the backend end the turn first](#letting-the-backend-end-the-turn-first). |
 | `kyutai` | **Supported, rarely needed** | Free and local, with a semantic end-of-turn head. Gating saves compute and stretches the step budget. The same longer hangover keeps its semantic end-of-turn in charge. Worth it on battery or thermally limited hardware. |
 | `fake` | Supported, for tests | Its audio-time clock counts gated audio only. |
-| `mlx_audio`, and every batch module ([batch-asr-module.md](batch-asr-module.md)) | **Required** | They have no other end-of-utterance signal. The marker triggers the one decode of the utterance. |
+| `mlx_audio`, `openai_transcriptions_compatible`, and every batch module ([batch-asr-module.md](batch-asr-module.md)) | **Required** | They have no other end-of-utterance signal. The marker triggers the one decode of the utterance. |
 
 Rule of thumb: turn the gate on for any billed backend; give a backend that has its own turn detection a longer hangover so that it still decides; and the gate is mandatory for a batch backend.
 
@@ -281,7 +281,7 @@ Each bundled module is `"supported"`. The detail is in each module's spec; in sh
 | `deepgram_v2` | Flux has no flush message; its turn ends on silence it hears. The module tracks whether a turn is open (a transcript received since the last `EndOfTurn`). **No turn open:** Flux already ended it during the hangover, so `finalize()` does nothing. **Turn open:** send one burst of encoded silence covering `eot_timeout_ms` plus a margin through `send_media`, so Flux ends the turn on its timeout path at the latest. Connection kept either way. | Usually before the marker (Flux's own `EndOfTurn`); otherwise up to `eot_timeout_ms` after it |
 | `mistral_realtime` | `input_audio.end` would end the session, so the flush is local. The text of audio already sent only arrives once the server receives about one streaming delay of further audio (measured), so: send one burst of silence of `streaming_delay_ms` + 200 ms, then emit the accumulated text as a final once no delta has arrived for `streaming_delay_ms + final_margin_ms` (each delta restarts the wait). | About 0.5 s + `streaming_delay_ms + final_margin_ms` after the marker |
 | `openai_realtime_compatible` | The protocol's own commit. With server turn detection on, it commits if the server's turn is still open (`speech_started` seen, no `committed` yet), and clears the buffered trailing silence otherwise. With it off, it commits at ≥ 100 ms of buffered audio (the server's minimum) and clears below that. Session kept. | ≈ 0.6 s after the commit (measured) |
-| `mlx_audio` (`BatchASRModule`) | `"required"`. Decode the buffered utterance as the final, on the worker thread, and clear the buffer. Interims come from re-decoding the growing buffer. | One decode after the marker (≈ 0.03 s for Parakeet, measured) |
+| `mlx_audio`, `openai_transcriptions_compatible` (`BatchASRModule`) | `"required"`. Decode the buffered utterance as the final, on the worker thread, and clear the buffer. Interims come from re-decoding the growing buffer. | One decode after the marker (≈ 0.03 s for Parakeet, measured; one HTTP request, 0.5–1 s on hosted OpenAI) |
 | `kyutai` | The timers count model steps, and no audio means no steps. Pad the partial frame with zeros, feed `ceil(audio_delay_s / 0.08)` + 2 silent frames to the worker, then force a final of what has accumulated (`confidence=None`). Silence is free here. A semantic-VAD final armed in the meantime is absorbed: an empty accumulator emits nothing. | About the model's text delay after the marker |
 | `fake` | Ignores the marker. Its script, not the audio, decides its finals. | Per script |
 
@@ -362,10 +362,10 @@ silero = [
     "onnxruntime; sys_platform != 'darwin' or platform_machine != 'x86_64'",
     "soxr",
 ]
-all = ["asr-engine[deepgram,mcp,mistral,mlx-audio,openai-realtime-compatible,silero]"]  # Kyutai: own env, see project.md
+all = ["asr-engine[deepgram,mcp,mistral,mlx-audio,openai-realtime-compatible,openai-transcriptions-compatible,silero]"]  # Kyutai: own env, see project.md
 
 [dependency-groups]
-dev = ["asr-engine[deepgram,mcp,mistral,openai-realtime-compatible,silero]", "mlx-audio[stt]>=0.6; …", ...]
+dev = ["asr-engine[deepgram,mcp,mistral,openai-realtime-compatible,openai-transcriptions-compatible,silero]", "mlx-audio[stt]>=0.6; …", ...]
 ```
 
 - `soxr` (0.2 MB, numpy only) sits in the VAD backend's extra, not in core: only the gate uses it, and only when the pipeline rate is not one the VAD supports.
@@ -376,7 +376,7 @@ dev = ["asr-engine[deepgram,mcp,mistral,openai-realtime-compatible,silero]", "ml
 
 Checked against the modules considered for later (batch and realtime-protocol ASR backends, other VADs):
 
-- **Batch modules** (built: [batch-asr-module.md](batch-asr-module.md), first subclass `mlx_audio`; planned: the `openai_transcriptions_compatible` HTTP module, `parakeet` off Apple Silicon). They declare `VAD_GATING = "required"`. Their shared base class buffers the chunks it receives, decodes on `finalize()`, emits one final and clears the buffer. Progressive re-decoding for interims needs no onset signal: the buffer starts growing with the first chunk after a marker. These models take 16 kHz mono, which Silero analyses natively, so with them the gate needs no resampler.
+- **Batch modules** (built: [batch-asr-module.md](batch-asr-module.md), with `mlx_audio` and the `openai_transcriptions_compatible` HTTP module; planned: `parakeet` off Apple Silicon). They declare `VAD_GATING = "required"`. Their shared base class buffers the chunks it receives, decodes on `finalize()`, emits one final and clears the buffer. Progressive re-decoding for interims needs no onset signal: the buffer starts growing with the first chunk after a marker. These models take 16 kHz mono, which Silero analyses natively, so with them the gate needs no resampler.
 - **A maximum utterance length.** Batch models have a bounded input window (30 s for Whisper). Built in the batch base class as `max_utterance_s`, not in the gate.
 - **`openai-realtime` / `vllm-realtime`.** Streaming with server-side turn detection, so the gate is optional, as for Deepgram. The protocol has an explicit commit message for the input buffer, which is what `finalize()` would send (to be confirmed when that module is specced).
 - **Smart Turn** (a semantic end-of-turn model run on top of Silero in speech-to-speech). It fits as an optional check inside the gate, consulted before a marker is emitted, so the modules' contract would not change. Deferred.

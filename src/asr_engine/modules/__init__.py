@@ -41,6 +41,13 @@ REGISTRY: dict[str, LazyModule | type[ASRModule]] = {
         "OpenAIRealtimeCompatibleModule",
         extra="openai-realtime-compatible",
     ),
+    # A protocol module for batch models: any server implementing OpenAI's
+    # POST /v1/audio/transcriptions (specs/modules/openai-transcriptions-compatible.md).
+    "openai_transcriptions_compatible": LazyModule(
+        "asr_engine.modules.openai_transcriptions_compatible.module:"
+        "OpenAITranscriptionsCompatibleModule",
+        extra="openai-transcriptions-compatible",
+    ),
     # No `extra`, as for kyutai below: mlx_audio/module.py imports nothing
     # third-party and raises its own install hint (the mlx-audio extra is Apple
     # Silicon only).
