@@ -714,4 +714,4 @@ A bare `uv sync` syncs the default groups: `dev`, which depends on `asr-engine[a
 
 ## License
 
-`asr-engine` is available under the [MIT License](LICENSE).
+`asr-engine` is available under the [Apache License 2.0](LICENSE); see also [NOTICE](NOTICE).
