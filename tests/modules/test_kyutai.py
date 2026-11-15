@@ -790,17 +790,19 @@ async def test_backend_receives_the_model_config(monkeypatch, recording_backends
 
 
 @pytest.mark.parametrize(
-    ("backend", "installed", "extra"),
+    ("backend", "installed", "extra", "system", "machine"),
     [
-        ("mlx", {"moshi"}, "kyutai-mlx"),
-        ("torch", {"moshi_mlx"}, "kyutai-torch"),
-        ("auto", set(), "kyutai-torch"),
+        ("mlx", {"moshi"}, "kyutai-mlx", "linux", "x86_64"),
+        ("torch", {"moshi_mlx"}, "kyutai-torch", "linux", "x86_64"),
+        ("auto", set(), "kyutai-torch", "linux", "x86_64"),
+        # A Mac with neither backend gets the MLX hint.
+        ("auto", set(), "kyutai-mlx", "darwin", "arm64"),
     ],
 )
 def test_unavailable_backend_raises_the_install_hint(
-    monkeypatch, backend, installed, extra
+    monkeypatch, backend, installed, extra, system, machine
 ):
-    _platform(monkeypatch, "linux", "x86_64", installed)
+    _platform(monkeypatch, system, machine, installed)
     with pytest.raises(ImportError) as exc_info:
         KyutaiModule({"backend": backend})
 
@@ -854,3 +856,45 @@ def test_declares_the_strict_24khz_mono_linear16_contract():
     with pytest.raises(ValueError, match="24000"):
         reconcile_audio_format(AudioFormat(sample_rate=16000), KyutaiModule)
     assert reconcile_audio_format(FORMAT_24K, KyutaiModule) == FORMAT_24K
+
+
+# ------------------------------------------------- weights download (download.py)
+
+
+def _fake_hf_cache(root, repo: str, files: dict[str, str]) -> str:
+    """A Hugging Face cache holding *files* for *repo* at one snapshot."""
+    repo_dir = root / f"models--{repo.replace('/', '--')}"
+    (repo_dir / "refs").mkdir(parents=True)
+    (repo_dir / "refs" / "main").write_text("abc123")
+    snapshot = repo_dir / "snapshots" / "abc123"
+    snapshot.mkdir(parents=True)
+    for name, content in files.items():
+        (snapshot / name).write_text(content)
+    return str(root)
+
+
+_KYUTAI_CONFIG = '{"mimi_name": "mimi.safetensors", "tokenizer_name": "tok.model"}'
+
+
+def test_kyutai_weights_are_cached_only_when_every_file_is(tmp_path) -> None:
+    pytest.importorskip("huggingface_hub")
+    from asr_engine.modules.kyutai.download import is_cached
+
+    repo = "kyutai/stt-test"
+    complete = {
+        "config.json": _KYUTAI_CONFIG,
+        "mimi.safetensors": "",
+        "model.safetensors": "",  # moshi_name's default
+        "tok.model": "",
+    }
+    assert is_cached(repo, cache_dir=_fake_hf_cache(tmp_path / "a", repo, complete))
+
+    partial = {k: v for k, v in complete.items() if k != "model.safetensors"}
+    assert not is_cached(repo, cache_dir=_fake_hf_cache(tmp_path / "b", repo, partial))
+    assert not is_cached(repo, cache_dir=str(tmp_path / "empty"))
+
+
+def test_the_module_defaults_to_the_downloaded_repo() -> None:
+    from asr_engine.modules.kyutai.download import DEFAULT_REPO
+
+    assert DEFAULT_REPO == "kyutai/stt-1b-en_fr-candle"

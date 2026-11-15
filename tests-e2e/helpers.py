@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import importlib
 import json
 import logging
 import os
@@ -35,6 +36,7 @@ FIXTURE_BLUE_VALIDATE = (  # "the sky is blue validate" (trigger word)
 )
 FIXTURE_BLUE_WAV_16000 = FIXTURES_DIR / "sample_16000_theskyisblue.wav"
 FIXTURE_BLUE_WAV_24000 = FIXTURES_DIR / "sample_24000_theskyisblue.wav"
+FIXTURE_BLUE_VALIDATE_WAV_16000 = FIXTURES_DIR / "sample_16000_theskyisbluevalidate.wav"
 FIXTURE_BLUE_VALIDATE_WAV_24000 = FIXTURES_DIR / "sample_24000_theskyisbluevalidate.wav"
 
 
@@ -49,6 +51,10 @@ class ModuleAudio:
 
 
 AUDIO_MP3_44100 = ModuleAudio(FORMAT_MP3_44100, FIXTURE_BLUE, FIXTURE_BLUE_VALIDATE)
+# 16 kHz mono: the rate batch models take (specs/batch-asr-module.md).
+AUDIO_WAV_16000 = ModuleAudio(
+    FORMAT_WAV_16000, FIXTURE_BLUE_WAV_16000, FIXTURE_BLUE_VALIDATE_WAV_16000
+)
 AUDIO_WAV_24000 = ModuleAudio(
     FORMAT_WAV_24000, FIXTURE_BLUE_WAV_24000, FIXTURE_BLUE_VALIDATE_WAV_24000
 )
@@ -84,34 +90,43 @@ def require_api_key(module_config: dict) -> None:
         )
 
 
-# Local-model modules, by type → the env var that opts their e2e case in. They need
-# no API key, so ``require_api_key`` never skips them — and an unguarded run would
-# try to download gigabytes of weights inside the per-test timeout.
-LOCAL_MODEL_OPT_IN_ENV = {"kyutai": "ASR_ENGINE_E2E_KYUTAI"}
+# Local-model modules, by type → (the module's download module, the config key
+# naming its model repo). They need no API key, so ``require_api_key`` never skips
+# them; instead they run only once their weights are cached, because an unguarded
+# run would download gigabytes inside the per-test timeout. Each download module
+# exposes ``DEFAULT_REPO``, ``is_cached(repo)`` and a ``python -m`` entry point.
+LOCAL_MODELS = {
+    "kyutai": ("asr_engine.modules.kyutai.download", "hf_repo"),
+    "mlx_audio": ("asr_engine.modules.mlx_audio.download", "model"),
+}
 
 
 def require_local_model(module_type: str, module_config: dict) -> None:
-    """Skip the calling test unless this local-model module is opted in and usable.
+    """Skip the calling test unless this local-model module can run here.
 
     The second skip axis, next to ``require_api_key``: a module listed in
-    ``LOCAL_MODEL_OPT_IN_ENV`` runs only when its env var is set to ``1`` (the
-    caller vouching that the weights are already downloaded) **and** its backend
-    dependency is installed. Any other module is never skipped here.
+    ``LOCAL_MODELS`` runs only when its backend dependency is installed (the
+    module builds) **and** its weights are already in the Hugging Face cache. The
+    skip message gives the command that fetches them. Any other module is never
+    skipped here.
     """
-    env_name = LOCAL_MODEL_OPT_IN_ENV.get(module_type)
-    if env_name is None:
+    entry = LOCAL_MODELS.get(module_type)
+    if entry is None:
         return
-    if os.environ.get(env_name) != "1":
-        pytest.skip(
-            f"e2e: local model '{module_type}' is opt-in — pre-fetch its weights, "
-            f"then set {env_name}=1 (see specs/e2e-testing.md)"
-        )
     from asr_engine.modules import resolve_module_class
 
     try:
         resolve_module_class(module_type)(config=module_config)
     except ImportError as exc:
         pytest.skip(f"e2e: {exc}")
+    download_module, repo_key = entry
+    download = importlib.import_module(download_module)
+    repo = module_config.get(repo_key, download.DEFAULT_REPO)
+    if not download.is_cached(repo):
+        pytest.skip(
+            f"e2e: local model '{module_type}' needs its weights cached first — "
+            f"run: uv run python -m {download_module} {repo}"
+        )
 
 
 def normalize_transcript(text: str) -> str:
@@ -215,7 +230,7 @@ MODULES = [
         AUDIO_WAV_24000,
         id="openai_realtime_compatible",
     ),
-    # Local model: no key; opt-in via ASR_ENGINE_E2E_KYUTAI=1 (require_local_model).
+    # Local model: no key; runs once its weights are cached (require_local_model).
     # silence_s must exceed the model's 0.5 s text delay + the 2.0 s fallback
     # finalize timer, so the default 3.0 s would be marginal.
     pytest.param(
@@ -225,7 +240,27 @@ MODULES = [
         AUDIO_WAV_24000,
         id="kyutai",
     ),
+    # Local batch model on Apple Silicon, gated like kyutai: it needs the
+    # mlx-audio extra (in dev on Apple Silicon) and its weights cached, or
+    # require_local_model skips. VAD-required, so it runs only behind the gate
+    # (MODULES_UNGATED leaves it out). A final lands one decode (~0.03 s) after
+    # the gate's marker.
+    pytest.param(
+        "mlx_audio",
+        {"model": "mlx-community/parakeet-tdt-0.6b-v3"},
+        2.0,
+        AUDIO_WAV_16000,
+        id="mlx_audio",
+    ),
 ]
+
+# Modules declaring VAD_GATING = "required" (batch modules): they produce no final
+# without the gate, so they have no ungated conformance case. Named here rather
+# than read from the class, so collecting the table imports no module.
+VAD_REQUIRED_MODULES = frozenset({"mlx_audio"})
+
+# Param table for ``test_engine_streams``: every row a module can run ungated.
+MODULES_UNGATED = [row for row in MODULES if row.values[0] not in VAD_REQUIRED_MODULES]
 
 
 def _vad_cases() -> list:

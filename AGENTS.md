@@ -12,7 +12,7 @@ Where things live. This is a coarse, module-level map — for the full file inve
 
 | Path | What's there |
 |---|---|
-| `src/asr_engine/` | The library itself — one module per core concept (see below); pluggable ASR backends in `modules/` — the registry and `base.py` at its root, then **one package per backend** (`modules/deepgram/`, `modules/mistral/`, `modules/openai_realtime_compatible/`, `modules/kyutai/`, `modules/fake/`); the optional VAD stage in `vad/` — its registry, `base.py` and the shared `gate.py` at its root, then one package per VAD backend (`vad/silero/`) — see [specs/vad.md](specs/vad.md); bundled cues in `sounds/` |
+| `src/asr_engine/` | The library itself — one module per core concept (see below); pluggable ASR backends in `modules/` — the registry, `base.py` and the batch base class `batch.py` at its root, then **one package per backend** (`modules/deepgram/`, `modules/mistral/`, `modules/openai_realtime_compatible/`, `modules/kyutai/`, `modules/mlx_audio/`, `modules/fake/`); the optional VAD stage in `vad/` — its registry, `base.py` and the shared `gate.py` at its root, then one package per VAD backend (`vad/silero/`) — see [specs/vad.md](specs/vad.md); bundled cues in `sounds/` |
 | `specs/` | Pre-implementation design docs, one per concept, each with a `**Status:**` — indexed by [specs/_index.md](specs/_index.md). Per-backend specs live in `specs/modules/` (one `<backend>.md` each, mirroring `src/asr_engine/modules/<backend>/`); the contract they all implement stays at the top level ([asr-module-interface.md](specs/asr-module-interface.md)) |
 | `plans/` | Implementation plans turning settled specs into buildable steps — indexed by [plans/_index.md](plans/_index.md) |
 | `tests/` | Fast, deterministic, no-network tests; mirrors the `src/asr_engine/` module structure (`tests/examples/` covers `examples/`); `tests/modules/` stays flat — one `test_<module>.py` per backend module, not a folder per backend; `tests/vad/` covers `src/asr_engine/vad/` (its `scripted.py` holds the deterministic VAD and hand-fed source other tests reuse) |
@@ -89,10 +89,22 @@ zsh -ic 'uv run pytest tests-e2e -k deepgram_v1'   # one backend, by its paramet
 
 Never `echo`/print a key itself; when checking whether one is set, redact the value (e.g. `env | grep DEEPGRAM | sed -E 's/=.*/=<set>/'`).
 
-**Local-model cases are opt-in, not key-gated.** The `kyutai` row runs a real on-device model, so it has no key to skip on; instead it skips unless `ASR_ENGINE_E2E_KYUTAI=1` is set, which also vouches that the weights are already downloaded (`uv run python scripts/benchmark_kyutai.py` fetches them):
+**Local-model cases run once their weights are cached, not on a key.** The `kyutai` and `mlx_audio` rows run real on-device models, so they have no key to skip on. Each skips unless its module builds here (its extra is installed) **and** its weights are already in the Hugging Face cache, so a run never downloads gigabytes inside the per-test timeout. The skip message names the fetch command. Each local module ships one in its own package. `mlx_audio` (Apple Silicon) is in the dev environment:
 
 ```bash
-zsh -ic 'ASR_ENGINE_E2E_KYUTAI=1 uv run pytest tests-e2e -k kyutai'
+uv run python -m asr_engine.modules.mlx_audio.download   # once: fetches the default model
+zsh -ic 'uv run pytest tests-e2e -k mlx_audio'
+```
+
+The Kyutai extras cannot share an environment with mlx-audio ([specs/project.md](specs/project.md) "Exclusive extras"), so `kyutai` runs in a second, git-ignored environment:
+
+```bash
+UV_PROJECT_ENVIRONMENT=.venv-kyutai uv run --no-default-groups \
+    --extra kyutai-mlx --extra silero \
+    --with pytest --with pytest-asyncio --with pytest-timeout --with pytest-mock python -m asr_engine.modules.kyutai.download   # once
+UV_PROJECT_ENVIRONMENT=.venv-kyutai uv run --no-default-groups \
+    --extra kyutai-mlx --extra silero \
+    --with pytest --with pytest-asyncio --with pytest-timeout --with pytest-mock pytest tests-e2e -k kyutai
 ```
 
 ## Implementation plans
@@ -109,7 +121,7 @@ After any code change, run linting, type checking, and tests, and fix any failur
 ## Commands
 
 ```bash
-uv sync --dev                # full contributor environment (dev names the extras it needs: deepgram, mcp, kyutai-mlx, mistral, openai-realtime-compatible, silero — not kyutai-torch, see specs/project.md)
+uv sync --dev                # full contributor environment (dev names the extras it needs: deepgram, mcp, mistral, mlx-audio, openai-realtime-compatible, silero — not the Kyutai extras, see specs/project.md)
 uv run ruff check .
 uv run ruff format .
 uv run pyright
