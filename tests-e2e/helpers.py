@@ -67,7 +67,8 @@ AUDIO_WAV_24000 = ModuleAudio(
 DEEPGRAM_API_KEY_ENV = "DEEPGRAM_API_KEY"
 # Mistral's, for the mistral_realtime row (same rules).
 MISTRAL_API_KEY_ENV = "MISTRAL_API_KEY"
-# OpenAI's, for the openai_realtime_compatible row (same rules).
+# OpenAI's, for the openai_realtime_compatible and openai_transcriptions_compatible
+# rows (same rules).
 OPENAI_API_KEY_ENV = "OPENAI_API_KEY"
 
 
@@ -230,6 +231,16 @@ MODULES = [
         AUDIO_WAV_24000,
         id="openai_realtime_compatible",
     ),
+    # Batch over HTTP: one upload per utterance, VAD-required like mlx_audio
+    # (MODULES_UNGATED leaves it out). A final lands one request (~0.5-1 s,
+    # measured) after the gate's marker.
+    pytest.param(
+        "openai_transcriptions_compatible",
+        {"model": "gpt-4o-transcribe", "api_key_env": OPENAI_API_KEY_ENV},
+        3.0,
+        AUDIO_WAV_16000,
+        id="openai_transcriptions_compatible",
+    ),
     # Local model: no key; runs once its weights are cached (require_local_model).
     # silence_s must exceed the model's 0.5 s text delay + the 2.0 s fallback
     # finalize timer, so the default 3.0 s would be marginal.
@@ -257,7 +268,7 @@ MODULES = [
 # Modules declaring VAD_GATING = "required" (batch modules): they produce no final
 # without the gate, so they have no ungated conformance case. Named here rather
 # than read from the class, so collecting the table imports no module.
-VAD_REQUIRED_MODULES = frozenset({"mlx_audio"})
+VAD_REQUIRED_MODULES = frozenset({"mlx_audio", "openai_transcriptions_compatible"})
 
 # Param table for ``test_engine_streams``: every row a module can run ungated.
 MODULES_UNGATED = [row for row in MODULES if row.values[0] not in VAD_REQUIRED_MODULES]

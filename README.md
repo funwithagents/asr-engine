@@ -40,6 +40,7 @@ uv sync --no-default-groups --extra deepgram               # Deepgram modules
 uv sync --no-default-groups --extra deepgram --extra mcp   # + the MCP server (asr-engine-mcp)
 uv sync --no-default-groups --extra mistral                # Mistral Voxtral realtime
 uv sync --no-default-groups --extra openai-realtime-compatible   # OpenAI Realtime (or a compatible server)
+uv sync --no-default-groups --extra openai-transcriptions-compatible --extra silero   # any /v1/audio/transcriptions server
 uv sync --no-default-groups --extra mlx-audio --extra silero   # local Parakeet / Qwen3-ASR / Whisper…, Apple Silicon
 uv sync --no-default-groups --extra kyutai-mlx             # local Kyutai STT, Apple Silicon (MLX) — not with mlx-audio
 uv sync --no-default-groups --extra kyutai-torch           # local Kyutai STT, elsewhere (PyTorch) — not with mlx-audio
@@ -51,6 +52,7 @@ pip install 'asr-engine[deepgram]'
 pip install 'asr-engine[mcp,deepgram]'
 pip install 'asr-engine[mistral]'
 pip install 'asr-engine[openai-realtime-compatible]'
+pip install 'asr-engine[openai-transcriptions-compatible,silero]'
 pip install 'asr-engine[mlx-audio,silero]'   # Apple Silicon
 pip install 'asr-engine[kyutai-mlx]'     # or 'asr-engine[kyutai-torch]'; not in the same environment as mlx-audio or [all]
 pip install 'asr-engine[deepgram,silero]'   # a provider + the optional Silero VAD gate
@@ -225,6 +227,7 @@ Provider modules are optional: each one ships in an extra, and none is a default
 | `deepgram_v2` | `deepgram` | Deepgram Listen v2 | English conversational transcription with integrated turn detection | `flux-general-en` |
 | `mistral_realtime` | `mistral` | Mistral Voxtral 3 realtime | Multilingual transcription (45 languages, auto-detected) with turn detection and phrase boosting | `voxtral-mini-transcribe-realtime-3` |
 | `openai_realtime_compatible` | `openai-realtime-compatible` | OpenAI Realtime transcription, or any server speaking its protocol (LiteLLM, NVIDIA Dynamo, LocalAI, …) | OpenAI's transcription models; self-hosted or proxied models behind the same protocol | `gpt-4o-transcribe` |
+| `openai_transcriptions_compatible` | `openai-transcriptions-compatible` | OpenAI's `/v1/audio/transcriptions`, or any server implementing it (Groq, speaches, whisper.cpp server, vLLM, …) | Batch transcription over HTTP, hosted or self-hosted (Whisper, `gpt-4o-transcribe`, …); needs the VAD gate | `gpt-4o-transcribe` |
 | `kyutai` | `kyutai-mlx` or `kyutai-torch` | None — runs on-device | Local English + French transcription: no network, no API key, no per-minute cost | `kyutai/stt-1b-en_fr-candle` |
 | `mlx_audio` | `mlx-audio` | None — runs on-device (Apple Silicon) | Local multilingual transcription with any mlx-audio model (Parakeet, Qwen3-ASR, Whisper, …); needs the VAD gate | `mlx-community/parakeet-tdt-0.6b-v3` |
 
@@ -323,6 +326,28 @@ Supported sample rates are 16, 24 and 44.1 kHz. Voxtral bills per audio minute (
 | `noise_reduction` | `null` | `"near_field"` or `"far_field"` |
 
 The key is required for hosted OpenAI and optional for other servers. **Set `engine.audio.sample_rate` to `24000`**: it is the only rate hosted OpenAI accepts. With `gpt-4o-transcribe` the text of an utterance arrives once the server has closed it, so interims come in a burst just before the final; `gpt-realtime-whisper` streams words as they are spoken. To check an endpoint's behaviour, run `zsh -ic 'uv run python scripts/probe_openai_realtime.py'` (`--url` for another server). A complete server config is in [`examples/config/openai_realtime_compatible.json`](examples/config/openai_realtime_compatible.json).
+
+#### OpenAI transcriptions endpoint (and compatible servers)
+
+```json
+{
+  "type": "openai_transcriptions_compatible",
+  "api_key_env": "OPENAI_API_KEY",
+  "model": "gpt-4o-transcribe",
+  "language": "en"
+}
+```
+
+| Field | Default | Description |
+|---|---|---|
+| `url` | `https://api.openai.com/v1/audio/transcriptions` | Endpoint URL, used as is. Point it at any server implementing it: Groq (`https://api.groq.com/openai/v1/audio/transcriptions`), or a local speaches, whisper.cpp or vLLM server |
+| `model` | `gpt-4o-transcribe` | The server's model name (`gpt-4o-mini-transcribe`, `whisper-1`, `whisper-large-v3-turbo`, …) |
+| `language` | `null` | Language code (ISO 639-1 on OpenAI); `null` lets the server detect it |
+| `prompt` | `null` | Vocabulary and style hints, such as your trigger words |
+| `extra_fields` | `{}` | More form fields for the server (e.g. `{"temperature": 0}`) |
+| `interim_interval_s` | `0` | Interims are off: each one re-uploads the growing utterance, which a hosted API bills. Set e.g. `0.5` against a free local server |
+
+These are **batch** requests: each utterance is uploaded as one WAV file once it ends, so **`engine.vad` is required**, and the final arrives one request later (0.5–1 s on hosted OpenAI, measured). The key is required for hosted OpenAI and optional for other servers. Audio is 16 kHz, the default. At start the module sends one short request to check the URL, key and model. A complete server config is in [`examples/config/openai_transcriptions_compatible.json`](examples/config/openai_transcriptions_compatible.json).
 
 #### Kyutai (local, on-device)
 
@@ -606,7 +631,7 @@ Every bundled module works behind the gate. Which setting suits it depends on wh
 |---|---|---|
 | `deepgram_v1`, `mistral_realtime`, `openai_realtime_compatible` | `{"type": "silero"}` | The gate ends each utterance; the bill follows speech time |
 | `deepgram_v2` (Flux) | `{"type": "silero", "min_silence_duration_ms": 1500}` | The longer window lets Flux hear enough silence to end the turn by its own contextual judgement; the gate then only removes the idle time between utterances |
-| `mlx_audio` | `{"type": "silero"}` (required) | A batch model has no end-of-utterance signal of its own; the gate provides it |
+| `mlx_audio`, `openai_transcriptions_compatible` | `{"type": "silero"}` (required) | A batch model has no end-of-utterance signal of its own; the gate provides it |
 | `kyutai` | Usually none; else as for Flux | Local and free, with its own end-of-turn detection; gating only saves compute |
 
 With the gate on, the boundaries of final utterances follow `min_silence_duration_ms` unless the backend ends the turn first, so a larger value gives fewer, longer finals. Segmentation (`trigger_word`, `timeout`) is unchanged: it still works on the module's utterances.
@@ -681,7 +706,7 @@ cp examples/config/deepgram_v2.json config.json
 uv run asr-engine-mcp --config config.json
 ```
 
-[`examples/config/`](examples/config/) holds one complete server config per ASR module: `deepgram_v1.json`, `deepgram_v2.json`, `mistral_realtime.json`, `openai_realtime_compatible.json`, `kyutai.json` and `mlx_audio.json`. The four cloud ones and `mlx_audio` (which needs it) enable the Silero VAD gate with the setting recommended for that module (hence the `silero` extra above); remove their `vad` block to stream everything, as before.
+[`examples/config/`](examples/config/) holds one complete server config per ASR module: `deepgram_v1.json`, `deepgram_v2.json`, `mistral_realtime.json`, `openai_realtime_compatible.json`, `openai_transcriptions_compatible.json`, `kyutai.json` and `mlx_audio.json`. The five cloud ones and `mlx_audio` enable the Silero VAD gate (the two batch modules, `openai_transcriptions_compatible` and `mlx_audio`, need it) with the setting recommended for that module (hence the `silero` extra above); remove their `vad` block to stream everything, as before.
 
 The default endpoint is `http://127.0.0.1:8000/mcp`. Logging is configured by the server command rather than the engine configuration:
 

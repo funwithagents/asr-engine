@@ -165,6 +165,11 @@ REGISTRY: dict[str, LazyModule | type[ASRModule]] = {
         "OpenAIRealtimeCompatibleModule",
         extra="openai-realtime-compatible",
     ),
+    "openai_transcriptions_compatible": LazyModule(
+        "asr_engine.modules.openai_transcriptions_compatible.module:"
+        "OpenAITranscriptionsCompatibleModule",
+        extra="openai-transcriptions-compatible",
+    ),
     "mlx_audio": LazyModule(
         "asr_engine.modules.mlx_audio.module:MlxAudioModule"
     ),  # see below
@@ -190,7 +195,7 @@ Each real backend's third-party dependencies live in a `[project.optional-depend
 
 - a **provider module** (one vendor's API or one model family) is named after the provider and API (`deepgram_v1`, `mistral_realtime`) or the model family (`kyutai`), and its extra after the provider (`deepgram`, `mistral`, `kyutai-mlx`);
 - a **runner module** (a generic model runner that serves many model families, the model being a config value) is named after the runner (`mlx_audio`), and its extra after the module key (`mlx-audio`);
-- a **protocol module** (any server implementing a de-facto standard API) is named `<origin>_<api>_compatible` (`openai_realtime_compatible`), and its extra after the module key with `_` → `-` (`openai-realtime-compatible`), even when another extra lists the same packages. The suffix leaves the plain name (`openai_realtime`) free for a vendor-only module.
+- a **protocol module** (any server implementing a de-facto standard API) is named `<origin>_<api>_compatible` (`openai_realtime_compatible`, `openai_transcriptions_compatible`), and its extra after the module key with `_` → `-` (`openai-realtime-compatible`), even when another extra lists the same packages. The suffix leaves the plain name (`openai_realtime`) free for a vendor-only module.
 
 | Extra | Modules | Dependencies |
 |---|---|---|
@@ -199,6 +204,7 @@ Each real backend's third-party dependencies live in a `[project.optional-depend
 | `kyutai-torch` | `kyutai` (PyTorch backend) | `moshi`; **exclusive with `mlx-audio`**, not in `all` / `dev` |
 | `mistral` | `mistral_realtime` | `websockets` |
 | `openai-realtime-compatible` | `openai_realtime_compatible` | `websockets` |
+| `openai-transcriptions-compatible` | `openai_transcriptions_compatible` | `httpx` |
 | `mlx-audio` | `mlx_audio` | `mlx-audio[stt]`, marker-guarded to Apple Silicon; exclusive with the Kyutai extras |
 | *(core)* | `fake` | — |
 
