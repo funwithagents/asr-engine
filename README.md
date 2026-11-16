@@ -39,8 +39,8 @@ The base installation contains the engine, `AsrTools` and the `fake` test module
 uv sync --no-default-groups --extra deepgram               # Deepgram modules
 uv sync --no-default-groups --extra deepgram --extra mcp   # + the MCP server (asr-engine-mcp)
 uv sync --no-default-groups --extra mistral                # Mistral Voxtral realtime
-uv sync --no-default-groups --extra openai-realtime-compatible   # OpenAI Realtime (or a compatible server)
-uv sync --no-default-groups --extra openai-transcriptions-compatible --extra silero   # any /v1/audio/transcriptions server
+uv sync --no-default-groups --extra openai-compatible     # OpenAI Realtime or /v1/audio/transcriptions (or a compatible server)
+uv sync --no-default-groups --extra openai-compatible --extra silero   # + the VAD gate the transcriptions module needs
 uv sync --no-default-groups --extra mlx-audio --extra silero   # local Parakeet / Qwen3-ASR / Whisper…, Apple Silicon
 uv sync --no-default-groups --extra kyutai-mlx             # local Kyutai STT, Apple Silicon (MLX) — not with mlx-audio
 uv sync --no-default-groups --extra kyutai-torch           # local Kyutai STT, elsewhere (PyTorch) — not with mlx-audio
@@ -51,8 +51,8 @@ uv sync --no-default-groups --extra all                    # every provider and 
 pip install 'asr-engine[deepgram]'
 pip install 'asr-engine[mcp,deepgram]'
 pip install 'asr-engine[mistral]'
-pip install 'asr-engine[openai-realtime-compatible]'
-pip install 'asr-engine[openai-transcriptions-compatible,silero]'
+pip install 'asr-engine[openai-compatible]'
+pip install 'asr-engine[openai-compatible,silero]'   # openai-transcriptions-compatible needs the VAD gate
 pip install 'asr-engine[mlx-audio,silero]'   # Apple Silicon
 pip install 'asr-engine[kyutai-mlx]'     # or 'asr-engine[kyutai-torch]'; not in the same environment as mlx-audio or [all]
 pip install 'asr-engine[deepgram,silero]'   # a provider + the optional Silero VAD gate
@@ -80,7 +80,7 @@ async def main() -> None:
     config = ASREngineConfig.from_dict(
         {
             "module": {
-                "type": "deepgram_v1",
+                "type": "deepgram-v1",
                 "api_key_env": "DEEPGRAM_API_KEY",
                 "model": "nova-3",
                 "language": "multi",
@@ -142,7 +142,7 @@ from asr_engine import ASREngineConfig, ModuleConfig
 
 config = ASREngineConfig(
     module=ModuleConfig(
-        type="deepgram_v1",
+        type="deepgram-v1",
         extra={"api_key_env": "DEEPGRAM_API_KEY"},
     )
 )
@@ -181,7 +181,7 @@ A complete engine block looks like this:
     "on_unsupported_format": "error"
   },
   "module": {
-    "type": "deepgram_v1",
+    "type": "deepgram-v1",
     "api_key_env": "DEEPGRAM_API_KEY",
     "model": "nova-3",
     "language": "multi"
@@ -221,15 +221,17 @@ ASREngine ──▶ resolve_module_class(config.module.type) ──▶ ASRModule
 
 Provider modules are optional: each one ships in an extra, and none is a default. `engine.module.type` must always name the module you chose. Selecting a module whose extra is not installed fails at engine construction with an `ImportError` naming the extra to install.
 
+Module types are written with hyphens. The older underscore spellings (`deepgram_v1`, `mistral_realtime`, `mlx_audio`, `openai_realtime_compatible`, …) still work, and using one logs a deprecation warning naming the new type.
+
 | Module type | Extra | Provider API | Best for | Default model |
 |---|---|---|---|---|
-| `deepgram_v1` | `deepgram` | Deepgram Listen v1 | General and multilingual transcription | `nova-3` |
-| `deepgram_v2` | `deepgram` | Deepgram Listen v2 | English conversational transcription with integrated turn detection | `flux-general-en` |
-| `mistral_realtime` | `mistral` | Mistral Voxtral 3 realtime | Multilingual transcription (45 languages, auto-detected) with turn detection and phrase boosting | `voxtral-mini-transcribe-realtime-3` |
-| `openai_realtime_compatible` | `openai-realtime-compatible` | OpenAI Realtime transcription, or any server speaking its protocol (LiteLLM, NVIDIA Dynamo, LocalAI, …) | OpenAI's transcription models; self-hosted or proxied models behind the same protocol | `gpt-4o-transcribe` |
-| `openai_transcriptions_compatible` | `openai-transcriptions-compatible` | OpenAI's `/v1/audio/transcriptions`, or any server implementing it (Groq, speaches, whisper.cpp server, vLLM, …) | Batch transcription over HTTP, hosted or self-hosted (Whisper, `gpt-4o-transcribe`, …); needs the VAD gate | `gpt-4o-transcribe` |
+| `deepgram-v1` | `deepgram` | Deepgram Listen v1 | General and multilingual transcription | `nova-3` |
+| `deepgram-v2` | `deepgram` | Deepgram Listen v2 | English conversational transcription with integrated turn detection | `flux-general-en` |
+| `mistral-realtime` | `mistral` | Mistral Voxtral 3 realtime | Multilingual transcription (45 languages, auto-detected) with turn detection and phrase boosting | `voxtral-mini-transcribe-realtime-3` |
+| `openai-realtime-compatible` | `openai-compatible` | OpenAI Realtime transcription, or any server speaking its protocol (LiteLLM, NVIDIA Dynamo, LocalAI, …) | OpenAI's transcription models; self-hosted or proxied models behind the same protocol | `gpt-4o-transcribe` |
+| `openai-transcriptions-compatible` | `openai-compatible` | OpenAI's `/v1/audio/transcriptions`, or any server implementing it (Groq, speaches, whisper.cpp server, vLLM, …) | Batch transcription over HTTP, hosted or self-hosted (Whisper, `gpt-4o-transcribe`, …); needs the VAD gate | `gpt-4o-transcribe` |
 | `kyutai` | `kyutai-mlx` or `kyutai-torch` | None — runs on-device | Local English + French transcription: no network, no API key, no per-minute cost | `kyutai/stt-1b-en_fr-candle` |
-| `mlx_audio` | `mlx-audio` | None — runs on-device (Apple Silicon) | Local multilingual transcription with any mlx-audio model (Parakeet, Qwen3-ASR, Whisper, …); needs the VAD gate | `mlx-community/parakeet-tdt-0.6b-v3` |
+| `mlx-audio` | `mlx-audio` | None — runs on-device (Apple Silicon) | Local multilingual transcription with any mlx-audio model (Parakeet, Qwen3-ASR, Whisper, …); needs the VAD gate | `mlx-community/parakeet-tdt-0.6b-v3` |
 
 #### `fake` — test double, not an ASR backend
 
@@ -248,7 +250,7 @@ Do not use it for real speech recognition. See the [fake module specification](s
 
 ```json
 {
-  "type": "deepgram_v1",
+  "type": "deepgram-v1",
   "api_key_env": "DEEPGRAM_API_KEY",
   "model": "nova-3",
   "language": "multi",
@@ -268,7 +270,7 @@ Do not use it for real speech recognition. See the [fake module specification](s
 
 ```json
 {
-  "type": "deepgram_v2",
+  "type": "deepgram-v2",
   "api_key_env": "DEEPGRAM_API_KEY",
   "model": "flux-general-en",
   "eot_threshold": 0.7,
@@ -286,7 +288,7 @@ Do not use it for real speech recognition. See the [fake module specification](s
 
 ```json
 {
-  "type": "mistral_realtime",
+  "type": "mistral-realtime",
   "api_key_env": "MISTRAL_API_KEY",
   "language": "en",
   "context_bias": ["validate"]
@@ -308,7 +310,7 @@ Supported sample rates are 16, 24 and 44.1 kHz. Voxtral bills per audio minute (
 
 ```json
 {
-  "type": "openai_realtime_compatible",
+  "type": "openai-realtime-compatible",
   "api_key_env": "OPENAI_API_KEY",
   "model": "gpt-4o-transcribe",
   "language": "en",
@@ -331,7 +333,7 @@ The key is required for hosted OpenAI and optional for other servers. **Set `eng
 
 ```json
 {
-  "type": "openai_transcriptions_compatible",
+  "type": "openai-transcriptions-compatible",
   "api_key_env": "OPENAI_API_KEY",
   "model": "gpt-4o-transcribe",
   "language": "en"
@@ -389,7 +391,7 @@ The first `start()` downloads the weights (~2 GB for the 1B model) and loads the
 
 ```json
 {
-  "type": "mlx_audio",
+  "type": "mlx-audio",
   "model": "mlx-community/Qwen3-ASR-0.6B-8bit",
   "generate_kwargs": {"language": "English"}
 }
@@ -412,7 +414,7 @@ Both Deepgram modules accept either a literal API key or the name of an environm
 
 ```json
 {
-  "type": "deepgram_v1",
+  "type": "deepgram-v1",
   "api_key_env": "DEEPGRAM_API_KEY"
 }
 ```
@@ -578,7 +580,7 @@ Set `config.audio.audio_file` to stream a decoded audio file at real-time pace i
     "encoding": "linear16"
   },
   "module": {
-    "type": "deepgram_v1",
+    "type": "deepgram-v1",
     "api_key_env": "DEEPGRAM_API_KEY"
   }
 }
@@ -609,7 +611,7 @@ uv sync --no-default-groups --extra deepgram --extra silero
 
 ```json
 {
-  "module": { "type": "deepgram_v1", "api_key_env": "DEEPGRAM_API_KEY" },
+  "module": { "type": "deepgram-v1", "api_key_env": "DEEPGRAM_API_KEY" },
   "vad": { "type": "silero" }
 }
 ```
@@ -629,9 +631,9 @@ Every bundled module works behind the gate. Which setting suits it depends on wh
 
 | Module | Recommended `vad` block | Why |
 |---|---|---|
-| `deepgram_v1`, `mistral_realtime`, `openai_realtime_compatible` | `{"type": "silero"}` | The gate ends each utterance; the bill follows speech time |
-| `deepgram_v2` (Flux) | `{"type": "silero", "min_silence_duration_ms": 1500}` | The longer window lets Flux hear enough silence to end the turn by its own contextual judgement; the gate then only removes the idle time between utterances |
-| `mlx_audio`, `openai_transcriptions_compatible` | `{"type": "silero"}` (required) | A batch model has no end-of-utterance signal of its own; the gate provides it |
+| `deepgram-v1`, `mistral-realtime`, `openai-realtime-compatible` | `{"type": "silero"}` | The gate ends each utterance; the bill follows speech time |
+| `deepgram-v2` (Flux) | `{"type": "silero", "min_silence_duration_ms": 1500}` | The longer window lets Flux hear enough silence to end the turn by its own contextual judgement; the gate then only removes the idle time between utterances |
+| `mlx-audio`, `openai-transcriptions-compatible` | `{"type": "silero"}` (required) | A batch model has no end-of-utterance signal of its own; the gate provides it |
 | `kyutai` | Usually none; else as for Flux | Local and free, with its own end-of-turn detection; gating only saves compute |
 
 With the gate on, the boundaries of final utterances follow `min_silence_duration_ms` unless the backend ends the turn first, so a larger value gives fewer, longer finals. Segmentation (`trigger_word`, `timeout`) is unchanged: it still works on the module's utterances.
@@ -679,7 +681,7 @@ The MCP server adds a `server` block around the same engine configuration:
   "engine": {
     "auto_start": true,
     "module": {
-      "type": "deepgram_v1",
+      "type": "deepgram-v1",
       "api_key_env": "DEEPGRAM_API_KEY",
       "model": "nova-3"
     }
@@ -706,7 +708,7 @@ cp examples/config/deepgram_v2.json config.json
 uv run asr-engine-mcp --config config.json
 ```
 
-[`examples/config/`](examples/config/) holds one complete server config per ASR module: `deepgram_v1.json`, `deepgram_v2.json`, `mistral_realtime.json`, `openai_realtime_compatible.json`, `openai_transcriptions_compatible.json`, `kyutai.json` and `mlx_audio.json`. The five cloud ones and `mlx_audio` enable the Silero VAD gate (the two batch modules, `openai_transcriptions_compatible` and `mlx_audio`, need it) with the setting recommended for that module (hence the `silero` extra above); remove their `vad` block to stream everything, as before.
+[`examples/config/`](examples/config/) holds one complete server config per ASR module: `deepgram-v1.json`, `deepgram-v2.json`, `mistral-realtime.json`, `openai-realtime-compatible.json`, `openai-transcriptions-compatible.json`, `kyutai.json` and `mlx-audio.json`. The five cloud ones and `mlx-audio` enable the Silero VAD gate (the two batch modules, `openai-transcriptions-compatible` and `mlx-audio`, need it) with the setting recommended for that module (hence the `silero` extra above); remove their `vad` block to stream everything, as before.
 
 The default endpoint is `http://127.0.0.1:8000/mcp`. Logging is configured by the server command rather than the engine configuration:
 

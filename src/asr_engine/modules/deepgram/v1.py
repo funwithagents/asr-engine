@@ -31,7 +31,7 @@ class DeepgramV1Module(ASRModule):
     speech_final, which depends on endpointing configuration and model support.
 
     Recommended models: nova-3, nova-2, enhanced, base.
-    Use deepgram_v2 for Flux / built-in turn detection.
+    Use deepgram-v2 for Flux / built-in turn detection.
     """
 
     SUPPORTED_SAMPLE_RATES = frozenset({8000, 16000, 24000, 44100, 48000})
@@ -44,7 +44,7 @@ class DeepgramV1Module(ASRModule):
 
     def __init__(self, config: dict) -> None:
         super().__init__(config)
-        self._api_key: str = resolve_api_key(config, "deepgram_v1")
+        self._api_key: str = resolve_api_key(config, "deepgram-v1")
         self._model: str = config.get("model", "nova-3")
         self._language: str = config.get("language", "multi")
         self._punctuate: bool = config.get("punctuate", True)

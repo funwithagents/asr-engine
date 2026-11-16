@@ -2,13 +2,19 @@
 
 from __future__ import annotations
 
+import logging
 import subprocess
 import sys
 from unittest.mock import patch
 
 import pytest
 
-from asr_engine.modules import REGISTRY, LazyModule, resolve_module_class
+from asr_engine.modules import (
+    REGISTRY,
+    RENAMED_MODULE_TYPES,
+    LazyModule,
+    resolve_module_class,
+)
 from asr_engine.modules.fake import FakeASRModule
 
 
@@ -17,6 +23,60 @@ def test_unknown_type_lists_available_modules():
         ValueError, match=r"Unknown ASR type 'nope'\. Available: .*fake"
     ):
         resolve_module_class("nope")
+
+
+def test_unknown_type_lists_only_the_hyphenated_names():
+    with pytest.raises(ValueError) as exc_info:
+        resolve_module_class("nope")
+    available = str(exc_info.value).split("Available: ", 1)[1].split(", ")
+    assert "deepgram-v1" in available and "openai-realtime-compatible" in available
+    assert not [name for name in available if "_" in name]
+
+
+def test_every_registry_key_is_written_with_hyphens():
+    assert [key for key in REGISTRY if "_" in key] == []
+
+
+@pytest.mark.parametrize(("old", "new"), sorted(RENAMED_MODULE_TYPES.items()))
+def test_an_old_name_resolves_to_its_new_module_with_a_warning(old, new, caplog):
+    with caplog.at_level(logging.WARNING, logger="asr_engine.modules"):
+        old_cls = resolve_module_class(old)
+    assert old_cls is resolve_module_class(new)
+    warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+    assert warnings == [f"ASR module type '{old}' is deprecated, use '{new}' instead"]
+
+
+def test_a_new_name_logs_no_warning(caplog):
+    with caplog.at_level(logging.WARNING, logger="asr_engine.modules"):
+        resolve_module_class("deepgram-v1")
+    assert caplog.records == []
+
+
+@pytest.mark.parametrize(
+    ("module_type", "sdk"),
+    [
+        ("openai-realtime-compatible", "websockets"),
+        ("openai-transcriptions-compatible", "httpx"),
+    ],
+)
+def test_the_protocol_modules_install_hint_names_the_shared_extra(
+    module_type, sdk, monkeypatch
+):
+    # Simulate the extra not being installed: the SDK import fails, and the
+    # module file is imported afresh so it hits that failure.
+    entry = REGISTRY[module_type]
+    assert isinstance(entry, LazyModule)
+    module_name = entry.import_path.partition(":")[0]
+    monkeypatch.delitem(sys.modules, module_name, raising=False)
+    monkeypatch.setitem(sys.modules, sdk, None)  # None → ModuleNotFoundError
+
+    with pytest.raises(ImportError) as exc_info:
+        resolve_module_class(module_type)
+
+    message = str(exc_info.value)
+    assert f"ASR module '{module_type}'" in message
+    assert "pip install 'asr-engine[openai-compatible]'" in message
+    assert "uv sync --extra openai-compatible" in message
 
 
 def test_lazy_entry_imports_and_returns_class():

@@ -19,7 +19,7 @@ tests:
 
 It exists so that everything *downstream* of a module — the engine, the `Segmenter`, `listen`, dictation, `AsrTools`, the MCP server, and consumers like `asr-to-terminal` — can be exercised **deterministically, with no network and no credentials**, through the real module-selection path (config → registry → engine), including from a subprocess MCP server that can only be configured by file.
 
-**It is not an ASR backend and must never be presented as one.** It ignores the audio content entirely. Real use means selecting a real module installed from an extra (e.g. `pip install 'asr-engine[deepgram]'` → `deepgram_v1`; see [asr-module-interface.md](../asr-module-interface.md) "Optional dependencies (extras)"). Every place it is documented — its docstring, the README module table, this spec — labels it a test double.
+**It is not an ASR backend and must never be presented as one.** It ignores the audio content entirely. Real use means selecting a real module installed from an extra (e.g. `pip install 'asr-engine[deepgram]'` → `deepgram-v1`; see [asr-module-interface.md](../asr-module-interface.md) "Optional dependencies (extras)"). Every place it is documented — its docstring, the README module table, this spec — labels it a test double.
 
 ## Why it ships in the package (not in `tests/`)
 

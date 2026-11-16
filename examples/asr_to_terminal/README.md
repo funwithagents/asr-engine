@@ -27,7 +27,7 @@ For continuous aggregated segments, enable a persistent dictation in the server 
       "trigger_words": ["submit", "validate", "send"]
     },
     "module": {
-      "type": "deepgram_v1",
+      "type": "deepgram-v1",
       "api_key_env": "DEEPGRAM_API_KEY"
     }
   }

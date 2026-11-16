@@ -15,12 +15,12 @@ tests:
 
 ## Purpose
 
-`openai_transcriptions_compatible` sends each utterance to an HTTP **`POST /v1/audio/transcriptions`** endpoint, OpenAI's batch speech-to-text API. Many servers implement it, so one module reaches all of them. It follows the project's rule that a **protocol module** gets one module named `<origin>_<api>_compatible` ([asr-module-interface.md](../asr-module-interface.md) "Optional dependencies"):
+`openai-transcriptions-compatible` sends each utterance to an HTTP **`POST /v1/audio/transcriptions`** endpoint, OpenAI's batch speech-to-text API. Many servers implement it, so one module reaches all of them. It follows the project's rule that a **protocol module** gets one module named `<origin>-<api>-compatible` ([asr-module-interface.md](../asr-module-interface.md) "Module names"):
 
 - **Hosted:** OpenAI (`gpt-4o-transcribe`, `gpt-4o-mini-transcribe`, `whisper-1`), Groq (`whisper-large-v3-turbo`), and other providers that copy the API.
 - **Self-hosted:** speaches (faster-whisper), the whisper.cpp server, `mlx_audio.server`, and vLLM's batch transcription models (Whisper, Canary, …).
 
-It is a **batch** module, a [`BatchASRModule`](../batch-asr-module.md) like `mlx_audio`: the VAD gate ends each utterance (`"required"`), and the module uploads it as one WAV file. The response's `text` is the final. Its streaming sibling is [openai-realtime-compatible.md](openai-realtime-compatible.md).
+It is a **batch** module, a [`BatchASRModule`](../batch-asr-module.md) like `mlx-audio`: the VAD gate ends each utterance (`"required"`), and the module uploads it as one WAV file. The response's `text` is the final. Its streaming sibling is [openai-realtime-compatible.md](openai-realtime-compatible.md).
 
 ### Measured (2026-11-13, hosted OpenAI, `sample_16000_theskyisbluevalidate.wav`, 2.0 s)
 
@@ -42,14 +42,14 @@ It is a **batch** module, a [`BatchASRModule`](../batch-asr-module.md) like `mlx
 
 | Decision | Choice | Rationale |
 |---|---|---|
-| Registry key / package / extra | **`openai_transcriptions_compatible`**, `modules/openai_transcriptions_compatible/`, extra **`openai-transcriptions-compatible`** = `httpx>=0.27` | The protocol-module naming rule, as for `openai_realtime_compatible`. The extra is in `all` and `dev`. |
+| Registry key / package / extra | **`openai-transcriptions-compatible`**, `modules/openai_transcriptions_compatible/`, extra **`openai-compatible`** (`httpx>=0.27`, shared with `openai-realtime-compatible`) | The protocol-module naming rule, as for `openai-realtime-compatible`: one extra for every OpenAI-protocol module. The extra is in `all` and `dev`. |
 | HTTP client | **httpx, synchronous**, one `httpx.Client` per module instance | Requests run on the base class's single worker thread, so a blocking client is the natural fit. httpx was already in the lock (through `mcp` and `mistralai`). The `openai` SDK would add a dependency and its own retries for what is one multipart POST. |
 | Upload | **A 16 kHz mono 16-bit WAV** (`file`), with `response_format: "json"` | Every server accepts WAV. The conversion back from the base class's float32 is exact. JSON with a `text` field is the one response shape every implementation returns. |
 | **Interims** | **Off by default** (`interim_interval_s: 0`), opt-in | Each interim re-uploads the whole growing utterance, and hosted APIs bill per request by audio length. At 0.5 s intervals a 5 s utterance costs about six times its audio. With a free local server, turning them on is reasonable. The base class gains a `DEFAULT_INTERIM_INTERVAL_S` class attribute for this. |
 | **Warm-up** | **`load()` uploads 0.5 s of silence once**, and discards the text | It checks `url`, key and model before `connected`, so a wrong key fails at start, not on the first utterance. A failure goes through the base class's load retry with backoff, and is logged with the server's message and a hint. It also opens the connection, which saves the first utterance about 0.6 s (measured). The cost is a fraction of a cent, once per module instance (the client stays loaded across `stop()`/`start()`). |
 | Short audio | **Under 0.1 s: not sent**, no final | Hosted OpenAI rejects it (measured), and the gate's `min_speech_duration_ms` rarely lets one through anyway. |
 | Failed request | **The utterance is dropped**, logged with the HTTP status, the server's `error.message` and a hint for 401 / 403 / 404 | The base class's decode-failure rule. There is no retry: a retry would arrive after later utterances' finals, out of order. Deferred (see Open questions). |
-| `api_key` | **Required for `api.openai.com`, optional elsewhere**; sent as `Authorization: Bearer` | Same rule as `openai_realtime_compatible`. Local servers usually take no key. |
+| `api_key` | **Required for `api.openai.com`, optional elsewhere**; sent as `Authorization: Bearer` | Same rule as `openai-realtime-compatible`. Local servers usually take no key. |
 | Other request fields | **`extra_fields`**: an object sent as extra form fields | Servers add their own (`temperature`, Groq's options, …). The module adds no per-server knowledge. The fields it sets itself (`file`, `model`, `language`, `prompt`, `response_format`, `stream`) cannot be overridden. |
 | Sample rate | **16 kHz** (the base class's) | What batch speech models take, and what Silero analyses natively. Servers resample anything else anyway. |
 
@@ -72,12 +72,12 @@ Validation in `__init__`: `url` is an `http(s)://` string. A key is resolved whe
 ### Examples
 
 ```json
-{ "type": "openai_transcriptions_compatible", "api_key_env": "OPENAI_API_KEY", "language": "en" }
+{ "type": "openai-transcriptions-compatible", "api_key_env": "OPENAI_API_KEY", "language": "en" }
 ```
 
 ```json
 {
-  "type": "openai_transcriptions_compatible",
+  "type": "openai-transcriptions-compatible",
   "url": "https://api.groq.com/openai/v1/audio/transcriptions",
   "api_key_env": "GROQ_API_KEY",
   "model": "whisper-large-v3-turbo"
@@ -86,7 +86,7 @@ Validation in `__init__`: `url` is an `http(s)://` string. A key is resolved whe
 
 ```json
 {
-  "type": "openai_transcriptions_compatible",
+  "type": "openai-transcriptions-compatible",
   "url": "http://localhost:8000/v1/audio/transcriptions",
   "model": "Systran/faster-whisper-small",
   "interim_interval_s": 0.5
@@ -119,14 +119,14 @@ An in-process server (`httpx.MockTransport`) parses each multipart upload: heade
 
 ### Live tier: `tests-e2e/test_engine_modules.py`
 
-A `MODULES` row: type `openai_transcriptions_compatible`, `gpt-4o-transcribe` on hosted OpenAI, the 16 kHz WAV `ModuleAudio`, a `silence_s` of 3.0, and `OPENAI_API_KEY`. Being `"required"`, it is listed in `helpers.VAD_REQUIRED_MODULES` and runs only in `test_engine_modules_vad`. CI runs it on the live job with the `OPENAI_API_KEY` secret. Verify with `zsh -ic 'uv run pytest tests-e2e -k openai_transcriptions_compatible'`.
+A `MODULES` row: type `openai-transcriptions-compatible`, `gpt-4o-transcribe` on hosted OpenAI, the 16 kHz WAV `ModuleAudio`, a `silence_s` of 3.0, and `OPENAI_API_KEY`. Being `"required"`, it is listed in `helpers.VAD_REQUIRED_MODULES` and runs only in `test_engine_modules_vad`. CI runs it on the live job with the `OPENAI_API_KEY` secret. Verify with `zsh -ic 'uv run pytest tests-e2e -k openai-transcriptions-compatible'`.
 
 ## Files
 
 - `src/asr_engine/modules/openai_transcriptions_compatible/__init__.py`: imports nothing
 - `src/asr_engine/modules/openai_transcriptions_compatible/module.py`: `OpenAITranscriptionsCompatibleModule(BatchASRModule)`
 - `src/asr_engine/modules/batch.py`: `DEFAULT_INTERIM_INTERVAL_S`
-- `src/asr_engine/modules/__init__.py`: the registry entry, `extra="openai-transcriptions-compatible"`
+- `src/asr_engine/modules/__init__.py`: the registry entry, `extra="openai-compatible"`
 - `pyproject.toml` / `uv.lock`: the extra, in `all` and `dev`
 - `examples/config/openai_transcriptions_compatible.json`, `tests/examples/test_configs.py`
 - `tests/modules/test_openai_transcriptions_compatible.py`, `tests-e2e/helpers.py`

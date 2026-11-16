@@ -1,4 +1,4 @@
-"""Functional tests for the mistral_realtime module (specs/modules/mistral.md).
+"""Functional tests for the mistral-realtime module (specs/modules/mistral.md).
 
 The module is driven through its ``connect`` seam with a scripted fake connection:
 it records every client message and serves the server events each test pushes.
@@ -674,4 +674,4 @@ async def test_a_marker_does_not_reopen_a_parked_session(harnesses) -> None:
 
 
 def test_registry_resolves_mistral_realtime() -> None:
-    assert resolve_module_class("mistral_realtime") is MistralRealtimeModule
+    assert resolve_module_class("mistral-realtime") is MistralRealtimeModule

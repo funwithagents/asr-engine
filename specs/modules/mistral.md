@@ -16,7 +16,7 @@ tests:
 
 ## Purpose
 
-`mistral_realtime` is a **cloud streaming** backend over Mistral's Voxtral 3 realtime transcription API (`voxtral-mini-transcribe-realtime-3`, released 2026-10-20, *Public Preview*). Compared with Deepgram it adds 45 languages with auto-detection, `context_bias` phrase boosting (useful for trigger words), and a per-session latency/accuracy trade-off (`target_streaming_delay_ms`). It costs $0.008 per audio minute.
+`mistral-realtime` is a **cloud streaming** backend over Mistral's Voxtral 3 realtime transcription API (`voxtral-mini-transcribe-realtime-3`, released 2026-10-20, *Public Preview*). Compared with Deepgram it adds 45 languages with auto-detection, `context_bias` phrase boosting (useful for trigger words), and a per-session latency/accuracy trade-off (`target_streaming_delay_ms`). It costs $0.008 per audio minute.
 
 Structurally it sits between the two existing real backends:
 
@@ -61,7 +61,7 @@ A second probe session the same day, for VAD gating (`--trailing-silence`, `--id
 
 | Decision | Choice | Rationale |
 |---|---|---|
-| Registry key | **`mistral_realtime`** | The repo's convention: a **cloud** module is named after its provider and API (`deepgram_v1`, `deepgram_v2`), a **local** module after its model family (`kyutai`). So a future batch module for Mistral's file-transcription API (diarization, word timestamps) would be `mistral_batch` in the same package, and an on-device module over the open-weights Voxtral Realtime model would be `voxtral`, without either being confused with this one. |
+| Registry key | **`mistral-realtime`** | The repo's convention: a **cloud** module is named after its provider and API (`deepgram-v1`, `deepgram-v2`), a **local** module after its model family (`kyutai`). So a future batch module for Mistral's file-transcription API (diarization, word timestamps) would be `mistral-batch` in the same package, and an on-device module over the open-weights Voxtral Realtime model would be `voxtral`, without either being confused with this one. |
 | Package / extra | `modules/mistral/realtime.py`, extra **`mistral`** | Follows the checklist in [asr-module-interface.md](../asr-module-interface.md): a provider-named package, a provider-named extra. |
 | Transport | **Raw `websockets`, not the `mistralai[realtime]` SDK** | The protocol is about six documented JSON message types. The SDK's documented `transcribe_stream` events don't include the `turn.*` events this design finalizes on, and its `connect()` surface is undocumented beyond opening a session. Owning the socket gives direct control of `input_audio.end`, reconnects and turn events. |
 | Finalization | **`turn.end` closes the utterance after a short margin; a no-new-text timer as fallback** | Measured: a turn's text always precedes its `turn.end`, and text after it is new speech (see [Utterance semantics](#utterance-semantics)). |
@@ -148,7 +148,7 @@ On the turn path a final lands at `turn.end + final_margin_ms`: measured `turn.e
 
 ```json
 {
-  "type": "mistral_realtime",
+  "type": "mistral-realtime",
   "api_key_env": "MISTRAL_API_KEY",
   "language": "en",
   "context_bias": ["validate"]
@@ -176,7 +176,7 @@ The module sends `audio_format: {"encoding": "pcm_s16le", "sample_rate": <reconc
 
 ## Endpointing, with and without a VAD stage
 
-The module needs **no VAD in front of it**. End-of-utterance comes from the server's own `turn_detection` (`turn.end`), with the local silence timer as fallback. Both work on a continuous stream that includes silence, which is exactly what the mic delivers. This module, like `deepgram_v1`/`deepgram_v2` and `kyutai`, owns its endpointing.
+The module needs **no VAD in front of it**. End-of-utterance comes from the server's own `turn_detection` (`turn.end`), with the local silence timer as fallback. Both work on a continuous stream that includes silence, which is exactly what the mic delivers. This module, like `deepgram-v1`/`deepgram-v2` and `kyutai`, owns its endpointing.
 
 **Cost consequence.** Without a VAD stage the engine streams everything it captures, silence included, and Voxtral bills per audio minute ($0.008). The bill is therefore the engine's *running time*, not speech time: about $0.48 per hour of `start()`→`stop()`, regardless of how much is said. That is bounded by the engine lifecycle (capture runs only between engine `start()` and `stop()`, which `listen` wraps) and is the same model as Deepgram's.
 
@@ -226,13 +226,13 @@ The module talks to a **scripted fake connection** (records every client message
 
 ### Live tier: `tests-e2e/test_engine_modules.py`
 
-A `MODULES` row: type `mistral_realtime`, `api_key_env: MISTRAL_API_KEY`, the 44.1 kHz MP3 `ModuleAudio` (as Deepgram), and `silence_s` of 3.0 s, above both the measured turn path (≤ 2.4 s) and the timer path (≈ 2.5 s). [ci.md](../ci.md) gains the `MISTRAL_API_KEY` secret and an expected-skips row. Verify with `zsh -ic 'uv run pytest tests-e2e -k mistral_realtime'`.
+A `MODULES` row: type `mistral-realtime`, `api_key_env: MISTRAL_API_KEY`, the 44.1 kHz MP3 `ModuleAudio` (as Deepgram), and `silence_s` of 3.0 s, above both the measured turn path (≤ 2.4 s) and the timer path (≈ 2.5 s). [ci.md](../ci.md) gains the `MISTRAL_API_KEY` secret and an expected-skips row. Verify with `zsh -ic 'uv run pytest tests-e2e -k mistral-realtime'`.
 
 ## Files
 
 - `src/asr_engine/modules/mistral/__init__.py`: imports nothing (keeps the registry lazy)
 - `src/asr_engine/modules/mistral/realtime.py`: `MistralRealtimeModule`
-- `src/asr_engine/modules/__init__.py`: `"mistral_realtime": LazyModule("asr_engine.modules.mistral.realtime:MistralRealtimeModule", extra="mistral")`
+- `src/asr_engine/modules/__init__.py`: `"mistral-realtime": LazyModule("asr_engine.modules.mistral.realtime:MistralRealtimeModule", extra="mistral")`
 - `pyproject.toml`: the `mistral` extra, `all`, `dev`
 - `examples/config/mistral_realtime.json`: a complete server config for this module, with the VAD gate on
 - `tests/modules/test_mistral_realtime.py`, `tests-e2e/helpers.py` (`MODULES` row), `.github/workflows/ci.yml` (secret mapping)

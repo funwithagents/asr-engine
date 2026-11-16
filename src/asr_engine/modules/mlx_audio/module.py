@@ -1,6 +1,6 @@
 """Local batch speech-to-text on Apple Silicon through the mlx-audio runner.
 
-Registry key ``mlx_audio``; needs the ``mlx-audio`` extra (Apple Silicon; it
+Registry key ``mlx-audio``; needs the ``mlx-audio`` extra (Apple Silicon; it
 cannot share an environment with ``kyutai-mlx`` / ``kyutai-torch``). A generic runner: any of
 mlx-audio's STT model families is a ``model`` value. A batch module
 (``BatchASRModule``): the VAD gate ends each utterance. This file imports nothing
@@ -20,7 +20,7 @@ import numpy as np
 from asr_engine.modules.batch import BatchASRModule
 from asr_engine.modules.mlx_audio.download import DEFAULT_REPO as DEFAULT_MODEL
 
-_LABEL = "mlx_audio"
+_LABEL = "mlx-audio"
 _INSTALL_HINT = (
     f"ASR module '{_LABEL}' requires the optional dependency 'mlx-audio' (Apple "
     f"Silicon only), which is not installed. Install it with: pip install "

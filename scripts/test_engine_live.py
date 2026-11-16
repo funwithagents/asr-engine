@@ -35,7 +35,7 @@ async def run(version: str, module_config: dict, device: str | None) -> None:
     from asr_engine.engine import ASREngine
     from asr_engine.modules.base import SpeechUtterance
 
-    module_type = "deepgram_v1" if version == "v1" else "deepgram_v2"
+    module_type = "deepgram-v1" if version == "v1" else "deepgram-v2"
 
     async def on_result(result: SpeechUtterance) -> None:
         tag = "[FINAL]  " if result.is_final else "[interim]"

@@ -12,7 +12,7 @@
       "sample_rate": 16000
     },
     "module": {
-      "type": "mlx_audio",
+      "type": "mlx-audio",
       "model": "mlx-community/parakeet-tdt-0.6b-v3",
       "generate_kwargs": {},
       "interim_interval_s": 0.5

@@ -4,6 +4,8 @@ import json
 from dataclasses import dataclass, field
 from typing import Any
 
+from asr_engine.modules import RENAMED_MODULE_TYPES, canonical_module_type
+
 _DEFAULT_TRIGGER_WORDS: list[str] = [
     "submit",
     "enter",
@@ -251,7 +253,8 @@ class ASREngineConfig:
         if not module_type:
             raise ValueError("Config is missing required field: engine.module.type")
         extra = {k: v for k, v in module_data.items() if k != "type"}
-        module = ModuleConfig(type=module_type, extra=extra)
+        # An old key (`deepgram_v1`) is stored as its new one, with a warning.
+        module = ModuleConfig(type=canonical_module_type(module_type), extra=extra)
 
         vad = _parse_vad(engine_block.get("vad"))
 
@@ -329,8 +332,11 @@ class MCPServerConfig:
 
 
 def validate_asr_type(config: ASREngineConfig, registry: dict) -> None:
-    """Raise ValueError if config.module.type is not a key in *registry*."""
-    module_type = config.module.type
+    """Raise ValueError if config.module.type is not a key in *registry*.
+
+    An old key from ``RENAMED_MODULE_TYPES`` is checked under its new key.
+    """
+    module_type = RENAMED_MODULE_TYPES.get(config.module.type, config.module.type)
     if module_type not in registry:
         available = ", ".join(sorted(registry.keys())) or "(none)"
         raise ValueError(f"Unknown ASR type '{module_type}'. Available: {available}")

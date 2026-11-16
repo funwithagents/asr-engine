@@ -65,9 +65,9 @@ AUDIO_WAV_24000 = ModuleAudio(
 # name does. Tests pass the name to modules via the ``api_key_env`` config field and let
 # ``resolve_api_key`` read the value; they never read the literal key themselves.
 DEEPGRAM_API_KEY_ENV = "DEEPGRAM_API_KEY"
-# Mistral's, for the mistral_realtime row (same rules).
+# Mistral's, for the mistral-realtime row (same rules).
 MISTRAL_API_KEY_ENV = "MISTRAL_API_KEY"
-# OpenAI's, for the openai_realtime_compatible and openai_transcriptions_compatible
+# OpenAI's, for the openai-realtime-compatible and openai-transcriptions-compatible
 # rows (same rules).
 OPENAI_API_KEY_ENV = "OPENAI_API_KEY"
 
@@ -98,7 +98,7 @@ def require_api_key(module_config: dict) -> None:
 # exposes ``DEFAULT_REPO``, ``is_cached(repo)`` and a ``python -m`` entry point.
 LOCAL_MODELS = {
     "kyutai": ("asr_engine.modules.kyutai.download", "hf_repo"),
-    "mlx_audio": ("asr_engine.modules.mlx_audio.download", "model"),
+    "mlx-audio": ("asr_engine.modules.mlx_audio.download", "model"),
 }
 
 
@@ -199,47 +199,47 @@ def default_module(script: list[dict]) -> tuple[str, dict]:
 # gets e2e conformance coverage.
 MODULES = [
     pytest.param(
-        "deepgram_v1",
+        "deepgram-v1",
         {"model": "nova-3", "api_key_env": DEEPGRAM_API_KEY_ENV},
         3.0,
         AUDIO_MP3_44100,
-        id="deepgram_v1",
+        id="deepgram-v1",
     ),
     pytest.param(
-        "deepgram_v2",
+        "deepgram-v2",
         {"model": "flux-general-en", "api_key_env": DEEPGRAM_API_KEY_ENV},
         3.0,
         AUDIO_MP3_44100,
-        id="deepgram_v2",
+        id="deepgram-v2",
     ),
     # Voxtral closes a turn ~1.2-2.3 s after speech ends (measured, see
     # specs/modules/mistral.md); its silence fallback is delay + 2.0 s ≈ 2.5 s.
     pytest.param(
-        "mistral_realtime",
+        "mistral-realtime",
         {"api_key_env": MISTRAL_API_KEY_ENV},
         3.0,
         AUDIO_MP3_44100,
-        id="mistral_realtime",
+        id="mistral-realtime",
     ),
     # Hosted OpenAI takes 24 kHz only (measured, see
     # specs/modules/openai-realtime-compatible.md); its server VAD finals land
     # ~1.1 s after speech ends.
     pytest.param(
-        "openai_realtime_compatible",
+        "openai-realtime-compatible",
         {"model": "gpt-4o-transcribe", "api_key_env": OPENAI_API_KEY_ENV},
         3.0,
         AUDIO_WAV_24000,
-        id="openai_realtime_compatible",
+        id="openai-realtime-compatible",
     ),
-    # Batch over HTTP: one upload per utterance, VAD-required like mlx_audio
+    # Batch over HTTP: one upload per utterance, VAD-required like mlx-audio
     # (MODULES_UNGATED leaves it out). A final lands one request (~0.5-1 s,
     # measured) after the gate's marker.
     pytest.param(
-        "openai_transcriptions_compatible",
+        "openai-transcriptions-compatible",
         {"model": "gpt-4o-transcribe", "api_key_env": OPENAI_API_KEY_ENV},
         3.0,
         AUDIO_WAV_16000,
-        id="openai_transcriptions_compatible",
+        id="openai-transcriptions-compatible",
     ),
     # Local model: no key; runs once its weights are cached (require_local_model).
     # silence_s must exceed the model's 0.5 s text delay + the 2.0 s fallback
@@ -257,18 +257,18 @@ MODULES = [
     # (MODULES_UNGATED leaves it out). A final lands one decode (~0.03 s) after
     # the gate's marker.
     pytest.param(
-        "mlx_audio",
+        "mlx-audio",
         {"model": "mlx-community/parakeet-tdt-0.6b-v3"},
         2.0,
         AUDIO_WAV_16000,
-        id="mlx_audio",
+        id="mlx-audio",
     ),
 ]
 
 # Modules declaring VAD_GATING = "required" (batch modules): they produce no final
 # without the gate, so they have no ungated conformance case. Named here rather
 # than read from the class, so collecting the table imports no module.
-VAD_REQUIRED_MODULES = frozenset({"mlx_audio", "openai_transcriptions_compatible"})
+VAD_REQUIRED_MODULES = frozenset({"mlx-audio", "openai-transcriptions-compatible"})
 
 # Param table for ``test_engine_streams``: every row a module can run ungated.
 MODULES_UNGATED = [row for row in MODULES if row.values[0] not in VAD_REQUIRED_MODULES]
@@ -277,14 +277,14 @@ MODULES_UNGATED = [row for row in MODULES if row.values[0] not in VAD_REQUIRED_M
 def _vad_cases() -> list:
     """``MODULES`` crossed with the VAD settings each row is run under.
 
-    Every row runs once with Silero's defaults. ``deepgram_v2`` runs twice,
+    Every row runs once with Silero's defaults. ``deepgram-v2`` runs twice,
     because Flux has two end-of-utterance paths behind a gate (specs/vad.md
     "Letting the backend end the turn first"): with the recommended 1500 ms
     hangover Flux hears the silence and ends the turn itself; with a 300 ms one
     the gate closes first and the module's injected silence ends it.
     """
     variants = {
-        "deepgram_v2": [
+        "deepgram-v2": [
             ("flux_ends_turn", {"min_silence_duration_ms": 1500}),
             ("marker_ends_turn", {"min_silence_duration_ms": 300}),
         ]

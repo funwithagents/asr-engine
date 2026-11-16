@@ -35,7 +35,7 @@ class DeepgramV2Module(ASRModule):
     Not suitable for non-English or for models outside the Flux family.
     """
 
-    # Same format support as deepgram_v1 — Flux accepts the raw encoding +
+    # Same format support as deepgram-v1 — Flux accepts the raw encoding +
     # sample_rate parameters the same way (see specs/modules/deepgram.md).
     SUPPORTED_SAMPLE_RATES = frozenset({8000, 16000, 24000, 44100, 48000})
     SUPPORTED_CHANNELS = frozenset({1})
@@ -51,7 +51,7 @@ class DeepgramV2Module(ASRModule):
 
     def __init__(self, config: dict) -> None:
         super().__init__(config)
-        self._api_key: str = resolve_api_key(config, "deepgram_v2")
+        self._api_key: str = resolve_api_key(config, "deepgram-v2")
         self._model: str = config.get("model", "flux-general-en")
         self._eot_threshold: float = config.get("eot_threshold", 0.7)
         self._eot_timeout_ms: int = config.get("eot_timeout_ms", 2000)

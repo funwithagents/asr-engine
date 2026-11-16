@@ -234,12 +234,10 @@ mistral = [
 mlx-audio = [
     { name = "mlx-audio", extra = ["stt"], marker = "(platform_machine == 'arm64' and sys_platform == 'darwin' and extra == 'extra-10-asr-engine-mlx-audio') or (extra == 'extra-10-asr-engine-all' and extra == 'extra-10-asr-engine-kyutai-mlx') or (extra == 'extra-10-asr-engine-all' and extra == 'extra-10-asr-engine-kyutai-torch') or (extra == 'extra-10-asr-engine-kyutai-mlx' and extra == 'extra-10-asr-engine-mlx-audio') or (extra == 'extra-10-asr-engine-kyutai-mlx' and extra == 'group-10-asr-engine-dev') or (extra == 'extra-10-asr-engine-kyutai-torch' and extra == 'extra-10-asr-engine-mlx-audio') or (extra == 'extra-10-asr-engine-kyutai-torch' and extra == 'group-10-asr-engine-dev')" },
 ]
-openai-realtime-compatible = [
+openai-compatible = [
+    { name = "httpx" },
     { name = "websockets", version = "15.0.1", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-10-asr-engine-kyutai-mlx' or (extra == 'extra-10-asr-engine-all' and extra == 'extra-10-asr-engine-kyutai-torch') or (extra == 'extra-10-asr-engine-kyutai-torch' and extra == 'extra-10-asr-engine-mlx-audio') or (extra == 'extra-10-asr-engine-kyutai-torch' and extra == 'group-10-asr-engine-dev')" },
     { name = "websockets", version = "16.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-10-asr-engine-all' or extra != 'extra-10-asr-engine-kyutai-mlx' or (extra == 'extra-10-asr-engine-kyutai-mlx' and extra == 'extra-10-asr-engine-mlx-audio') or (extra == 'extra-10-asr-engine-kyutai-mlx' and extra == 'group-10-asr-engine-dev')" },
-]
-openai-transcriptions-compatible = [
-    { name = "httpx" },
 ]
 silero = [
     { name = "onnxruntime", marker = "platform_machine != 'x86_64' or sys_platform != 'darwin' or (extra == 'extra-10-asr-engine-all' and extra == 'extra-10-asr-engine-kyutai-mlx') or (extra == 'extra-10-asr-engine-all' and extra == 'extra-10-asr-engine-kyutai-torch') or (extra == 'extra-10-asr-engine-kyutai-mlx' and extra == 'extra-10-asr-engine-mlx-audio') or (extra == 'extra-10-asr-engine-kyutai-mlx' and extra == 'group-10-asr-engine-dev') or (extra == 'extra-10-asr-engine-kyutai-torch' and extra == 'extra-10-asr-engine-mlx-audio') or (extra == 'extra-10-asr-engine-kyutai-torch' and extra == 'group-10-asr-engine-dev')" },
@@ -252,7 +250,7 @@ demo = [
     { name = "gradio", version = "6.17.3", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-10-asr-engine-all' or extra != 'extra-10-asr-engine-kyutai-mlx' or (extra == 'extra-10-asr-engine-kyutai-mlx' and extra == 'extra-10-asr-engine-mlx-audio') or (extra == 'extra-10-asr-engine-kyutai-mlx' and extra == 'group-10-asr-engine-dev')" },
 ]
 dev = [
-    { name = "asr-engine", extra = ["deepgram", "mcp", "mistral", "openai-realtime-compatible", "openai-transcriptions-compatible", "silero"], marker = "extra == 'extra-10-asr-engine-all' or (extra == 'extra-10-asr-engine-kyutai-mlx' and extra == 'extra-10-asr-engine-mlx-audio') or (extra == 'extra-10-asr-engine-kyutai-mlx' and extra == 'group-10-asr-engine-dev') or (extra == 'extra-10-asr-engine-kyutai-torch' and extra == 'extra-10-asr-engine-mlx-audio') or (extra == 'extra-10-asr-engine-kyutai-torch' and extra == 'group-10-asr-engine-dev') or (extra != 'extra-10-asr-engine-kyutai-mlx' and extra != 'extra-10-asr-engine-kyutai-torch')" },
+    { name = "asr-engine", extra = ["deepgram", "mcp", "mistral", "openai-compatible", "silero"], marker = "extra == 'extra-10-asr-engine-all' or (extra == 'extra-10-asr-engine-kyutai-mlx' and extra == 'extra-10-asr-engine-mlx-audio') or (extra == 'extra-10-asr-engine-kyutai-mlx' and extra == 'group-10-asr-engine-dev') or (extra == 'extra-10-asr-engine-kyutai-torch' and extra == 'extra-10-asr-engine-mlx-audio') or (extra == 'extra-10-asr-engine-kyutai-torch' and extra == 'group-10-asr-engine-dev') or (extra != 'extra-10-asr-engine-kyutai-mlx' and extra != 'extra-10-asr-engine-kyutai-torch')" },
     { name = "mlx-audio", extra = ["stt"], marker = "(platform_machine == 'arm64' and sys_platform == 'darwin' and extra == 'extra-10-asr-engine-all') or (platform_machine == 'arm64' and sys_platform == 'darwin' and extra != 'extra-10-asr-engine-kyutai-mlx' and extra != 'extra-10-asr-engine-kyutai-torch') or (platform_machine != 'arm64' and extra == 'extra-10-asr-engine-all' and extra == 'extra-10-asr-engine-kyutai-mlx') or (platform_machine != 'arm64' and extra == 'extra-10-asr-engine-all' and extra == 'extra-10-asr-engine-kyutai-torch') or (platform_machine != 'arm64' and extra == 'extra-10-asr-engine-kyutai-mlx' and extra == 'extra-10-asr-engine-mlx-audio') or (platform_machine != 'arm64' and extra == 'extra-10-asr-engine-kyutai-mlx' and extra == 'group-10-asr-engine-dev') or (platform_machine != 'arm64' and extra == 'extra-10-asr-engine-kyutai-torch' and extra == 'extra-10-asr-engine-mlx-audio') or (platform_machine != 'arm64' and extra == 'extra-10-asr-engine-kyutai-torch' and extra == 'group-10-asr-engine-dev') or (sys_platform != 'darwin' and extra == 'extra-10-asr-engine-all' and extra == 'extra-10-asr-engine-kyutai-mlx') or (sys_platform != 'darwin' and extra == 'extra-10-asr-engine-all' and extra == 'extra-10-asr-engine-kyutai-torch') or (sys_platform != 'darwin' and extra == 'extra-10-asr-engine-kyutai-mlx' and extra == 'extra-10-asr-engine-mlx-audio') or (sys_platform != 'darwin' and extra == 'extra-10-asr-engine-kyutai-mlx' and extra == 'group-10-asr-engine-dev') or (sys_platform != 'darwin' and extra == 'extra-10-asr-engine-kyutai-torch' and extra == 'extra-10-asr-engine-mlx-audio') or (sys_platform != 'darwin' and extra == 'extra-10-asr-engine-kyutai-torch' and extra == 'group-10-asr-engine-dev') or (extra != 'extra-10-asr-engine-all' and extra == 'extra-10-asr-engine-kyutai-mlx' and extra == 'extra-10-asr-engine-mlx-audio') or (extra != 'extra-10-asr-engine-all' and extra == 'extra-10-asr-engine-kyutai-mlx' and extra == 'group-10-asr-engine-dev') or (extra != 'extra-10-asr-engine-all' and extra == 'extra-10-asr-engine-kyutai-torch' and extra == 'extra-10-asr-engine-mlx-audio') or (extra != 'extra-10-asr-engine-all' and extra == 'extra-10-asr-engine-kyutai-torch' and extra == 'group-10-asr-engine-dev')" },
     { name = "pyright" },
     { name = "pytest" },
@@ -264,9 +262,9 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "asr-engine", extras = ["deepgram", "mcp", "mistral", "mlx-audio", "openai-realtime-compatible", "openai-transcriptions-compatible", "silero"], marker = "extra == 'all'" },
+    { name = "asr-engine", extras = ["deepgram", "mcp", "mistral", "mlx-audio", "openai-compatible", "silero"], marker = "extra == 'all'" },
     { name = "deepgram-sdk", marker = "extra == 'deepgram'" },
-    { name = "httpx", marker = "extra == 'openai-transcriptions-compatible'", specifier = ">=0.27" },
+    { name = "httpx", marker = "extra == 'openai-compatible'", specifier = ">=0.27" },
     { name = "mcp", marker = "extra == 'mcp'", specifier = "<2" },
     { name = "mlx-audio", extras = ["stt"], marker = "platform_machine == 'arm64' and sys_platform == 'darwin' and extra == 'mlx-audio'", specifier = ">=0.6" },
     { name = "moshi", marker = "extra == 'kyutai-torch'", specifier = ">=0.2.11" },
@@ -278,14 +276,14 @@ requires-dist = [
     { name = "soxr", marker = "extra == 'silero'" },
     { name = "uvicorn", marker = "extra == 'mcp'" },
     { name = "websockets", marker = "extra == 'mistral'", specifier = ">=14" },
-    { name = "websockets", marker = "extra == 'openai-realtime-compatible'", specifier = ">=14" },
+    { name = "websockets", marker = "extra == 'openai-compatible'", specifier = ">=14" },
 ]
-provides-extras = ["deepgram", "mcp", "kyutai-mlx", "kyutai-torch", "mistral", "openai-realtime-compatible", "openai-transcriptions-compatible", "mlx-audio", "silero", "all"]
+provides-extras = ["deepgram", "mcp", "kyutai-mlx", "kyutai-torch", "mistral", "openai-compatible", "mlx-audio", "silero", "all"]
 
 [package.metadata.requires-dev]
 demo = [{ name = "gradio" }]
 dev = [
-    { name = "asr-engine", extras = ["deepgram", "mcp", "mistral", "openai-realtime-compatible", "openai-transcriptions-compatible", "silero"] },
+    { name = "asr-engine", extras = ["deepgram", "mcp", "mistral", "openai-compatible", "silero"] },
     { name = "mlx-audio", extras = ["stt"], marker = "platform_machine == 'arm64' and sys_platform == 'darwin'", specifier = ">=0.6" },
     { name = "pyright", specifier = ">=1.1.411" },
     { name = "pytest" },
