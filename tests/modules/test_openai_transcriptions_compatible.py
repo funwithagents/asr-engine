@@ -1,4 +1,4 @@
-"""Functional tests for the openai_transcriptions_compatible module
+"""Functional tests for the openai-transcriptions-compatible module
 (specs/modules/openai-transcriptions-compatible.md).
 
 The module talks to an in-process server (``httpx.MockTransport``) that parses each
@@ -398,6 +398,6 @@ def test_invalid_config_is_rejected(config: dict[str, Any], field: str) -> None:
 
 
 def test_the_registry_resolves_the_module() -> None:
-    cls = resolve_module_class("openai_transcriptions_compatible")
+    cls = resolve_module_class("openai-transcriptions-compatible")
     assert cls is OpenAITranscriptionsCompatibleModule
     assert cls.VAD_GATING == "required"

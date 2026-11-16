@@ -44,17 +44,17 @@ The six jobs run side by side and none waits on another: a run takes as long as 
 
 ### Secrets, and the live tier's expected skips
 
-- **No secret is required.** Every job is green with none: the per-module conformance cases skip on the unset key ([e2e-testing.md](e2e-testing.md)). With the `DEEPGRAM_API_KEY` repository secret set, the Deepgram cases run on every pull request and push to `main`, with `MISTRAL_API_KEY` set, the Voxtral cases do too, and with `OPENAI_API_KEY` set, the `openai_realtime_compatible` and `openai_transcriptions_compatible` cases do as well (against hosted OpenAI) — a few seconds of audio each. A fork's pull request never receives a secret, so they skip there.
+- **No secret is required.** Every job is green with none: the per-module conformance cases skip on the unset key ([e2e-testing.md](e2e-testing.md)). With the `DEEPGRAM_API_KEY` repository secret set, the Deepgram cases run on every pull request and push to `main`, with `MISTRAL_API_KEY` set, the Voxtral cases do too, and with `OPENAI_API_KEY` set, the `openai-realtime-compatible` and `openai-transcriptions-compatible` cases do as well (against hosted OpenAI) — a few seconds of audio each. A fork's pull request never receives a secret, so they skip there.
 - **Expected skips.** A skip is not a pass. The live job runs with `-rs`, which prints every skip and its reason into the log; on the runner these skip by design, and any other skip is an environment regression to investigate:
 
 | Skips on the runner | Why |
 |---|---|
 | `kyutai` conformance cases (`test_engine_streams` and `test_engine_modules_vad`) | local model: its extras are not in the CI environment ([project.md](project.md) "Exclusive extras"), and no weights are cached there |
-| `mlx_audio` conformance case (`test_engine_modules_vad` only) | local model, Apple Silicon only, while the live job is Linux (and no weights are cached there); the fast tier covers the module with a fake loader |
-| `deepgram_v1`, `deepgram_v2` conformance cases (ungated, and the three VAD cases) | only when the repository holds no `DEEPGRAM_API_KEY` secret, or on a fork's pull request |
-| `mistral_realtime` conformance cases (ungated and VAD) | only when the repository holds no `MISTRAL_API_KEY` secret, or on a fork's pull request |
-| `openai_realtime_compatible` conformance cases (ungated and VAD) | only when the repository holds no `OPENAI_API_KEY` secret, or on a fork's pull request |
-| `openai_transcriptions_compatible` conformance case (`test_engine_modules_vad` only) | only when the repository holds no `OPENAI_API_KEY` secret, or on a fork's pull request |
+| `mlx-audio` conformance case (`test_engine_modules_vad` only) | local model, Apple Silicon only, while the live job is Linux (and no weights are cached there); the fast tier covers the module with a fake loader |
+| `deepgram-v1`, `deepgram-v2` conformance cases (ungated, and the three VAD cases) | only when the repository holds no `DEEPGRAM_API_KEY` secret, or on a fork's pull request |
+| `mistral-realtime` conformance cases (ungated and VAD) | only when the repository holds no `MISTRAL_API_KEY` secret, or on a fork's pull request |
+| `openai-realtime-compatible` conformance cases (ungated and VAD) | only when the repository holds no `OPENAI_API_KEY` secret, or on a fork's pull request |
+| `openai-transcriptions-compatible` conformance case (`test_engine_modules_vad` only) | only when the repository holds no `OPENAI_API_KEY` secret, or on a fork's pull request |
 
 The VAD cases add no skip of their own on the runner: the `silero` extra is in the `dev` group, and `onnxruntime` and `soxr` publish wheels for every CI platform, so a "needs onnxruntime" skip there is a regression.
 

@@ -84,16 +84,16 @@ A live case whose `api_key_env` variable is unset **skips**, not fails, so the t
 
 ```bash
 zsh -ic 'uv run pytest tests-e2e'                  # all: live cases run where a key is set, else skip
-zsh -ic 'uv run pytest tests-e2e -k deepgram_v1'   # one backend, by its parametrize id
+zsh -ic 'uv run pytest tests-e2e -k deepgram-v1'   # one backend, by its parametrize id
 ```
 
 Never `echo`/print a key itself; when checking whether one is set, redact the value (e.g. `env | grep DEEPGRAM | sed -E 's/=.*/=<set>/'`).
 
-**Local-model cases run once their weights are cached, not on a key.** The `kyutai` and `mlx_audio` rows run real on-device models, so they have no key to skip on. Each skips unless its module builds here (its extra is installed) **and** its weights are already in the Hugging Face cache, so a run never downloads gigabytes inside the per-test timeout. The skip message names the fetch command. Each local module ships one in its own package. `mlx_audio` (Apple Silicon) is in the dev environment:
+**Local-model cases run once their weights are cached, not on a key.** The `kyutai` and `mlx-audio` rows run real on-device models, so they have no key to skip on. Each skips unless its module builds here (its extra is installed) **and** its weights are already in the Hugging Face cache, so a run never downloads gigabytes inside the per-test timeout. The skip message names the fetch command. Each local module ships one in its own package. `mlx-audio` (Apple Silicon) is in the dev environment:
 
 ```bash
 uv run python -m asr_engine.modules.mlx_audio.download   # once: fetches the default model
-zsh -ic 'uv run pytest tests-e2e -k mlx_audio'
+zsh -ic 'uv run pytest tests-e2e -k mlx-audio'
 ```
 
 The Kyutai extras cannot share an environment with mlx-audio ([specs/project.md](specs/project.md) "Exclusive extras"), so `kyutai` runs in a second, git-ignored environment:
@@ -121,7 +121,7 @@ After any code change, run linting, type checking, and tests, and fix any failur
 ## Commands
 
 ```bash
-uv sync --dev                # full contributor environment (dev names the extras it needs: deepgram, mcp, mistral, mlx-audio, openai-realtime-compatible, openai-transcriptions-compatible, silero — not the Kyutai extras, see specs/project.md)
+uv sync --dev                # full contributor environment (dev names the extras it needs: deepgram, mcp, mistral, mlx-audio, openai-compatible, silero — not the Kyutai extras, see specs/project.md)
 uv run ruff check .
 uv run ruff format .
 uv run pyright

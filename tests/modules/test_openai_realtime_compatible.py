@@ -1,4 +1,4 @@
-"""Functional tests for the openai_realtime_compatible module
+"""Functional tests for the openai-realtime-compatible module
 (specs/modules/openai-realtime-compatible.md).
 
 The module is driven through its ``connect`` seam with a scripted fake connection:
@@ -653,6 +653,6 @@ def test_a_named_key_variable_must_be_set(monkeypatch) -> None:
 
 def test_the_registry_resolves_the_module() -> None:
     assert (
-        resolve_module_class("openai_realtime_compatible")
+        resolve_module_class("openai-realtime-compatible")
         is OpenAIRealtimeCompatibleModule
     )

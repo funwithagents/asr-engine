@@ -17,8 +17,8 @@ Two Deepgram modules are provided, targeting different API versions and use case
 
 | Key | Class | API | Best for |
 |---|---|---|---|
-| `deepgram_v1` | `DeepgramV1Module` | Listen v1 (Nova-3, Nova-2, …) | Multi-language, general transcription |
-| `deepgram_v2` | `DeepgramV2Module` | Listen v2 (Flux) | English conversational AI, built-in turn detection |
+| `deepgram-v1` | `DeepgramV1Module` | Listen v1 (Nova-3, Nova-2, …) | Multi-language, general transcription |
+| `deepgram-v2` | `DeepgramV2Module` | Listen v2 (Flux) | English conversational AI, built-in turn detection |
 
 ## Installation
 
@@ -30,7 +30,7 @@ pip install 'asr-engine[deepgram]'
 uv sync --extra deepgram
 ```
 
-Without it, `deepgram_v1` / `deepgram_v2` still appear in the registry, but constructing an engine with either raises the registry's `ImportError` naming the `deepgram` extra. Each module file imports the SDK at top level; the lazy registry keeps that import off the `import asr_engine` path.
+Without it, `deepgram-v1` / `deepgram-v2` still appear in the registry, but constructing an engine with either raises the registry's `ImportError` naming the `deepgram` extra. Each module file imports the SDK at top level; the lazy registry keeps that import off the `import asr_engine` path.
 
 ## API key resolution
 
@@ -43,7 +43,7 @@ Both modules resolve their API key via `resolve_api_key` (see [asr-module-interf
 
 ---
 
-## deepgram_v1 — Listen v1 (Nova-3)
+## deepgram-v1 — Listen v1 (Nova-3)
 
 ### Overview
 
@@ -66,7 +66,7 @@ Uses the Deepgram Listen v1 WebSocket API with any v1-compatible model. `SpeechU
 
 ```json
 {
-  "type": "deepgram_v1",
+  "type": "deepgram-v1",
   "api_key": "YOUR_DEEPGRAM_API_KEY",
   "model": "nova-3",
   "language": "en-US",
@@ -110,7 +110,7 @@ Note: `speech_final` (endpointing signal) is intentionally not used. It depends 
 
 ---
 
-## deepgram_v2 — Listen v2 (Flux)
+## deepgram-v2 — Listen v2 (Flux)
 
 ### Overview
 
@@ -134,7 +134,7 @@ Supports only Flux-family models (`flux-general-en`, etc.). Not suitable for non
 
 ```json
 {
-  "type": "deepgram_v2",
+  "type": "deepgram-v2",
   "api_key": "YOUR_DEEPGRAM_API_KEY",
   "model": "flux-general-en",
   "eot_threshold": 0.7,
@@ -147,7 +147,7 @@ Supports only Flux-family models (`flux-general-en`, etc.). Not suitable for non
 - **URL:** `wss://api.deepgram.com/v2/listen`
 - **Auth:** `Authorization: Token <api_key>` header
 - **Query params:** `model`, `encoding`, `sample_rate`, `eot_threshold`, `eot_timeout_ms` — `encoding`/`sample_rate` come from the reconciled `AudioFormat` passed to `start()`.
-- **Declared audio-format support:** same as `deepgram_v1` — `SUPPORTED_SAMPLE_RATES = {8000, 16000, 24000, 44100, 48000}`, `SUPPORTED_CHANNELS = {1}`, `SUPPORTED_ENCODINGS = {"linear16", "mulaw"}`; defaults 16000 / 1 / `linear16`. Flux takes the same raw `encoding`/`sample_rate` parameters as v1 (verified live at 44.1 kHz — see [Encoding](https://developers.deepgram.com/docs/encoding)).
+- **Declared audio-format support:** same as `deepgram-v1` — `SUPPORTED_SAMPLE_RATES = {8000, 16000, 24000, 44100, 48000}`, `SUPPORTED_CHANNELS = {1}`, `SUPPORTED_ENCODINGS = {"linear16", "mulaw"}`; defaults 16000 / 1 / `linear16`. Flux takes the same raw `encoding`/`sample_rate` parameters as v1 (verified live at 44.1 kHz — see [Encoding](https://developers.deepgram.com/docs/encoding)).
 - **SDK:** `async with client.listen.v2.connect(...) as conn:`
 
 ### Message Handling

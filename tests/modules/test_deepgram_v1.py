@@ -302,7 +302,7 @@ async def test_on_message_non_results_is_ignored() -> None:
 def test_deepgram_v1_registered_in_registry() -> None:
     from asr_engine.modules import resolve_module_class
 
-    assert resolve_module_class("deepgram_v1") is DeepgramV1Module
+    assert resolve_module_class("deepgram-v1") is DeepgramV1Module
 
 
 # ---------------------------------------------------------------------------

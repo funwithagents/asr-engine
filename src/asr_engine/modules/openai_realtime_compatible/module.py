@@ -1,7 +1,7 @@
 """Transcription over the OpenAI Realtime API protocol (GA transcription sessions).
 
-Registry key ``openai_realtime_compatible``; needs the ``openai-realtime-compatible``
-extra (``websockets``). A protocol module: ``url`` defaults to hosted OpenAI, and
+Registry key ``openai-realtime-compatible``; needs the ``openai-compatible`` extra
+(``websockets``). A protocol module: ``url`` defaults to hosted OpenAI, and
 any server speaking the same wire protocol works (LiteLLM, NVIDIA Dynamo, LocalAI).
 
 The server owns the utterance boundary: each utterance is an *item* whose text
@@ -37,7 +37,7 @@ from asr_engine.modules.base import (
 
 log = logging.getLogger(__name__)
 
-_LABEL = "openai_realtime_compatible"
+_LABEL = "openai-realtime-compatible"
 DEFAULT_URL = "wss://api.openai.com/v1/realtime?intent=transcription"
 DEFAULT_MODEL = "gpt-4o-transcribe"
 _OPENAI_HOST = "api.openai.com"

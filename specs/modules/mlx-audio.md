@@ -17,7 +17,7 @@ tests:
 
 ## Purpose
 
-`mlx_audio` runs local speech-to-text models on **Apple Silicon** through [mlx-audio](https://github.com/Blaizzy/mlx-audio), a generic MLX runner for about thirty STT model families: Parakeet, Whisper, Qwen3-ASR, Canary, SenseVoice, Moonshine, Voxtral and more. It follows the project's rule that a **generic model runner gets one module**, and the model is a config value: `"model": "mlx-community/parakeet-tdt-0.6b-v3"` and `"model": "mlx-community/Qwen3-ASR-0.6B-8bit"` are the same module.
+`mlx-audio` runs local speech-to-text models on **Apple Silicon** through [mlx-audio](https://github.com/Blaizzy/mlx-audio), a generic MLX runner for about thirty STT model families: Parakeet, Whisper, Qwen3-ASR, Canary, SenseVoice, Moonshine, Voxtral and more. It follows the project's rule that a **generic model runner gets one module**, and the model is a config value: `"model": "mlx-community/parakeet-tdt-0.6b-v3"` and `"model": "mlx-community/Qwen3-ASR-0.6B-8bit"` are the same module.
 
 It is a **batch** module, the first [`BatchASRModule`](../batch-asr-module.md): it needs the VAD gate (`"required"`), decodes each utterance on the gate's end-of-speech marker, and shows interims by re-decoding the growing utterance. On-device, free and private, with no API key.
 
@@ -37,7 +37,7 @@ It is a **batch** module, the first [`BatchASRModule`](../batch-asr-module.md): 
 
 | Decision | Choice | Rationale |
 |---|---|---|
-| Registry key / package | **`mlx_audio`**, `modules/mlx_audio/` | A module per runner, named after it ([asr-module-interface.md](../asr-module-interface.md) "Optional dependencies"). |
+| Registry key / package | **`mlx-audio`**, `modules/mlx_audio/` | A module per runner, named after it ([asr-module-interface.md](../asr-module-interface.md) "Module names"). |
 | Extra | **`mlx-audio`** = `mlx-audio[stt]>=0.6`, marker-guarded to Apple Silicon | The `stt` extra of mlx-audio adds what its STT models need. The marker keeps `uv lock` working on other platforms, as for `kyutai-mlx`. |
 | **Conflict with Kyutai** | **`mlx-audio` and `kyutai-mlx` / `kyutai-torch` are mutually exclusive extras; mlx-audio keeps `all` and `dev`** | `moshi-mlx` (behind `kyutai-mlx`) pins `sounddevice==0.5` and `mlx<0.27`, and `moshi` (behind `kyutai-torch`) pins `sounddevice==0.5` and `huggingface-hub<1.0`. Every mlx-audio ≥ 0.4 needs `sounddevice>=0.5.3`, and 0.6 needs `mlx>=0.31` and `huggingface-hub>=1.0`. The last mlx-audio that coexists, 0.2.8, has four model families and no Qwen3-ASR. moshi-mlx is the stale side (no release since 2025-08), so Kyutai moves to an environment of its own. See [Installation](#installation). |
 | Model config | **`model`** (Hugging Face repo or local path) and **`generate_kwargs`** (passed through to `generate()`) | The runner is generic, so the module adds no per-family knowledge. A wrong keyword fails at warm-up, during load, with the runner's own error. |
@@ -53,17 +53,17 @@ It is a **batch** module, the first [`BatchASRModule`](../batch-asr-module.md): 
 | `generate_kwargs` | object | `{}` | Keyword arguments for `model.generate()`, e.g. `{"language": "en"}` for Whisper or `{"language": "English"}` for Qwen3-ASR |
 | `interim_interval_s`, `max_utterance_s`, `stop_timeout_s` | | | From [batch-asr-module.md](../batch-asr-module.md) |
 
-Validation in `__init__`: `model` is a non-empty string; `generate_kwargs` is an object with string keys; the base-class fields. Then, unless a test injects a loader: the platform is macOS on arm64, and `mlx_audio` is importable. Otherwise it raises `ImportError` with the install hint: *"ASR module 'mlx_audio' requires the optional dependency 'mlx-audio' (Apple Silicon only), which is not installed. Install it with: pip install 'asr-engine[mlx-audio]' (from source: uv sync --extra mlx-audio). It cannot share an environment with kyutai-mlx / kyutai-torch."*
+Validation in `__init__`: `model` is a non-empty string; `generate_kwargs` is an object with string keys; the base-class fields. Then, unless a test injects a loader: the platform is macOS on arm64, and `mlx-audio` is importable. Otherwise it raises `ImportError` with the install hint: *"ASR module 'mlx-audio' requires the optional dependency 'mlx-audio' (Apple Silicon only), which is not installed. Install it with: pip install 'asr-engine[mlx-audio]' (from source: uv sync --extra mlx-audio). It cannot share an environment with kyutai-mlx / kyutai-torch."*
 
 ### Examples
 
 ```json
-{ "type": "mlx_audio" }
+{ "type": "mlx-audio" }
 ```
 
 ```json
 {
-  "type": "mlx_audio",
+  "type": "mlx-audio",
   "model": "mlx-community/Qwen3-ASR-0.6B-8bit",
   "generate_kwargs": { "language": "English" }
 }
@@ -80,7 +80,7 @@ Validation in `__init__`: `model` is a non-empty string; `generate_kwargs` is an
 ```toml
 [project.optional-dependencies]
 mlx-audio = ["mlx-audio[stt]>=0.6; sys_platform == 'darwin' and platform_machine == 'arm64'"]
-all = ["asr-engine[deepgram,mcp,mistral,mlx-audio,openai-realtime-compatible,silero]"]
+all = ["asr-engine[deepgram,mcp,mistral,mlx-audio,openai-compatible,silero]"]
 
 [dependency-groups]
 dev = [..., "mlx-audio[stt]>=0.6; sys_platform == 'darwin' and platform_machine == 'arm64'", ...]
@@ -99,7 +99,7 @@ dev = [..., "mlx-audio[stt]>=0.6; sys_platform == 'darwin' and platform_machine 
 
 ### Live tier: `tests-e2e/test_engine_modules.py`
 
-A `MODULES` row: type `mlx_audio`, the default model, the 16 kHz WAV `ModuleAudio`, and a `silence_s` of 2.0. The row runs only where it can, like `kyutai`: `helpers.LOCAL_MODELS` maps `mlx_audio` to `asr_engine.modules.mlx_audio.download` and the `model` key, and `require_local_model` skips unless the module builds (mlx-audio installed) and the model is cached. Being `"required"`, it runs only in `test_engine_modules_vad`. Verify with `uv run python -m asr_engine.modules.mlx_audio.download` (once) and then `zsh -ic 'uv run pytest tests-e2e -k mlx_audio'`. CI never runs it: the live job is Linux, and mlx-audio is Apple Silicon only.
+A `MODULES` row: type `mlx-audio`, the default model, the 16 kHz WAV `ModuleAudio`, and a `silence_s` of 2.0. The row runs only where it can, like `kyutai`: `helpers.LOCAL_MODELS` maps `mlx-audio` to `asr_engine.modules.mlx_audio.download` and the `model` key, and `require_local_model` skips unless the module builds (mlx-audio installed) and the model is cached. Being `"required"`, it runs only in `test_engine_modules_vad`. Verify with `uv run python -m asr_engine.modules.mlx_audio.download` (once) and then `zsh -ic 'uv run pytest tests-e2e -k mlx-audio'`. CI never runs it: the live job is Linux, and mlx-audio is Apple Silicon only.
 
 ## Files
 
@@ -107,7 +107,7 @@ A `MODULES` row: type `mlx_audio`, the default model, the 16 kHz WAV `ModuleAudi
 - `src/asr_engine/modules/mlx_audio/module.py`: `MlxAudioModule(BatchASRModule)`
 - `src/asr_engine/modules/mlx_audio/runner.py`: `MlxAudioRunner`
 - `src/asr_engine/modules/mlx_audio/download.py`: `python -m asr_engine.modules.mlx_audio.download [model]` fetches a model through mlx-audio's own `get_model_path`; `is_cached()` (no network) for the e2e gate. It reads the cache directly, because `snapshot_download(local_files_only=True)` treats mlx-audio's pattern-filtered snapshot as incomplete.
-- `src/asr_engine/modules/__init__.py`: `"mlx_audio": LazyModule("asr_engine.modules.mlx_audio.module:MlxAudioModule")`
+- `src/asr_engine/modules/__init__.py`: `"mlx-audio": LazyModule("asr_engine.modules.mlx_audio.module:MlxAudioModule")`
 - `pyproject.toml` / `uv.lock`, `.gitignore` (`.venv-kyutai/`)
 - `examples/config/mlx_audio.json`, `tests/examples/test_configs.py`
 - `tests/modules/test_mlx_audio.py`, `tests-e2e/helpers.py`, `tests-e2e/test_engine_modules.py`

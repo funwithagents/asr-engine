@@ -16,9 +16,9 @@ tests:
 
 ## Purpose
 
-`openai_realtime_compatible` is a **cloud or self-hosted streaming** backend that speaks the transcription mode of the **OpenAI Realtime API** (GA): one WebSocket per session, base64 PCM16 audio in, `conversation.item.input_audio_transcription.*` events out. Its `url` defaults to hosted OpenAI. Any server implementing the same wire protocol works too: LiteLLM's proxy (e.g. Google Chirp behind it), NVIDIA Dynamo, LocalAI and others.
+`openai-realtime-compatible` is a **cloud or self-hosted streaming** backend that speaks the transcription mode of the **OpenAI Realtime API** (GA): one WebSocket per session, base64 PCM16 audio in, `conversation.item.input_audio_transcription.*` events out. Its `url` defaults to hosted OpenAI. Any server implementing the same wire protocol works too: LiteLLM's proxy (e.g. Google Chirp behind it), NVIDIA Dynamo, LocalAI and others.
 
-It is a **protocol module**, not a provider module. The server, the model behind it and its pricing are chosen by `url` and `model`, and the module makes no assumption beyond the protocol. Hence the name: the key `openai_realtime` reads as "OpenAI's Realtime API", and the `_compatible` suffix says the module talks to anything compatible with it. That leaves `openai_realtime` free for an OpenAI-only module if OpenAI's own API ever diverges from what compatible servers implement. The same split already exists in the sibling `tts-engine` project (`openai` is the vendor module, `openai-compatible` the endpoint module).
+It is a **protocol module**, not a provider module. The server, the model behind it and its pricing are chosen by `url` and `model`, and the module makes no assumption beyond the protocol. Hence the name: the key `openai-realtime` reads as "OpenAI's Realtime API", and the `-compatible` suffix says the module talks to anything compatible with it. That leaves `openai-realtime` free for an OpenAI-only module if OpenAI's own API ever diverges from what compatible servers implement.
 
 Compared with the existing backends:
 
@@ -51,15 +51,15 @@ Compared with the existing backends:
 
 | Decision | Choice | Rationale |
 |---|---|---|
-| Registry key | **`openai_realtime_compatible`** | A protocol module: any server speaking OpenAI's Realtime transcription protocol. See [Purpose](#purpose). |
-| Package / extra | `modules/openai_realtime_compatible/module.py`, extra **`openai-realtime-compatible`** (`websockets>=14`) | A protocol module has no provider to name its extra after, so the extra is named after the module key (`_` → `-`), the rule in [asr-module-interface.md](../asr-module-interface.md) "Optional dependencies". Installing it reads as what you get. |
-| Transport | **Raw `websockets`, not the `openai` SDK** | About eight JSON message types. The SDK's realtime client is built around OpenAI's conversation sessions and pulls in a much larger dependency for nothing used here. Owning the socket also keeps the module server-neutral, as with `mistral_realtime`. |
+| Registry key | **`openai-realtime-compatible`** | A protocol module: any server speaking OpenAI's Realtime transcription protocol. See [Purpose](#purpose). |
+| Package / extra | `modules/openai_realtime_compatible/module.py`, extra **`openai-compatible`** (`websockets>=14`, shared with `openai-transcriptions-compatible`) | A protocol module has no provider to name its extra after, so every OpenAI-protocol module shares `openai-compatible`, the rule in [asr-module-interface.md](../asr-module-interface.md) "Optional dependencies". |
+| Transport | **Raw `websockets`, not the `openai` SDK** | About eight JSON message types. The SDK's realtime client is built around OpenAI's conversation sessions and pulls in a much larger dependency for nothing used here. Owning the socket also keeps the module server-neutral, as with `mistral-realtime`. |
 | Session shape | **GA `session.update`, `session.type = "transcription"`** | What hosted OpenAI documents and accepts (measured), and what Dynamo and LiteLLM accept. The beta `transcription_session.update` is no longer documented. |
-| Handshake | **Wait for `session.updated`; an `error` instead fails the session** | Measured: a rejected `session.update` (e.g. an unsupported rate) leaves a live session with no transcription model that silently never transcribes. Treating it as a failed handshake surfaces the server's message at error level and retries with the standard backoff, as `mistral_realtime` does for a rejected handshake. |
+| Handshake | **Wait for `session.updated`; an `error` instead fails the session** | Measured: a rejected `session.update` (e.g. an unsupported rate) leaves a live session with no transcription model that silently never transcribes. Treating it as a failed handshake surfaces the server's message at error level and retries with the standard backoff, as `mistral-realtime` does for a rejected handshake. |
 | Utterance boundary | **The server's**: `completed` closes an item | It carries the authoritative transcript. With server turn detection the server commits on silence. Without it, the VAD gate's `finalize()` or `stop()` commits. |
 | Turn detection | **On by default** (`{"type": "server_vad"}`, server-default parameters) | Without it nothing commits on a continuous stream, and no final ever comes. `false` is for models that don't support it (`gpt-realtime-whisper`) or servers that don't (Dynamo), and then needs `engine.vad`. |
 | Sample rate | **`{24000}`** | The only rate hosted OpenAI accepts (measured), and the protocol's documented rate. Compatible servers that accept more (LiteLLM: 8–48 kHz) still accept 24 kHz. A 16 kHz or 44.1 kHz input is a resampling concern of the engine (a deferral), not of this module. |
-| Idle sessions | **No parking** | No idle kill observed in 70 s, and the 60 min session expiry is covered by reconnection. Parking stays a `mistral_realtime` concern. |
+| Idle sessions | **No parking** | No idle kill observed in 70 s, and the 60 min session expiry is covered by reconnection. Parking stays a `mistral-realtime` concern. |
 | Missing key | **Required for hosted OpenAI, optional elsewhere** | A local server (Dynamo, LocalAI) usually needs no key. A key-less config pointed at `api.openai.com` can only fail, so it is rejected at construction. |
 
 ## API surface used
@@ -130,7 +130,7 @@ Hosted OpenAI:
 
 ```json
 {
-  "type": "openai_realtime_compatible",
+  "type": "openai-realtime-compatible",
   "api_key_env": "OPENAI_API_KEY",
   "model": "gpt-4o-transcribe",
   "language": "en",
@@ -142,7 +142,7 @@ A streaming model without server turn detection (needs `engine.vad`):
 
 ```json
 {
-  "type": "openai_realtime_compatible",
+  "type": "openai-realtime-compatible",
   "api_key_env": "OPENAI_API_KEY",
   "model": "gpt-realtime-whisper",
   "turn_detection": false
@@ -153,7 +153,7 @@ A self-hosted server:
 
 ```json
 {
-  "type": "openai_realtime_compatible",
+  "type": "openai-realtime-compatible",
   "url": "ws://gpu-host:8000/v1/realtime",
   "model": "Qwen/Qwen3-ASR-0.6B",
   "turn_detection": false
@@ -176,7 +176,7 @@ The module sends `format: {"type": "audio/pcm", "rate": 24000}`. Our `linear16` 
 ## Lifecycle
 
 - **`start()`** connects, waits for `session.created`, sends `session.update`, waits for `session.updated`, calls `on_connected(True)`, then runs two tasks until the session ends: a **sender** draining `audio_queue` into `input_audio_buffer.append` (and calling `finalize()` on an `END_OF_SPEECH` marker), and a **receiver** applying the [utterance semantics](#utterance-semantics). With `turn_detection: false` it logs once at info level that finals need `engine.vad` or `stop()`.
-- **`stop()`** asks the running session to end and **returns only once it has**, so the last finals are delivered before the engine cancels the module task (as in `mistral_realtime`). Ending the session first applies `finalize()`'s commit-or-clear decision ([VAD gating](#vad-gating)), so a trailing utterance is committed and trailing silence is not. Then it waits up to `stop_timeout_s` for every open item to complete. Then it emits each remaining item's accumulated text as a final, in order, and closes the socket. `on_connected(False)` follows. A `stop()` while reconnecting returns at once.
+- **`stop()`** asks the running session to end and **returns only once it has**, so the last finals are delivered before the engine cancels the module task (as in `mistral-realtime`). Ending the session first applies `finalize()`'s commit-or-clear decision ([VAD gating](#vad-gating)), so a trailing utterance is committed and trailing silence is not. Then it waits up to `stop_timeout_s` for every open item to complete. Then it emits each remaining item's accumulated text as a final, in order, and closes the socket. `on_connected(False)` follows. A `stop()` while reconnecting returns at once.
 - **Reconnection** follows the [reconnection contract](../asr-module-interface.md#reconnection-contract) (1, 2, 4, 8 s backoff, draining `audio_queue` meanwhile). On connection loss, every open item's accumulated text is emitted as a final first, and `on_connected(False)` is called. A reconnect is a **new session**: the buffer and open items of the old one are gone. A rejected handshake logs at error level with the cause: HTTP 401 → "check `api_key` / `api_key_env`", HTTP 403/404 → "check `url` and `model`", a `session.update` `error` → the server's message.
 
 ## VAD gating
@@ -198,20 +198,20 @@ A marker read while reconnecting is dropped, as in every module.
 
 ```toml
 [project.optional-dependencies]
-openai-realtime-compatible = ["websockets>=14"]
-all = ["asr-engine[deepgram,mcp,mistral,mlx-audio,openai-realtime-compatible,silero]"]  # Kyutai: own env, see project.md
+openai-compatible = ["websockets>=14", "httpx>=0.27"]  # shared with openai-transcriptions-compatible
+all = ["asr-engine[deepgram,mcp,mistral,mlx-audio,openai-compatible,silero]"]  # Kyutai: own env, see project.md
 
 [dependency-groups]
-dev = ["asr-engine[deepgram,mcp,mistral,openai-realtime-compatible,silero]", "mlx-audio[stt]>=0.6; …", ...]  # light: joins dev
+dev = ["asr-engine[deepgram,mcp,mistral,openai-compatible,silero]", "mlx-audio[stt]>=0.6; …", ...]  # light: joins dev
 ```
 
-The module file imports `websockets` at top level, so without the extra the registry's `ImportError` names `openai-realtime-compatible`.
+The module file imports `websockets` at top level, so without the extra the registry's `ImportError` names `openai-compatible`.
 
 ## Testing
 
 ### Fast tier: `tests/modules/test_openai_realtime_compatible.py`
 
-The module talks to a **scripted fake connection** injected through a keyword-only `connect` constructor argument, with the same `(url, headers) → async context manager → connection` shape as `mistral_realtime`. No network.
+The module talks to a **scripted fake connection** injected through a keyword-only `connect` constructor argument, with the same `(url, headers) → async context manager → connection` shape as `mistral-realtime`. No network.
 
 - **Handshake:** the first client message is `session.update` with the GA transcription shape, the reconciled rate, `model`, and `language`/`prompt`/`noise_reduction` when set, and `turn_detection` per config (`{"type": "server_vad"}` / `null` / passed through). The URL is used verbatim. The header carries the key, and is absent without one. `on_connected(True)` waits for `session.updated`, and an `error` instead retries the handshake.
 - **Audio:** queue chunks arrive as base64 that decodes back to the exact bytes, in order.
@@ -225,13 +225,13 @@ The module talks to a **scripted fake connection** injected through a keyword-on
 
 ### Live tier: `tests-e2e/test_engine_modules.py`
 
-A `MODULES` row: type `openai_realtime_compatible`, `api_key_env: OPENAI_API_KEY`, the 24 kHz WAV `ModuleAudio` (as Kyutai), and a `silence_s` of 3.0, above the measured ≈ 1.1 s server-VAD path. The VAD case runs on the same row through `MODULES_VAD`. [ci.md](../ci.md) gains the `OPENAI_API_KEY` secret and an expected-skips row. Verify with `zsh -ic 'uv run pytest tests-e2e -k openai_realtime_compatible'`.
+A `MODULES` row: type `openai-realtime-compatible`, `api_key_env: OPENAI_API_KEY`, the 24 kHz WAV `ModuleAudio` (as Kyutai), and a `silence_s` of 3.0, above the measured ≈ 1.1 s server-VAD path. The VAD case runs on the same row through `MODULES_VAD`. [ci.md](../ci.md) gains the `OPENAI_API_KEY` secret and an expected-skips row. Verify with `zsh -ic 'uv run pytest tests-e2e -k openai-realtime-compatible'`.
 
 ## Files
 
 - `src/asr_engine/modules/openai_realtime_compatible/__init__.py`: imports nothing (keeps the registry lazy)
 - `src/asr_engine/modules/openai_realtime_compatible/module.py`: `OpenAIRealtimeCompatibleModule`
-- `src/asr_engine/modules/__init__.py`: `"openai_realtime_compatible": LazyModule("asr_engine.modules.openai_realtime_compatible.module:OpenAIRealtimeCompatibleModule", extra="openai-realtime-compatible")`
+- `src/asr_engine/modules/__init__.py`: `"openai-realtime-compatible": LazyModule("asr_engine.modules.openai_realtime_compatible.module:OpenAIRealtimeCompatibleModule", extra="openai-compatible")`
 - `pyproject.toml`: the extra, `all`, `dev`
 - `scripts/probe_openai_realtime.py`: the live probe behind [Measured](#measured-live-probe-hosted-openai-2026-11-13)
 - `examples/config/openai_realtime_compatible.json`: a complete server config, with the VAD gate on
@@ -244,6 +244,6 @@ None load-bearing. Deferrals:
 
 - **Resampling.** The 24 kHz-only contract excludes 16 kHz and 44.1 kHz file sources. Forward resampling in the engine (`soxr` is already in the `silero` extra) would lift it for every module at once.
 - **Compatible servers' rates.** LiteLLM accepts 8–48 kHz. A config field widening `SUPPORTED_SAMPLE_RATES` per instance needs the capability check to move from class to instance. Not worth it until a user needs it.
-- **`vllm_realtime`.** vLLM's `/v1/realtime` speaks its own dialect (`session.update {model}`, `commit {final}`, `transcription.delta`/`done`), so it is a separate module. When it is built, the WebSocket driver (session loop, reconnection, queue helpers) shared with this module and `mistral_realtime` should move to a common internal file.
+- **`vllm-realtime`.** vLLM's `/v1/realtime` speaks its own dialect (`session.update {model}`, `commit {final}`, `transcription.delta`/`done`), so it is a separate module. When it is built, the WebSocket driver (session loop, reconnection, queue helpers) shared with this module and `mistral-realtime` should move to a common internal file.
 - **`semantic_vad`, `include: logprobs`, diarization (`gpt-4o-transcribe-diarize`).** Accepted or passable, but nothing downstream consumes confidence or speakers yet.
 - **Live probes against LiteLLM, Dynamo and LocalAI.** The documented shapes match, but only hosted OpenAI was probed.

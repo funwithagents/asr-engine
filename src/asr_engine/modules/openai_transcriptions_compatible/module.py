@@ -1,7 +1,7 @@
 """Batch transcription over HTTP: ``POST /v1/audio/transcriptions``.
 
-Registry key ``openai_transcriptions_compatible``; needs the
-``openai-transcriptions-compatible`` extra (``httpx``). A protocol module: ``url``
+Registry key ``openai-transcriptions-compatible``; needs the ``openai-compatible``
+extra (``httpx``). A protocol module: ``url``
 defaults to hosted OpenAI, and any server implementing the endpoint works (Groq,
 speaches, the whisper.cpp server, ``mlx_audio.server``, vLLM's batch models).
 
@@ -27,7 +27,7 @@ from asr_engine.modules.batch import BatchASRModule
 
 log = logging.getLogger(__name__)
 
-_LABEL = "openai_transcriptions_compatible"
+_LABEL = "openai-transcriptions-compatible"
 DEFAULT_URL = "https://api.openai.com/v1/audio/transcriptions"
 DEFAULT_MODEL = "gpt-4o-transcribe"
 _OPENAI_HOST = "api.openai.com"

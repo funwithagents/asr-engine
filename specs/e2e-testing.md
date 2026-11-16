@@ -127,13 +127,13 @@ Parametrized over the `MODULES` table in `helpers.py`. Each row carries the modu
 
 | Module | Model | `silence_s` | `ModuleAudio` | Skips unless |
 |--------|-------|-------------|---------------|--------------|
-| `deepgram_v1` | `nova-3` | `3.0` | `AUDIO_MP3_44100` | `DEEPGRAM_API_KEY` is set |
-| `deepgram_v2` | `flux-general-en` | `3.0` | `AUDIO_MP3_44100` | `DEEPGRAM_API_KEY` is set |
-| `mistral_realtime` | `voxtral-mini-transcribe-realtime-3` (default) | `3.0` | `AUDIO_MP3_44100` | `MISTRAL_API_KEY` is set |
-| `openai_realtime_compatible` | `gpt-4o-transcribe` (hosted OpenAI, 24 kHz only) | `3.0` | `AUDIO_WAV_24000` | `OPENAI_API_KEY` is set |
-| `openai_transcriptions_compatible` | `gpt-4o-transcribe` (hosted OpenAI) | `3.0` | `AUDIO_WAV_16000` | `OPENAI_API_KEY` is set — **VAD case only** |
+| `deepgram-v1` | `nova-3` | `3.0` | `AUDIO_MP3_44100` | `DEEPGRAM_API_KEY` is set |
+| `deepgram-v2` | `flux-general-en` | `3.0` | `AUDIO_MP3_44100` | `DEEPGRAM_API_KEY` is set |
+| `mistral-realtime` | `voxtral-mini-transcribe-realtime-3` (default) | `3.0` | `AUDIO_MP3_44100` | `MISTRAL_API_KEY` is set |
+| `openai-realtime-compatible` | `gpt-4o-transcribe` (hosted OpenAI, 24 kHz only) | `3.0` | `AUDIO_WAV_24000` | `OPENAI_API_KEY` is set |
+| `openai-transcriptions-compatible` | `gpt-4o-transcribe` (hosted OpenAI) | `3.0` | `AUDIO_WAV_16000` | `OPENAI_API_KEY` is set — **VAD case only** |
 | `kyutai` | `kyutai/stt-1b-en_fr-candle` | `4.0` | `AUDIO_WAV_24000` | its backend is installed (its own environment: [modules/kyutai.md](modules/kyutai.md) "Installation") and its weights are cached |
-| `mlx_audio` | `mlx-community/parakeet-tdt-0.6b-v3` | `2.0` | `AUDIO_WAV_16000` | mlx-audio is installed (Apple Silicon) and the model is cached — **VAD case only** |
+| `mlx-audio` | `mlx-community/parakeet-tdt-0.6b-v3` | `2.0` | `AUDIO_WAV_16000` | mlx-audio is installed (Apple Silicon) and the model is cached — **VAD case only** |
 
 Each row runs one `test_engine_streams` scenario on its `ModuleAudio`, except the rows of `"required"` modules, which produce no final without the gate. `helpers.VAD_REQUIRED_MODULES` names them, `MODULES_UNGATED` leaves them out, and a fast-tier test keeps that set equal to the registry's `"required"` modules:
 
@@ -154,14 +154,14 @@ The same file runs each row a second time with `engine.vad` set to the Silero VA
 
 | Case id | `engine.vad` | What ends the utterance |
 |---|---|---|
-| `deepgram_v1` | `{"type": "silero"}` | The `Finalize` message sent on the marker |
-| `deepgram_v2-flux_ends_turn` | `+ "min_silence_duration_ms": 1500` | Flux's own `EndOfTurn`, on the silence the longer hangover lets through (the recommended setting) |
-| `deepgram_v2-marker_ends_turn` | `+ "min_silence_duration_ms": 300` | The silence burst the module sends on the marker, since the gate closed before Flux decided |
-| `mistral_realtime` | `{"type": "silero"}` | The local flush: silence burst, then the final once the text stops |
-| `openai_realtime_compatible` | `{"type": "silero"}` | The server's own VAD, on the hangover's silence; the marker then clears the trailing silence (or commits, if the server's turn is still open) |
-| `openai_transcriptions_compatible` | `{"type": "silero"}` | The upload of the utterance on the marker |
+| `deepgram-v1` | `{"type": "silero"}` | The `Finalize` message sent on the marker |
+| `deepgram-v2-flux_ends_turn` | `+ "min_silence_duration_ms": 1500` | Flux's own `EndOfTurn`, on the silence the longer hangover lets through (the recommended setting) |
+| `deepgram-v2-marker_ends_turn` | `+ "min_silence_duration_ms": 300` | The silence burst the module sends on the marker, since the gate closed before Flux decided |
+| `mistral-realtime` | `{"type": "silero"}` | The local flush: silence burst, then the final once the text stops |
+| `openai-realtime-compatible` | `{"type": "silero"}` | The server's own VAD, on the hangover's silence; the marker then clears the trailing silence (or commits, if the server's turn is still open) |
+| `openai-transcriptions-compatible` | `{"type": "silero"}` | The upload of the utterance on the marker |
 | `kyutai` | `{"type": "silero"}` | The flush frames stepped on the marker |
-| `mlx_audio` | `{"type": "silero"}` | The batch decode of the utterance on the marker |
+| `mlx-audio` | `{"type": "silero"}` | The batch decode of the utterance on the marker |
 
 Each case, on the row's existing fixtures (the 44.1 kHz MP3s and 24 kHz WAVs also exercise the gate's resampling path, since Silero analyses at 16 kHz):
 
@@ -256,7 +256,7 @@ sequences where the scenario defines them, since the script fixes the output.
   needs no key, so `require_api_key()` would never skip it — and an unguarded run
   would try to download gigabytes of weights inside the per-test timeout.
   `require_local_model(module_type, module_config)` covers these. For a module
-  listed in `helpers.LOCAL_MODELS` (`kyutai`, `mlx_audio`), the case skips unless
+  listed in `helpers.LOCAL_MODELS` (`kyutai`, `mlx-audio`), the case skips unless
   the module constructs (its backend extra is installed) **and** its weights are
   already in the Hugging Face cache. Each local module owns a `download.py` in its
   package that knows exactly which files its loader reads. It exposes

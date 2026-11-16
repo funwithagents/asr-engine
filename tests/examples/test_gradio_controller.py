@@ -99,7 +99,7 @@ class FakeEngine:
 def make_controller(vad: VadConfig | None = None) -> Iterator[DemoController]:
     """A controller whose engine is FakeEngine, torn down cleanly."""
     FakeEngine.instances.clear()
-    base = ASREngineConfig(module=ModuleConfig(type="deepgram_v1"), vad=vad)
+    base = ASREngineConfig(module=ModuleConfig(type="deepgram-v1"), vad=vad)
     with patch("examples.gradio_demo.controller.ASREngine", FakeEngine):
         with DemoController(base) as controller:
             yield controller
@@ -128,20 +128,20 @@ def test_available_modules_lists_the_registry_sorted():
 
 def test_set_module_while_stopped_updates_pending_config():
     with make_controller() as c:
-        c.set_module("deepgram_v2")
-        assert c.state().module_type == "deepgram_v2"
+        c.set_module("deepgram-v2")
+        assert c.state().module_type == "deepgram-v2"
 
 
 def test_next_start_builds_a_fresh_engine_from_the_changed_config():
     with make_controller() as c:
-        c.start()  # builds engine #0 from deepgram_v1
+        c.start()  # builds engine #0 from deepgram-v1
         c.stop()
         c.set_device("Mic A")
-        c.set_module("deepgram_v2")
+        c.set_module("deepgram-v2")
         c.start()  # must build a *new* engine from the updated config
         assert len(FakeEngine.instances) == 2
         newest = FakeEngine.instances[-1]
-        assert newest.config.module.type == "deepgram_v2"
+        assert newest.config.module.type == "deepgram-v2"
         assert newest.config.audio.device == "Mic A"
 
 
@@ -149,8 +149,8 @@ def test_set_module_while_running_raises_and_keeps_config():
     with make_controller() as c:
         c.start()
         with pytest.raises(RuntimeError, match="Stop the engine"):
-            c.set_module("deepgram_v2")
-        assert c.state().module_type == "deepgram_v1"
+            c.set_module("deepgram-v2")
+        assert c.state().module_type == "deepgram-v1"
 
 
 # --- listen cancellation ----------------------------------------------------

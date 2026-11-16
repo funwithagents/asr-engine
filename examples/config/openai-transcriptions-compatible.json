@@ -9,15 +9,16 @@
     "dictation_default_segmentation_mode": "trigger_word",
     "audio": {
       "device": null,
-      "sample_rate": 24000
+      "sample_rate": 16000
     },
     "module": {
-      "type": "openai_realtime_compatible",
+      "type": "openai-transcriptions-compatible",
       "api_key_env": "OPENAI_API_KEY",
-      "url": "wss://api.openai.com/v1/realtime?intent=transcription",
+      "url": "https://api.openai.com/v1/audio/transcriptions",
       "model": "gpt-4o-transcribe",
       "language": "en",
-      "prompt": "validate"
+      "prompt": "validate",
+      "interim_interval_s": 0
     },
     "vad": {
       "type": "silero"

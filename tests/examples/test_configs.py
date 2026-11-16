@@ -22,13 +22,13 @@ CONFIGS = sorted(CONFIG_DIR.glob("*.json"))
 
 def test_there_is_one_example_config_per_module() -> None:
     assert [p.stem for p in CONFIGS] == [
-        "deepgram_v1",
-        "deepgram_v2",
+        "deepgram-v1",
+        "deepgram-v2",
         "kyutai",
-        "mistral_realtime",
-        "mlx_audio",
-        "openai_realtime_compatible",
-        "openai_transcriptions_compatible",
+        "mistral-realtime",
+        "mlx-audio",
+        "openai-realtime-compatible",
+        "openai-transcriptions-compatible",
     ]
 
 
@@ -53,13 +53,13 @@ def test_the_cloud_examples_gate_with_their_recommended_setting() -> None:
             str(CONFIG_DIR / f"{name}.json")
         ).engine.vad
 
-    for name in ("deepgram_v1", "mistral_realtime", "openai_realtime_compatible"):
+    for name in ("deepgram-v1", "mistral-realtime", "openai-realtime-compatible"):
         gate = vad(name)
         assert gate is not None and gate.min_silence_duration_ms == 500
-    flux = vad("deepgram_v2")
+    flux = vad("deepgram-v2")
     assert flux is not None and flux.min_silence_duration_ms == 1500
     assert vad("kyutai") is None
     # A batch module cannot run ungated; the default window suits it.
-    for name in ("mlx_audio", "openai_transcriptions_compatible"):
+    for name in ("mlx-audio", "openai-transcriptions-compatible"):
         batch = vad(name)
         assert batch is not None and batch.min_silence_duration_ms == 500

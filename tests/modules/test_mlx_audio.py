@@ -1,4 +1,4 @@
-"""Functional tests for the mlx_audio module (specs/modules/mlx-audio.md).
+"""Functional tests for the mlx-audio module (specs/modules/mlx-audio.md).
 
 mlx-audio itself is never imported: the module's ``load_model`` seam takes a fake
 loader. The batch behaviour (buffering, interims, finals, lifecycle) is pinned in
@@ -130,7 +130,7 @@ def test_invalid_config_is_rejected(config: dict[str, Any], field: str) -> None:
 
 
 def test_the_registry_resolves_the_module_without_mlx_audio() -> None:
-    assert resolve_module_class("mlx_audio") is MlxAudioModule
+    assert resolve_module_class("mlx-audio") is MlxAudioModule
 
 
 # ------------------------------------------------- weights download (download.py)

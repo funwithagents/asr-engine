@@ -1,5 +1,5 @@
 """Probe an OpenAI Realtime transcription endpoint before (and after) building the
-``openai_realtime_compatible`` module (specs/modules/openai-realtime-compatible.md).
+``openai-realtime-compatible`` module (specs/modules/openai-realtime-compatible.md).
 
 The public docs leave a few load-bearing facts unstated. This script measures them
 against a live endpoint (hosted OpenAI by default, or any compatible server via

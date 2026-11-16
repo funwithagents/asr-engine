@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 
 import pytest
@@ -462,6 +463,18 @@ def test_validate_asr_type_unknown_lists_available() -> None:
     msg = str(exc_info.value)
     assert "whisper" in msg
     assert "unknown" in msg
+
+
+def test_validate_asr_type_accepts_an_old_module_name() -> None:
+    validate_asr_type(_cfg("deepgram_v1"), {"deepgram-v1": object()})  # no raise
+
+
+def test_an_old_module_name_is_stored_as_its_new_name(caplog) -> None:
+    with caplog.at_level(logging.WARNING, logger="asr_engine.modules"):
+        old = ASREngineConfig.from_dict({"module": {"type": "mistral_realtime"}})
+    new = ASREngineConfig.from_dict({"module": {"type": "mistral-realtime"}})
+    assert old.module.type == new.module.type == "mistral-realtime"
+    assert "use 'mistral-realtime' instead" in caplog.text
 
 
 def test_validate_asr_type_empty_registry() -> None:

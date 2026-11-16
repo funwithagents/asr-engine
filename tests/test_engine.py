@@ -82,6 +82,22 @@ def test_unknown_asr_type_raises():
         ASREngine(make_config(module_type="no_such_module"))
 
 
+def test_an_old_and_a_new_module_name_start_the_same_module():
+    def engine_for(module_type: str) -> ASREngine:
+        return ASREngine(
+            ASREngineConfig.from_dict(
+                {
+                    "module": {"type": module_type, "api_key": "test-key"},
+                    "sound_feedback": {"enabled": False},
+                }
+            )
+        )
+
+    old, new = engine_for("deepgram_v1"), engine_for("deepgram-v1")
+    assert type(old._asr_module) is type(new._asr_module)
+    assert type(new._asr_module).__name__ == "DeepgramV1Module"
+
+
 def _restricted_module_class(instance, *, rates, encodings=frozenset({"linear16"})):
     """A mock ASRModule class with restricted format support, for reconcile tests."""
     cls = _mock_module_class(instance)

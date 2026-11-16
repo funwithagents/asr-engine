@@ -138,7 +138,7 @@ The three format fields (`sample_rate`/`channels`/`encoding`) form the desired `
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `type` | string | yes | Identifies which ASR module to load (e.g. `"deepgram_v1"`). There is **no default module**. Provider modules need their extra installed (see [asr-module-interface.md](asr-module-interface.md) "Optional dependencies (extras)"); `"fake"` is a test double for tests only (see [modules/fake.md](modules/fake.md)). |
+| `type` | string | yes | Identifies which ASR module to load (e.g. `"deepgram-v1"`). There is **no default module**. Provider modules need their extra installed (see [asr-module-interface.md](asr-module-interface.md) "Optional dependencies (extras)"); `"fake"` is a test double for tests only (see [modules/fake.md](modules/fake.md)). |
 | *(other fields)* | any | depends | Module-specific configuration, parsed by the module. |
 
 #### `engine.vad` sub-block
@@ -160,7 +160,7 @@ Optional. When present, the engine puts a speech gate between the audio source a
 | `type` | string | — (required when the block is present) | VAD module to load, a key of the VAD registry. Built in: `"silero"` (needs the `silero` extra; its 2.3 MB model is downloaded on first use). |
 | `threshold` | float | `0.5` | Speech probability at or above which a frame counts as speech. Strictly between 0 and 1. |
 | `min_speech_duration_ms` | integer | `250` | Consecutive speech before the gate opens. ≥ 0. |
-| `min_silence_duration_ms` | integer | `500` | Consecutive non-speech before the gate closes and the final is requested (the hangover). > 0. Raise it to about `1500` for a backend with its own turn detection (`deepgram_v2`, `kyutai`), so the backend still ends the turn itself — see [vad.md](vad.md) "Letting the backend end the turn first". |
+| `min_silence_duration_ms` | integer | `500` | Consecutive non-speech before the gate closes and the final is requested (the hangover). > 0. Raise it to about `1500` for a backend with its own turn detection (`deepgram-v2`, `kyutai`), so the backend still ends the turn itself — see [vad.md](vad.md) "Letting the backend end the turn first". |
 | `speech_pad_ms` | integer | `300` | Audio kept from before the detected onset. ≥ 0. |
 | *(other fields)* | any | — | Passed to the VAD module, like `engine.module`'s extra fields. `silero` takes `model_path` (a local copy of its model, for machines without network access) and rejects any other. |
 
@@ -182,7 +182,7 @@ envoyer, valider, confirmer, soumettre, entree, entrée
 
 All three modes are valid for `listen` and dictation. In `utterance` mode a `listen` returns after exactly one final utterance, and a dictation with `end_on_final_segment=true` ends after one — coherent, if degenerate.
 
-Complete server configs for every ASR module ship in `examples/config/` (`deepgram_v1.json`, `deepgram_v2.json`, `mistral_realtime.json`, `openai_realtime_compatible.json`, `openai_transcriptions_compatible.json`, `kyutai.json`, `mlx_audio.json`), each with the `engine.vad` setting recommended for its module ([vad.md](vad.md) "Which modules to use with VAD"). `tests/examples/test_configs.py` checks they parse and that their module and VAD combination is accepted.
+Complete server configs for every ASR module ship in `examples/config/` (`deepgram-v1.json`, `deepgram-v2.json`, `mistral-realtime.json`, `openai-realtime-compatible.json`, `openai-transcriptions-compatible.json`, `kyutai.json`, `mlx-audio.json`), each with the `engine.vad` setting recommended for its module ([vad.md](vad.md) "Which modules to use with VAD"). `tests/examples/test_configs.py` checks they parse and that their module and VAD combination is accepted.
 
 ## Example: Deepgram config
 
@@ -198,7 +198,7 @@ Requires the `deepgram` extra (`pip install 'asr-engine[deepgram]'`), plus `sile
     "auto_start": true,
     "audio": { "device": null },
     "module": {
-      "type": "deepgram_v1",
+      "type": "deepgram-v1",
       "api_key_env": "DEEPGRAM_API_KEY",
       "language": "en-US",
       "model": "nova-3"
@@ -222,7 +222,7 @@ Requires the `mistral` extra (`pip install 'asr-engine[mistral]'`). See [modules
     "auto_start": true,
     "audio": { "device": null },
     "module": {
-      "type": "mistral_realtime",
+      "type": "mistral-realtime",
       "api_key_env": "MISTRAL_API_KEY",
       "language": "en",
       "context_bias": ["validate"]
@@ -234,7 +234,7 @@ Requires the `mistral` extra (`pip install 'asr-engine[mistral]'`). See [modules
 
 ## Example: OpenAI Realtime config (24 kHz)
 
-Requires the `openai-realtime-compatible` extra (`pip install 'asr-engine[openai-realtime-compatible]'`). See [modules/openai-realtime-compatible.md](modules/openai-realtime-compatible.md) for the module fields, and for pointing `url` at another compatible server. **`engine.audio.sample_rate` must be `24000`**, the only rate hosted OpenAI accepts. A complete file ships as `examples/config/openai_realtime_compatible.json`, with `"vad": {"type": "silero"}` (needs the `silero` extra).
+Requires the `openai-compatible` extra (`pip install 'asr-engine[openai-compatible]'`). See [modules/openai-realtime-compatible.md](modules/openai-realtime-compatible.md) for the module fields, and for pointing `url` at another compatible server. **`engine.audio.sample_rate` must be `24000`**, the only rate hosted OpenAI accepts. A complete file ships as `examples/config/openai_realtime_compatible.json`, with `"vad": {"type": "silero"}` (needs the `silero` extra).
 
 ```json
 {
@@ -246,7 +246,7 @@ Requires the `openai-realtime-compatible` extra (`pip install 'asr-engine[openai
     "auto_start": true,
     "audio": { "device": null, "sample_rate": 24000 },
     "module": {
-      "type": "openai_realtime_compatible",
+      "type": "openai-realtime-compatible",
       "api_key_env": "OPENAI_API_KEY",
       "model": "gpt-4o-transcribe",
       "language": "en",
@@ -259,14 +259,14 @@ Requires the `openai-realtime-compatible` extra (`pip install 'asr-engine[openai
 
 ## Example: OpenAI transcriptions config (batch over HTTP)
 
-Requires the `openai-transcriptions-compatible` extra, plus `silero`: **`engine.vad` is mandatory**, as for every batch module ([batch-asr-module.md](batch-asr-module.md)). See [modules/openai-transcriptions-compatible.md](modules/openai-transcriptions-compatible.md) for the module fields, and for pointing `url` at Groq or a local server. A complete file ships as `examples/config/openai_transcriptions_compatible.json`.
+Requires the `openai-compatible` extra, plus `silero`: **`engine.vad` is mandatory**, as for every batch module ([batch-asr-module.md](batch-asr-module.md)). See [modules/openai-transcriptions-compatible.md](modules/openai-transcriptions-compatible.md) for the module fields, and for pointing `url` at Groq or a local server. A complete file ships as `examples/config/openai_transcriptions_compatible.json`.
 
 ```json
 {
   "engine": {
     "audio": { "device": null, "sample_rate": 16000 },
     "module": {
-      "type": "openai_transcriptions_compatible",
+      "type": "openai-transcriptions-compatible",
       "api_key_env": "OPENAI_API_KEY",
       "model": "gpt-4o-transcribe",
       "language": "en"
@@ -285,7 +285,7 @@ Requires the `mlx-audio` extra (Apple Silicon), plus `silero`: **`engine.vad` is
   "engine": {
     "audio": { "device": null, "sample_rate": 16000 },
     "module": {
-      "type": "mlx_audio",
+      "type": "mlx-audio",
       "model": "mlx-community/Qwen3-ASR-0.6B-8bit",
       "generate_kwargs": { "language": "English" }
     },
