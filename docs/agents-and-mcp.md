@@ -53,6 +53,7 @@ Its configuration wraps the same [engine block](configuration.md#the-engine-bloc
   },
   "engine": {
     "auto_start": true,
+    "audio_source": { "type": "input-device" },
     "module": {
       "type": "deepgram-v1",
       "api_key_env": "DEEPGRAM_API_KEY",

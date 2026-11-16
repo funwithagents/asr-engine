@@ -19,7 +19,11 @@ import pytest
 
 from asr_engine.audio import AudioFormat
 from asr_engine.modules import resolve_module_class
-from asr_engine.modules.base import AudioQueue, SpeechUtterance, reconcile_audio_format
+from asr_engine.modules.base import (
+    AudioQueue,
+    SpeechUtterance,
+    resolve_module_audio_format,
+)
 from asr_engine.modules.kyutai import KyutaiModule, StepResult
 from asr_engine.modules.kyutai import module as kyutai
 
@@ -853,9 +857,13 @@ def test_invalid_config_rejected(config, message):
 
 
 def test_declares_the_strict_24khz_mono_linear16_contract():
+    module = KyutaiModule({}, backend_factory=ScriptedBackend)
+    # The module is fed 24 kHz mono linear16, and nothing else can be asked for.
+    assert resolve_module_audio_format(module) == FORMAT_24K
     with pytest.raises(ValueError, match="24000"):
-        reconcile_audio_format(AudioFormat(sample_rate=16000), KyutaiModule)
-    assert reconcile_audio_format(FORMAT_24K, KyutaiModule) == FORMAT_24K
+        resolve_module_audio_format(module, sample_rate=16000)
+    with pytest.raises(ValueError, match="linear16"):
+        resolve_module_audio_format(module, encoding="mulaw")
 
 
 # ------------------------------------------------- weights download (download.py)

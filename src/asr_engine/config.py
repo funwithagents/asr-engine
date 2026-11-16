@@ -23,7 +23,9 @@ _DEFAULT_TRIGGER_WORDS: list[str] = [
 
 _SEGMENT_MODES = ("utterance", "trigger_word", "timeout")
 _ENCODINGS = ("linear16", "mulaw")
-_UNSUPPORTED_FORMAT_POLICIES = ("error", "fallback")
+
+
+_AUDIO_FORMAT_FIELDS = ("sample_rate", "channels", "encoding")
 
 
 def _read_file(path: str) -> str:
@@ -59,19 +61,134 @@ class ServerConfig:
 
 
 @dataclass
-class AudioConfig:
+class AudioFormatConfig:
+    """An ``audio_format`` config object: a rate, a channel count and an encoding.
+
+    Every field is optional; ``None`` means "not set", and the engine resolves it
+    (specs/format-conversion.md). The resolved value is an ``AudioFormat``.
+    """
+
+    sample_rate: int | None = None
+    channels: int | None = None
+    encoding: str | None = None  # "linear16" | "mulaw"
+
+
+def _parse_audio_format(data: Any, where: str) -> AudioFormatConfig:
+    """Parse and validate an ``audio_format`` object (absent or null = nothing set).
+
+    *where* is the object's dotted path (``engine.module.audio_format``), used in
+    the error messages. An unknown key is an error, so a typo is not silently
+    ignored.
+    """
+    if data is None:
+        return AudioFormatConfig()
+    if not isinstance(data, dict):
+        raise ValueError(f"Invalid {where}: must be an object or null.")
+    unknown = sorted(set(data) - set(_AUDIO_FORMAT_FIELDS))
+    if unknown:
+        raise ValueError(
+            f"Invalid {where}: unknown field(s) {', '.join(unknown)}. "
+            f"Fields: {', '.join(_AUDIO_FORMAT_FIELDS)}."
+        )
+    for key in ("sample_rate", "channels"):
+        value = data.get(key)
+        if value is not None and (
+            isinstance(value, bool) or not isinstance(value, int) or value <= 0
+        ):
+            raise ValueError(
+                f"Invalid {where}.{key}: must be a positive integer or null."
+            )
+    encoding = data.get("encoding")
+    if encoding is not None and encoding not in _ENCODINGS:
+        raise ValueError(
+            f"Invalid {where}.encoding: '{encoding}'. "
+            f"Must be one of {', '.join(_ENCODINGS)}, or null."
+        )
+    return AudioFormatConfig(
+        sample_rate=data.get("sample_rate"),
+        channels=data.get("channels"),
+        encoding=encoding,
+    )
+
+
+# engine.audio_source.type → the fields that type takes, besides `type` itself.
+AUDIO_SOURCE_TYPES: dict[str, tuple[str, ...]] = {
+    "input-device": ("device", "audio_format"),
+    "file": ("audio_file", "trailing_silence_s"),
+    "custom": (),
+}
+DEFAULT_AUDIO_SOURCE_TYPE = "input-device"
+
+
+@dataclass
+class AudioSourceConfig:
+    """The ``engine.audio_source`` block: where the audio comes from.
+
+    ``type`` selects the fields that apply, and defaults to ``"input-device"``:
+
+    - ``"input-device"``: ``device``, and ``audio_format`` (what the device is opened
+      at; a field left unset follows the module's format).
+    - ``"file"``: ``audio_file`` and ``trailing_silence_s``. The format is the
+      file's own.
+    - ``"custom"``: none. The application passes the source to
+      ``ASREngine(config, audio_source=...)``, and the source says what it
+      produces (specs/audio-source.md).
+    """
+
+    type: str = DEFAULT_AUDIO_SOURCE_TYPE
     device: str | None = None
     audio_file: str | None = None
     trailing_silence_s: float = 0.0
-    sample_rate: int = 16000
-    channels: int = 1
-    encoding: str = "linear16"
-    on_unsupported_format: str = "error"
+    audio_format: AudioFormatConfig = field(default_factory=AudioFormatConfig)
+
+
+def _parse_audio_source(engine_block: dict[str, Any]) -> AudioSourceConfig:
+    if "audio" in engine_block:
+        raise ValueError(
+            "engine.audio is now engine.audio_source, with a 'type' "
+            '("input-device", "file" or "custom"), e.g. '
+            '"audio_source": {"type": "input-device", "device": null}.'
+        )
+    data = engine_block.get("audio_source")
+    if data is None:
+        return AudioSourceConfig()
+    if not isinstance(data, dict):
+        raise ValueError("Invalid engine.audio_source: must be an object or null.")
+    source_type = data.get("type", DEFAULT_AUDIO_SOURCE_TYPE)
+    if source_type not in AUDIO_SOURCE_TYPES:
+        raise ValueError(
+            f"Invalid engine.audio_source.type: '{source_type}'. "
+            f"Must be one of {', '.join(AUDIO_SOURCE_TYPES)}."
+        )
+    allowed = AUDIO_SOURCE_TYPES[source_type]
+    misplaced = sorted(set(data) - {"type", *allowed})
+    if misplaced:
+        takes = ", ".join(allowed) if allowed else "no other field"
+        raise ValueError(
+            f"Invalid engine.audio_source: {', '.join(misplaced)} does not apply "
+            f"to type '{source_type}', which takes {takes}."
+        )
+    if source_type == "file" and not data.get("audio_file"):
+        raise ValueError(
+            "Config is missing required field: engine.audio_source.audio_file "
+            "(type 'file')"
+        )
+    return AudioSourceConfig(
+        type=source_type,
+        device=data.get("device"),
+        audio_file=data.get("audio_file"),
+        trailing_silence_s=data.get("trailing_silence_s", 0.0),
+        audio_format=_parse_audio_format(
+            data.get("audio_format"), "engine.audio_source.audio_format"
+        ),
+    )
 
 
 @dataclass
 class ModuleConfig:
     type: str = ""
+    # The format the module is fed. A field left unset is the module's default.
+    audio_format: AudioFormatConfig = field(default_factory=AudioFormatConfig)
     extra: dict[str, Any] = field(default_factory=dict)
 
 
@@ -164,7 +281,7 @@ class ASREngineConfig:
     dictation_default_segmentation_mode: str = "trigger_word"
     segmentation: SegmentationConfig = field(default_factory=SegmentationConfig)
     sound_feedback: SoundFeedbackConfig = field(default_factory=SoundFeedbackConfig)
-    audio: AudioConfig = field(default_factory=AudioConfig)
+    audio_source: AudioSourceConfig = field(default_factory=AudioSourceConfig)
     module: ModuleConfig = field(default_factory=ModuleConfig)
     vad: VadConfig | None = None  # None: no VAD stage (specs/vad.md)
 
@@ -176,7 +293,8 @@ class ASREngineConfig:
         library, and where all engine validation lives: it takes the object under
         the top-level ``"engine"`` key (not the whole config file) and validates it
         — segmentation modes in {utterance, trigger_word, timeout}, encoding in
-        {linear16, mulaw}, on_unsupported_format in {error, fallback},
+        the two ``audio_format`` objects (positive rates and channel counts,
+        encoding in {linear16, mulaw}),
         ``auto_start_dictation`` requires ``auto_start``, ``module.type`` is
         required, and the optional ``vad`` block's ``type`` and gate parameters. ``from_json``/``from_json_file`` layer JSON string/file loading
         over it, and ``MCPServerConfig.from_dict`` delegates its ``engine`` block
@@ -225,37 +343,24 @@ class ASREngineConfig:
             output_device=sf_data.get("output_device", None),
         )
 
-        audio_data = engine_block.get("audio", {})
-        encoding = audio_data.get("encoding", "linear16")
-        if encoding not in _ENCODINGS:
-            raise ValueError(
-                f"Invalid engine.audio.encoding: '{encoding}'. "
-                f"Must be one of {', '.join(_ENCODINGS)}."
-            )
-        on_unsupported = audio_data.get("on_unsupported_format", "error")
-        if on_unsupported not in _UNSUPPORTED_FORMAT_POLICIES:
-            raise ValueError(
-                f"Invalid engine.audio.on_unsupported_format: '{on_unsupported}'. "
-                f"Must be one of {', '.join(_UNSUPPORTED_FORMAT_POLICIES)}."
-            )
-        audio = AudioConfig(
-            device=audio_data.get("device", None),
-            audio_file=audio_data.get("audio_file", None),
-            trailing_silence_s=audio_data.get("trailing_silence_s", 0.0),
-            sample_rate=audio_data.get("sample_rate", 16000),
-            channels=audio_data.get("channels", 1),
-            encoding=encoding,
-            on_unsupported_format=on_unsupported,
-        )
-
         module_data = engine_block.get("module", {})
         module_type = module_data.get("type")
         if not module_type:
             raise ValueError("Config is missing required field: engine.module.type")
-        extra = {k: v for k, v in module_data.items() if k != "type"}
+        # `type` and `audio_format` are the engine's; the rest is the module's own.
+        extra = {
+            k: v for k, v in module_data.items() if k not in ("type", "audio_format")
+        }
         # An old key (`deepgram_v1`) is stored as its new one, with a warning.
-        module = ModuleConfig(type=canonical_module_type(module_type), extra=extra)
+        module = ModuleConfig(
+            type=canonical_module_type(module_type),
+            audio_format=_parse_audio_format(
+                module_data.get("audio_format"), "engine.module.audio_format"
+            ),
+            extra=extra,
+        )
 
+        audio_source = _parse_audio_source(engine_block)
         vad = _parse_vad(engine_block.get("vad"))
 
         return cls(
@@ -265,7 +370,7 @@ class ASREngineConfig:
             dictation_default_segmentation_mode=dictation_default,
             segmentation=segmentation,
             sound_feedback=sound_feedback,
-            audio=audio,
+            audio_source=audio_source,
             module=module,
             vad=vad,
         )

@@ -7,9 +7,9 @@
     "auto_start": true,
     "auto_start_dictation": false,
     "dictation_default_segmentation_mode": "trigger_word",
-    "audio": {
-      "device": null,
-      "sample_rate": 16000
+    "audio_source": {
+      "type": "input-device",
+      "device": null
     },
     "module": {
       "type": "mlx-audio",

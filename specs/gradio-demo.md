@@ -82,7 +82,7 @@ class DemoController:
 
 ### Rebuild-on-config-change
 
-The engine is built from a fixed `config.module` / `config.audio.device`, with no runtime module- or device-switch API. So:
+The engine is built from a fixed `config.module` / `config.audio_source.device`, with no runtime module- or device-switch API. So:
 
 - `set_device` and `set_module` mutate the controller's pending `ASREngineConfig` and **discard any existing engine instance**. They raise `RuntimeError` (surfaced as a UI message) if called while the engine is running — the UI also disables those widgets while running.
 - The next `start()` (or `listen()`) constructs a fresh `ASREngine` from the current config. Module-specific fields (e.g. Deepgram's `api_key_env`, `model`, `language`) come from the loaded base config; switching `module.type` keeps the rest of the `module` block only if compatible, otherwise falls back to that module's own config defaults. Construction errors (unknown module, module extra not installed, unsupported audio format, missing API key) are caught and shown in the UI, not raised past the handler.

@@ -19,7 +19,12 @@ from unittest.mock import patch
 
 import pytest
 
-from asr_engine.config import ASREngineConfig, ModuleConfig, VadConfig
+from asr_engine.config import (
+    ASREngineConfig,
+    AudioSourceConfig,
+    ModuleConfig,
+    VadConfig,
+)
 from asr_engine.modules import REGISTRY
 from asr_engine.vad.gate import VadState
 from examples.gradio_demo.controller import ControllerState, DemoController
@@ -99,7 +104,11 @@ class FakeEngine:
 def make_controller(vad: VadConfig | None = None) -> Iterator[DemoController]:
     """A controller whose engine is FakeEngine, torn down cleanly."""
     FakeEngine.instances.clear()
-    base = ASREngineConfig(module=ModuleConfig(type="deepgram-v1"), vad=vad)
+    base = ASREngineConfig(
+        audio_source=AudioSourceConfig(type="input-device"),
+        module=ModuleConfig(type="deepgram-v1"),
+        vad=vad,
+    )
     with patch("examples.gradio_demo.controller.ASREngine", FakeEngine):
         with DemoController(base) as controller:
             yield controller
@@ -142,7 +151,7 @@ def test_next_start_builds_a_fresh_engine_from_the_changed_config():
         assert len(FakeEngine.instances) == 2
         newest = FakeEngine.instances[-1]
         assert newest.config.module.type == "deepgram-v2"
-        assert newest.config.audio.device == "Mic A"
+        assert newest.config.audio_source.device == "Mic A"
 
 
 def test_set_module_while_running_raises_and_keeps_config():

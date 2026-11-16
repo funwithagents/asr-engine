@@ -96,14 +96,18 @@ class AudioSource(Protocol):
 
     - ``start()`` opens the source and returns the ``asyncio.Queue[bytes]`` it
       **owns and feeds**; the engine reads that queue (it does not create it).
-    - Each queue item is one chunk of raw PCM bytes **in the engine's reconciled
-      ``engine.audio_format``**: ``linear16`` is signed 16-bit little-endian,
+    - Each queue item is one chunk of raw PCM bytes **in the engine's source
+      format, ``engine.audio_format``**: ``linear16`` is signed 16-bit little-endian,
       ``mulaw`` is G.711; mono unless ``channels > 1`` (then interleaved). Any
       reasonable chunk size is accepted — the module forwards bytes as-is; the
       ``~CHUNK_MS`` target is what the bundled sources use, not a requirement.
-    - The engine does **not** resample/re-encode chunks from an injected source;
-      a custom source must produce ``engine.audio_format`` itself (which is valid
-      immediately after construction, before ``start()``).
+    - **The source says what it produces** through an optional ``audio_format``
+      attribute (an ``AudioFormat``, readable before ``start()``). The engine
+      takes it as ``engine.audio_format`` and converts it for the module when the
+      module is fed another format. A source without the attribute produces
+      ``engine.audio_format`` as the engine resolved it — the module's format —
+      which is valid immediately after construction
+      (specs/format-conversion.md).
     - ``stop()`` halts feeding and releases resources. The engine calls it on
       ``engine.stop()`` and in ``listen()`` teardown (always, even on error), and
       may call ``start()`` again afterwards — the source must be restartable.
@@ -195,6 +199,22 @@ def _validate_audio_format(info, path: Path, fmt: AudioFormat) -> None:
         )
 
 
+def read_file_format(path: Path | str) -> tuple[int, int]:
+    """The sample rate and channel count of the audio file at *path*.
+
+    Read from the file's header, without decoding it. Raises ``FileNotFoundError``
+    for a missing file and ``ValueError`` for one libsndfile cannot read.
+    """
+    path = Path(path)
+    if not path.is_file():
+        raise FileNotFoundError(f"Audio file not found: {path}")
+    try:
+        info = sf.info(str(path))
+    except sf.LibsndfileError as exc:
+        raise ValueError(f"{path}: not a readable audio file ({exc})") from exc
+    return info.samplerate, info.channels
+
+
 def _iter_audio_chunks(path: Path | str, fmt: AudioFormat) -> Iterator[bytes]:
     """Yield a decoded audio file's frames as *fmt*-encoded chunks.
 
@@ -229,6 +249,11 @@ class FileAudioSource:
         self._trailing_silence_s = trailing_silence_s
         self._queue: asyncio.Queue[bytes] | None = None
         self._task: asyncio.Task | None = None
+
+    @property
+    def audio_format(self) -> AudioFormat:
+        """The format of the chunks this source produces."""
+        return self._format
 
     def start(self) -> asyncio.Queue[bytes]:
         self._queue = asyncio.Queue()
@@ -311,6 +336,11 @@ class ScriptableAudioSource:
         self._requests: asyncio.Queue[_PlayRequest] | None = None
         self._task: asyncio.Task | None = None
 
+    @property
+    def audio_format(self) -> AudioFormat:
+        """The format of the chunks this source produces."""
+        return self._format
+
     def start(self) -> asyncio.Queue[bytes]:
         """Start feeding silence and return the queue that receives PCM chunks."""
         self._queue = asyncio.Queue(maxsize=self._maxsize)
@@ -388,6 +418,11 @@ class AudioCapture:
         self._format = audio_format
         self._stream: sd.InputStream | None = None
         self._queue: asyncio.Queue[bytes] | None = None
+
+    @property
+    def audio_format(self) -> AudioFormat:
+        """The format of the chunks this source produces."""
+        return self._format
 
     def start(self) -> asyncio.Queue[bytes]:
         """Open and start the audio stream. Returns the queue for consumers."""

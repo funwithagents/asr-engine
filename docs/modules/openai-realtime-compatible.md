@@ -12,7 +12,6 @@ pip install 'asr-engine[openai-compatible]'
 
 ```json
 {
-  "audio": { "sample_rate": 24000 },
   "module": {
     "type": "openai-realtime-compatible",
     "api_key_env": "OPENAI_API_KEY",
@@ -23,7 +22,7 @@ pip install 'asr-engine[openai-compatible]'
 }
 ```
 
-**`audio.sample_rate` must be `24000`**, the only rate the module accepts. With the 16000 default, engine construction fails with the supported values.
+Hosted OpenAI takes 24 kHz only. There is nothing to set: the microphone is opened at 24 kHz, and a file or source at another rate is resampled ([audio-input.md](../audio-input.md#audio-format-and-conversion)). For a server that takes other rates, see `supported_sample_rates` below.
 
 | Field | Default | Description |
 |---|---|---|
@@ -35,6 +34,8 @@ pip install 'asr-engine[openai-compatible]'
 | `turn_detection` | `true` | The server's VAD closes utterances. `false` for a model or server without it (e.g. `gpt-realtime-whisper`); utterances then end on the VAD gate's markers, so set `engine.vad`. An object overrides the server's settings |
 | `noise_reduction` | `null` | `"near_field"` or `"far_field"` |
 | `stop_timeout_s` | `5.0` | How long stopping waits for the last utterances to complete |
+| `supported_sample_rates` | `null` (`[24000]`) | The sample rates your server accepts, when they are not hosted OpenAI's: what `module.audio_format.sample_rate` may be set to |
+| `default_sample_rate` | `null` (`24000`) | The rate the module is fed unless `module.audio_format.sample_rate` sets another. Set alone, it is the only rate supported |
 
 ## Behaviour
 
@@ -44,7 +45,8 @@ pip install 'asr-engine[openai-compatible]'
 
 ## Troubleshooting
 
-- Engine construction fails on the sample rate: add `"audio": {"sample_rate": 24000}` to the engine block.
+- Engine construction fails on `engine.module.audio_format.sample_rate`: the rate is not one the server is declared to take (24000 for hosted OpenAI). Remove the field, or describe the server with `supported_sample_rates`.
+- The session is rejected with a message about the rate: the server does not take the rate it was sent. Fix `supported_sample_rates` / `default_sample_rate` to match it.
 - No final ever arrives with `turn_detection: false`: nothing ends the utterances. Add an `engine.vad` block.
 - `the server accepted the session but did not apply ...` in the log: the server answered the session setup but kept its own value for the settings named (turn detection, model or language). It usually implements an older version of the protocol. Transcription may still work with the server's settings; if the line names `turn_detection`, do not rely on `"turn_detection": false` or on the VAD gate with that server. speaches is one such server ([details](../local-speech-recognition.md#speaches-faster-whisper)).
 - A missing-key error against hosted OpenAI: set the variable named by `api_key_env` in the process running the engine. Against another server the key is optional and no `Authorization` header is sent without one.

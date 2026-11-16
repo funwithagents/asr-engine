@@ -22,8 +22,9 @@ log = logging.getLogger(__name__)
 # Shared audio fixtures (see fixtures/README.md for the naming convention). The
 # default e2e input is the 44.1 kHz mono MP3s; the 16 kHz WAV drives the
 # sample-rate-compatibility tests; the 24 kHz WAVs feed modules with a strict
-# 24 kHz contract (kyutai). Because file sources are validated, not resampled,
-# each fixture is paired with the AudioFormat it must be played at.
+# 24 kHz contract (kyutai) at their own rate. A ScriptableAudioSource plays files
+# recorded in its own format, so each fixture is paired with its AudioFormat; the
+# engine converts that format to the module's when they differ (MODULES_CONVERTED).
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
 FORMAT_MP3_44100 = AudioFormat(sample_rate=44100)
@@ -305,6 +306,44 @@ def _vad_cases() -> list:
 MODULES_VAD = _vad_cases()
 
 
+# Modules run on the 44.1 kHz MP3s while fed another rate, so the engine converts
+# in between (specs/format-conversion.md): module type → the rate it is fed (its
+# default, set explicitly). deepgram-v2 and mistral-realtime share the path.
+CONVERTED_RATES: dict[str, int] = {
+    "deepgram-v1": 16000,
+    "openai-realtime-compatible": 24000,
+    "openai-transcriptions-compatible": 16000,
+    "kyutai": 24000,
+    "mlx-audio": 16000,
+}
+
+
+def _converted_cases() -> list:
+    cases = []
+    for row in MODULES:
+        module_type, module_config, silence_s, _audio = row.values
+        module_sample_rate = CONVERTED_RATES.get(str(module_type))
+        if module_sample_rate is None:
+            continue
+        vad = {"type": "silero"} if module_type in VAD_REQUIRED_MODULES else None
+        cases.append(
+            pytest.param(
+                module_type,
+                module_config,
+                silence_s,
+                module_sample_rate,
+                vad,
+                id=str(row.id),
+            )
+        )
+    return cases
+
+
+# Param table for ``test_engine_modules_converted``: (module_type, module_config,
+# silence_s, module_sample_rate, vad_block).
+MODULES_CONVERTED = _converted_cases()
+
+
 def require_vad_runtime() -> None:
     """Skip the calling test where the Silero VAD cannot run.
 
@@ -320,6 +359,7 @@ def build_engine(
     module_config: dict,
     *,
     audio_format: AudioFormat = FORMAT_MP3_44100,
+    module_sample_rate: int | None = None,
     listen_default_segmentation_mode: str = "trigger_word",
     dictation_default_segmentation_mode: str = "trigger_word",
     trigger_words: list[str] | None = None,
@@ -337,12 +377,15 @@ def build_engine(
     Sound feedback is disabled. ``audio_source`` is any object matching the
     ``AudioSource`` protocol — e.g. a ``FileAudioSource`` (see
     ``build_file_engine``) or a ``ScriptableAudioSource`` for hand-sequenced audio.
-    ``audio_format`` is set explicitly on the engine config so it matches the
-    source's own format (the two must agree — files aren't resampled).
+    ``audio_format`` is the format *audio_source* produces (and declares).
+    ``module_sample_rate`` is the rate in ``engine.module.audio_format``; left out, the module
+    is fed the source's rate, so the audio reaches it unconverted. Pass another
+    rate to put the format converter in between.
     """
     from asr_engine.config import (
         ASREngineConfig,
-        AudioConfig,
+        AudioFormatConfig,
+        AudioSourceConfig,
         ModuleConfig,
         SegmentationConfig,
         SoundFeedbackConfig,
@@ -361,17 +404,24 @@ def build_engine(
         dictation_default_segmentation_mode=dictation_default_segmentation_mode,
         segmentation=seg,
         sound_feedback=SoundFeedbackConfig(enabled=False),
-        audio=AudioConfig(
-            sample_rate=audio_format.sample_rate,
-            channels=audio_format.channels,
-            encoding=audio_format.encoding,
+        # The source is always passed in, and says itself what it produces.
+        audio_source=AudioSourceConfig(type="custom"),
+        module=ModuleConfig(
+            type=module_type,
+            audio_format=AudioFormatConfig(
+                sample_rate=module_sample_rate or audio_format.sample_rate
+            ),
+            extra=module_config,
         ),
-        module=ModuleConfig(type=module_type, extra=module_config),
     )
     if vad is not None:
         # Through from_dict so the block is validated as a config file's would be.
         config.vad = ASREngineConfig.from_dict(
-            {"module": {"type": module_type}, "vad": vad}
+            {
+                "audio_source": {"type": "custom"},
+                "module": {"type": module_type},
+                "vad": vad,
+            }
         ).vad
     return ASREngine(
         config,
@@ -428,23 +478,20 @@ async def start_mcp_server(
     port: int,
     trailing_silence_s: float = 0.0,
     engine_overrides: dict | None = None,
-    audio_format: AudioFormat = FORMAT_MP3_44100,
 ) -> tuple[asyncio.subprocess.Process, str]:
     """Start an asr-engine-mcp subprocess.  Returns (process, tmp_config_path).
 
-    The ``engine.audio`` block is written with ``audio_format`` explicitly, so the
-    real binary decodes *audio_file* (WAV or MP3) at the matching rate/encoding.
+    The real binary decodes *audio_file* (WAV or MP3) at the file's own rate and
+    converts it to the module's format.
     ``engine_overrides`` is merged into the ``engine`` config block (e.g.
     ``auto_start``, ``auto_start_dictation``, ``dictation_default_segmentation_mode``,
     ``segmentation``, ``listen_default_segmentation_mode``, ``sound_feedback``).
     """
     engine: dict = {
-        "audio": {
+        "audio_source": {
+            "type": "file",
             "audio_file": str(audio_file),
             "trailing_silence_s": trailing_silence_s,
-            "sample_rate": audio_format.sample_rate,
-            "channels": audio_format.channels,
-            "encoding": audio_format.encoding,
         },
         "module": {"type": module_type, **module_config},
     }

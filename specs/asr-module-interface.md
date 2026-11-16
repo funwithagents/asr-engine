@@ -75,7 +75,7 @@ class ASRModule(ABC):
         - on_connected: optional callback invoked with the backend connection
           state (True on connect, False on disconnect). Drives the `connected`
           field of the `is_running` tool.
-        - audio_format: the reconciled `AudioFormat` (rate/channels/encoding) of
+        - audio_format: the module format (rate/channels/encoding) of
           the chunks on `audio_queue`; the module reports it to its backend.
 
         This method should run indefinitely until stop() is called.
@@ -119,7 +119,7 @@ All five bundled modules declare `"supported"`.
 
 ## Audio Format Contract
 
-The audio format is **configurable end-to-end** and carried by an `AudioFormat` value object (`asr_engine.audio`):
+A format is carried by an `AudioFormat` value object (`asr_engine.audio`):
 
 ```python
 @dataclass(frozen=True)
@@ -129,13 +129,15 @@ class AudioFormat:
     encoding: str = "linear16"  # "linear16" (s16 PCM) | "mulaw" (G.711)
 ```
 
-The **default** `AudioFormat` (16 kHz, mono, `linear16`, ~100 ms / 3,200-byte chunks) is what every module receives unless `engine.audio` overrides it. Chunk sizing derives from the format (`frames_per_chunk ≈ sample_rate × 0.1`).
+The engine keeps two of them ([format-conversion.md](format-conversion.md)): the **source format** (`engine.audio_format`), which the audio source produces, and the **module format** (`engine.module_audio_format`), which the module is fed. Chunk sizing derives from the format (`frames_per_chunk ≈ sample_rate × 0.1`, so ~100 ms).
 
 **Modules declare what they support.** Every concrete module declares six class attributes — `SUPPORTED_SAMPLE_RATES` / `SUPPORTED_CHANNELS` / `SUPPORTED_ENCODINGS` (each a `frozenset`, or `None` meaning "any") and `DEFAULT_SAMPLE_RATE` / `DEFAULT_CHANNELS` / `DEFAULT_ENCODING`. Declaration is **required and enforced at import time**: `ASRModule.__init_subclass__` raises `TypeError` if a concrete subclass omits any attribute, or declares a `DEFAULT_*` outside its (non-`None`) `SUPPORTED_*` set. Abstract intermediate bases are exempt.
 
-**The engine reconciles** the configured `AudioFormat` against the selected module's declared support via `reconcile_audio_format(desired, module_cls, *, on_unsupported)` at construction. Per dimension: a supported value is kept; an unsupported one either raises (`on_unsupported="error"`, the default) or falls back to the module's default with a warning (`"fallback"`). The resolved format is handed to both the capture layer and `start(..., audio_format=...)`.
+**An instance can narrow or widen the rates.** The engine reads the rates through two instance properties, `supported_sample_rates` and `default_sample_rate`, which return the class attributes by default. A protocol module whose servers differ overrides them from its config with `parse_sample_rate_overrides` ([format-conversion.md](format-conversion.md#per-instance-rates)).
 
-**Who converts.** Live capture opens its stream at the resolved rate/channels (PortAudio performs any device conversion) and transcodes the captured s16 to the target encoding (`linear16` is a no-op; `mulaw` uses a numpy G.711 encoder — `audioop` is not used, as it is removed in Python 3.13+). File sources (any container/codec `libsndfile`/`soundfile` decodes — WAV, MP3, …) are decoded to s16, validated against the resolved rate/channels (**not** resampled) and re-encoded to `mulaw` when required. An **injected** custom `AudioSource` (see [audio-source.md](audio-source.md)) must itself produce chunks already in the reconciled `AudioFormat` — the engine does not resample or re-encode chunks from an injected source.
+**The engine resolves the module format** at construction with `resolve_module_audio_format(module, sample_rate=, channels=, encoding=)`: the module's default rate, channel count and encoding, unless a field of `engine.module.audio_format` sets another value, which must be one the module supports (`ValueError` otherwise). The source's format plays no part. The module format is what `start(..., audio_format=...)` receives.
+
+**Who converts.** When the two formats differ, the engine puts a converter between the source and the module: it resamples, downmixes or duplicates channels, and re-encodes ([format-conversion.md](format-conversion.md)). A module never converts and never sees the source format. The bundled sources produce the source format themselves: live capture opens its stream at that rate and channel count (PortAudio performs any device conversion), file sources (any container/codec `libsndfile`/`soundfile` decodes — WAV, MP3, …) are decoded to s16 at their own rate, and both encode to `mulaw` when the source format says so (a numpy G.711 encoder — `audioop` is not used, as it is removed in Python 3.13+). An **injected** `AudioSource` (see [audio-source.md](audio-source.md)) produces `engine.audio_format`.
 
 ## Module Registration
 

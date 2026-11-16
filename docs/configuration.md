@@ -39,13 +39,14 @@ All three expect an engine block, without the MCP `server` wrapper. A complete `
 Configuration written directly in Python can use the nested dataclasses:
 
 ```python
-from asr_engine import ASREngineConfig, ModuleConfig
+from asr_engine import ASREngineConfig, AudioSourceConfig, ModuleConfig
 
 config = ASREngineConfig(
+    audio_source=AudioSourceConfig(type="input-device"),
     module=ModuleConfig(
         type="deepgram-v1",
         extra={"api_key_env": "DEEPGRAM_API_KEY"},
-    )
+    ),
 )
 ```
 
@@ -70,14 +71,10 @@ A complete engine block looks like this. Only `module` is required:
     "enabled": true,
     "output_device": null
   },
-  "audio": {
+  "audio_source": {
+    "type": "input-device",
     "device": null,
-    "audio_file": null,
-    "trailing_silence_s": 0.0,
-    "sample_rate": 16000,
-    "channels": 1,
-    "encoding": "linear16",
-    "on_unsupported_format": "error"
+    "audio_format": { "sample_rate": null, "channels": null, "encoding": null }
   },
   "vad": null,
   "module": {
@@ -92,7 +89,7 @@ A complete engine block looks like this. Only `module` is required:
 | Block or field | Purpose | Details |
 |---|---|---|
 | `module` | Selects an ASR module by its `type` and carries that module's own settings. Required | [modules/](modules/index.md) |
-| `audio` | Selects live or file input and the audio format delivered to the module | [audio-input.md](audio-input.md) |
+| `audio_source` | Where the audio comes from: an input device, a file, or a source your code passes in. Its `type` defaults to `"input-device"` | [audio-input.md](audio-input.md) |
 | `vad` | Optional speech gate in front of the module. Absent or `null` by default | [vad.md](vad.md) |
 | `segmentation` | The trigger words and silence timeouts used by listen and dictation | [segmentation.md](segmentation.md) |
 | `sound_feedback` | The start and stop cues played by `listen()`, and the device they play on | [the sound-feedback spec](../specs/sound-feedback.md) |

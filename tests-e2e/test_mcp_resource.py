@@ -26,6 +26,8 @@ from examples.mcp_client.resource_client import AsrResourceClient
 @pytest.mark.asyncio
 async def test_resource_emits_final_transcript() -> None:
     # The server auto-starts before the client subscribes: script into the tail.
+    # The 44.1 kHz MP3 reaches the fake module (fed 16 kHz, its default) through
+    # the format converter, as in every server scenario of this tier.
     module_type, module_config = default_module(script_blue(delay_s=2.0))
     proc, config_path = await start_mcp_server(
         FIXTURE_BLUE, module_type, module_config, port=18001, trailing_silence_s=3.0

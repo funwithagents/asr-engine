@@ -65,12 +65,13 @@ from asr_engine import ASREngine, ASREngineConfig, ScriptableAudioSource, Speech
 async def main() -> None:
     config = ASREngineConfig.from_dict(
         {
+            "audio_source": {"type": "custom"},  # the source is passed below
             "module": {
                 "type": "fake",
                 "utterances": [
                     {"text": "hello from the engine", "start_s": 0.5, "end_s": 1.5}
                 ],
-            }
+            },
         }
     )
     heard = asyncio.Event()
@@ -98,17 +99,17 @@ It prints the transcript growing word by word, then the final segment. `fake` re
 
 ### With real speech
 
-To transcribe your microphone, change the `module` block and drop `audio_source`. The rest of the program stays the same:
+To transcribe your microphone, change the `module` block, and drop the `audio_source` block and argument: the engine then reads the default input device. The rest of the program stays the same:
 
 ```python
 config = ASREngineConfig.from_dict(
     {"module": {"type": "deepgram-v1", "api_key_env": "DEEPGRAM_API_KEY"}}
 )
-engine = ASREngine(config, on_speech_segment=on_segment)  # the default microphone
+engine = ASREngine(config, on_speech_segment=on_segment)  # the default input device
 ```
 
 - **Hosted:** the example above uses Deepgram (`uv sync --no-default-groups --extra deepgram`, and `DEEPGRAM_API_KEY` in the environment). Mistral and OpenAI work the same way with their own block.
-- **Local:** on an Apple Silicon Mac, `{"module": {"type": "mlx-audio"}, "vad": {"type": "silero"}}` runs a Parakeet model on the machine, with no key (`--extra mlx-audio --extra silero`). On other machines, see [running locally](#running-locally).
+- **Local:** on an Apple Silicon Mac, `"module": {"type": "mlx-audio"}` with `"vad": {"type": "silero"}` runs a Parakeet model on the machine, with no key (`--extra mlx-audio --extra silero`). On other machines, see [running locally](#running-locally).
 
 [Choosing a module](docs/choosing-a-module.md) compares them.
 

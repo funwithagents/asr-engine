@@ -61,7 +61,7 @@ RTF < 1 with margin, so the design below holds as specced; the quantized variant
 |---|---|---|
 | Registry shape | **One key, `kyutai`**, with `backend: "auto" \| "mlx" \| "torch"` | One `config.json` works unchanged on an Apple Silicon Mac and on a collaborator's Linux box. The backend is a deployment detail, not a different ASR. |
 | Finalization | **Semantic VAD head, silence timer as fallback** | The VAD head is the direct analogue of Flux's `EndOfTurn`. The timer covers the 2.6B model and `vad: false`. |
-| Sample rate | **Strict 24 kHz** (`SUPPORTED_SAMPLE_RATES = {24000}`) | Honours the pipeline rule that the engine validates rather than resamples. |
+| Sample rate | **Strict 24 kHz** (`SUPPORTED_SAMPLE_RATES = {24000}`) | The model's only rate. The module never resamples: the engine feeds it 24 kHz, converting a source at another rate ([format-conversion.md](../format-conversion.md)). |
 | Extras | Both in `all`; only `kyutai-mlx` in the `dev` group | `all` is the public "everything" target and must stay complete. `moshi` drags in torch (~2.5 GB), which no contributor should pay for on a plain `uv sync` — so the split happens in `dev`, not in `all`. |
 
 ## Architecture: the backend seam
@@ -161,7 +161,7 @@ DEFAULT_ENCODING = "linear16"
 - **Conversion.** s16 → float32 via `np.frombuffer(chunk, "<i2").astype(np.float32) / 32768.0`.
 - **Silence prefix.** At session start — and again after every `reset()` — the module feeds `stt_config.audio_silence_prefix_seconds` of zero frames (0 for the 1B model, 1.0 s = 12 frames for the 2.6B) and discards their results.
 
-**Config consequence:** `engine.audio.sample_rate` must be `24000`. The default is 16000, so a Kyutai config that omits it fails fast at engine construction with the reconciliation error — correct behaviour, and worth an explicit example in [configuration.md](../configuration.md).
+**Config consequence:** none. The engine feeds the module 24 kHz whatever the source: the microphone is opened at 24 kHz, and a file or an injected source at another rate is resampled ([format-conversion.md](../format-conversion.md)).
 
 ## Lifecycle
 
@@ -258,7 +258,6 @@ Text for audio at time *t* arrives at *t + audio_delay_seconds*. On the VAD path
 ```json
 {
   "engine": {
-    "audio": { "sample_rate": 24000 },
     "module": {
       "type": "kyutai",
       "backend": "auto",
@@ -344,7 +343,7 @@ The [speed rule](../testing.md) forbids loading a real model here, so every test
 
 A `MODULES` row in `tests-e2e/helpers.py` gives it the standard `test_engine_streams` conformance run, on the MLX backend. It needed two things from [e2e-testing.md](../e2e-testing.md):
 
-1. **24 kHz fixtures.** File sources are validated, not resampled, so `sample_24000_theskyisblue.wav` and `sample_24000_theskyisbluevalidate.wav` were resampled from the 44.1 kHz MP3s, and each `MODULES` row now names the `ModuleAudio` (format + fixtures) it is driven with.
+1. **24 kHz fixtures.** File sources were not resampled when the module was built, so `sample_24000_theskyisblue.wav` and `sample_24000_theskyisbluevalidate.wav` were resampled from the 44.1 kHz MP3s, and each `MODULES` row now names the `ModuleAudio` (format + fixtures) it is driven with.
 2. **A second skip axis.** `require_api_key` skips on a missing key; this module has no key, so it would never skip and would instead try to download gigabytes inside the per-test timeout. `require_local_model(...)` skips unless the backend imports **and** the weights are cached. `download.py` checks exactly the files the backends load (`config.json` and the three it names), without network.
 
 The Kyutai environment and both commands (fetch once, then test) are under [Installation](#installation). `python -m asr_engine.modules.kyutai.download [hf_repo]` fetches the same files the backends read, through `hf_hub_download`.

@@ -32,6 +32,7 @@ _SCRIPT = [
     {"text": "send", "start_s": 1.2, "end_s": 1.4},
 ]
 _DEEPGRAM_BLOCK = {
+    "audio_source": {"type": "input-device"},
     "sound_feedback": {"enabled": False},
     "segmentation": {"trigger_words": ["send"]},
     "module": {"type": "deepgram-v1", "api_key_env": "DEEPGRAM_API_KEY"},
@@ -103,13 +104,17 @@ def _offline(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.chdir(tmp_path)
 
 
-def _config() -> ASREngineConfig:
-    return ASREngineConfig.from_dict(_DEEPGRAM_BLOCK)
+def _config(source_type: str = "input-device") -> ASREngineConfig:
+    """The examples' config: on the microphone as they write it, or on a custom
+    source for the examples (and checks) that pass one."""
+    return ASREngineConfig.from_dict(
+        {**_DEEPGRAM_BLOCK, "audio_source": {"type": source_type}}
+    )
 
 
 def _engine(**callbacks: Any) -> ASREngine:
     """An engine as the examples expect to find one: built, not started."""
-    return ASREngine(_config(), audio_source=_FastSilence(), **callbacks)
+    return ASREngine(_config("custom"), audio_source=_FastSilence(), **callbacks)
 
 
 def test_readme_quick_start(capsys: pytest.CaptureFixture[str]):
@@ -188,7 +193,7 @@ def test_callbacks_receive_utterances_and_segments(capsys: pytest.CaptureFixture
                 done.set()
 
         engine = ASREngine(
-            _config(),
+            _config("custom"),
             on_speech_utterance=namespace["on_utterance"],
             on_speech_segment=on_segment,
             audio_source=_FastSilence(),
@@ -234,7 +239,7 @@ def test_dictation_on_a_running_engine():
 def test_custom_audio_source():
     source = _python_block(_DOCS / "audio-input.md", "Injecting your own source")
     heard: list[str] = []
-    namespace = _run(source, {"config": _config()})
+    namespace = _run(source, {"config": _config("custom")})
     engine, pushed = namespace["engine"], namespace["source"]
 
     async def on_segment(segment: Any) -> None:

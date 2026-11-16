@@ -10,6 +10,7 @@ import pytest
 
 from asr_engine.config import (
     ASREngineConfig,
+    AudioSourceConfig,
     MCPServerConfig,
     ModuleConfig,
     ServerConfig,
@@ -28,6 +29,7 @@ from asr_engine.server import create_mcp_server, run_server
 def _engine_config(module_type: str = "mock", **kwargs) -> ASREngineConfig:
     return ASREngineConfig(
         sound_feedback=SoundFeedbackConfig(enabled=False),
+        audio_source=AudioSourceConfig(type="input-device"),
         module=ModuleConfig(type=module_type),
         **kwargs,
     )
@@ -37,12 +39,13 @@ def _capable_mock_class(instance):
     """A MagicMock ASRModule *class* carrying the format capabilities the engine
     reads at construction (``None`` = the module accepts any value)."""
     cls = MagicMock(return_value=instance)
-    cls.SUPPORTED_SAMPLE_RATES = None
-    cls.SUPPORTED_CHANNELS = None
-    cls.SUPPORTED_ENCODINGS = None
-    cls.DEFAULT_SAMPLE_RATE = 16000
-    cls.DEFAULT_CHANNELS = 1
-    cls.DEFAULT_ENCODING = "linear16"
+    # The engine reads the capabilities off the instance it built.
+    instance.supported_sample_rates = None
+    instance.default_sample_rate = 16000
+    instance.SUPPORTED_CHANNELS = None
+    instance.SUPPORTED_ENCODINGS = None
+    instance.DEFAULT_CHANNELS = 1
+    instance.DEFAULT_ENCODING = "linear16"
     return cls
 
 

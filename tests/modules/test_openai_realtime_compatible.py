@@ -172,13 +172,18 @@ class Harness:
         self.connected: list[bool] = []
         self.task: asyncio.Task | None = None
 
-    async def start(self, *, wait_connected: bool = True) -> None:
+    async def start(
+        self, *, wait_connected: bool = True, audio_format: AudioFormat = FORMAT
+    ) -> None:
         async def on_utterance(u: SpeechUtterance) -> None:
             self.utterances.append(u)
 
         self.task = asyncio.create_task(
             self.module.start(
-                self.queue, on_utterance, self.connected.append, audio_format=FORMAT
+                self.queue,
+                on_utterance,
+                self.connected.append,
+                audio_format=audio_format,
             )
         )
         if wait_connected:
@@ -704,6 +709,9 @@ async def test_a_failed_connect_retries(harnesses) -> None:
         ({"noise_reduction": "studio"}, "noise_reduction"),
         ({"stop_timeout_s": 0}, "stop_timeout_s"),
         ({"stop_timeout_s": True}, "stop_timeout_s"),
+        ({"supported_sample_rates": []}, "supported_sample_rates"),
+        ({"supported_sample_rates": [8000, 16000]}, "default_sample_rate"),
+        ({"default_sample_rate": "16000"}, "default_sample_rate"),
     ],
 )
 def test_invalid_config_is_rejected(config: dict[str, Any], field: str) -> None:
@@ -729,3 +737,74 @@ def test_the_registry_resolves_the_module() -> None:
         resolve_module_class("openai-realtime-compatible")
         is OpenAIRealtimeCompatibleModule
     )
+
+
+# ------------------------------------------------------------------- sample rates
+
+
+def _engine(module: dict[str, Any], source_rate: int | None = None):
+    from asr_engine import ASREngine, ASREngineConfig
+
+    return ASREngine(
+        ASREngineConfig.from_dict(
+            {
+                "sound_feedback": {"enabled": False},
+                "audio_source": {
+                    "type": "input-device",
+                    "audio_format": {"sample_rate": source_rate},
+                },
+                "module": {
+                    "type": "openai-realtime-compatible",
+                    "url": "ws://localhost:4000/v1/realtime",
+                    **module,
+                },
+            }
+        )
+    )
+
+
+def test_by_default_the_module_is_fed_24khz_whatever_the_source_rate() -> None:
+    # Hosted OpenAI's only rate. A source with no rate of its own produces it…
+    engine = _engine({})
+    assert engine.audio_format == FORMAT
+    assert engine.module_audio_format == FORMAT
+    # …and one at another rate is converted, not refused.
+    engine = _engine({}, source_rate=16000)
+    assert engine.audio_format.sample_rate == 16000
+    assert engine.module_audio_format == FORMAT
+
+
+def test_a_server_taking_other_rates_is_described_in_the_module_config() -> None:
+    # A 16 kHz-only server needs only its default.
+    assert _engine({"default_sample_rate": 16000}).module_audio_format == (
+        AudioFormat(sample_rate=16000)
+    )
+    # A server taking several: the default stays 24 kHz unless moved…
+    server = {"supported_sample_rates": [8000, 16000, 24000, 48000]}
+    assert _engine(server).module_audio_format == FORMAT
+    moved = _engine({**server, "default_sample_rate": 48000})
+    assert moved.module_audio_format.sample_rate == 48000
+    # …and any listed rate can be asked for, whatever the source's.
+    asked = _engine({**server, "audio_format": {"sample_rate": 8000}}, 16000)
+    assert asked.module_audio_format.sample_rate == 8000
+
+
+def test_the_module_rate_is_checked_against_the_configured_rates() -> None:
+    with pytest.raises(ValueError, match=r"audio_format.sample_rate=16000.*24000"):
+        _engine({"audio_format": {"sample_rate": 16000}})
+    engine = _engine(
+        {
+            "audio_format": {"sample_rate": 16000},
+            "supported_sample_rates": [16000, 24000],
+        }
+    )
+    assert engine.module_audio_format.sample_rate == 16000
+
+
+async def test_the_session_declares_the_rate_the_module_is_fed(harnesses) -> None:
+    h = harnesses({"default_sample_rate": 16000})
+    await h.start(audio_format=AudioFormat(sample_rate=16000))
+    assert h.conn.sent[0]["session"]["audio"]["input"]["format"] == {
+        "type": "audio/pcm",
+        "rate": 16000,
+    }

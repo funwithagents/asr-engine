@@ -191,7 +191,7 @@ class DemoController:
 
     def set_device(self, device: str | None) -> None:
         self._require_stopped("change the input device")
-        self._config.audio.device = device or None
+        self._config.audio_source.device = device or None
         self._engine = None  # rebuild from the new config on next start
 
     def set_module(self, module_type: str) -> None:
@@ -420,7 +420,7 @@ class DemoController:
             trigger_words=", ".join(seg.trigger_words),
             initial_silence_timeout_s=seg.initial_silence_timeout_s,
             end_of_speech_timeout_s=seg.end_of_speech_timeout_s,
-            device=self._config.audio.device,
+            device=self._config.audio_source.device,
             module_type=self._config.module.type,
             vad=format_vad_config(self._config.vad),
             voice_activity=format_voice_activity(vad_state, capturing=not stopped),

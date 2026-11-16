@@ -49,14 +49,14 @@ The six jobs run side by side and none waits on another: a run takes as long as 
 
 | Skips on the runner | Why |
 |---|---|
-| `kyutai` conformance cases (`test_engine_streams` and `test_engine_modules_vad`) | local model: its extras are not in the CI environment ([project.md](project.md) "Exclusive extras"), and no weights are cached there |
-| `mlx-audio` conformance case (`test_engine_modules_vad` only) | local model, Apple Silicon only, while the live job is Linux (and no weights are cached there); the fast tier covers the module with a fake loader |
-| `deepgram-v1`, `deepgram-v2` conformance cases (ungated, and the three VAD cases) | only when the repository holds no `DEEPGRAM_API_KEY` secret, or on a fork's pull request |
+| `kyutai` conformance cases (`test_engine_streams`, `test_engine_modules_vad` and `test_engine_modules_converted`) | local model: its extras are not in the CI environment ([project.md](project.md) "Exclusive extras"), and no weights are cached there |
+| `mlx-audio` conformance cases (`test_engine_modules_vad` and `test_engine_modules_converted`) | local model, Apple Silicon only, while the live job is Linux (and no weights are cached there); the fast tier covers the module with a fake loader |
+| `deepgram-v1`, `deepgram-v2` conformance cases (ungated, the three VAD cases, and `deepgram-v1`'s converted case) | only when the repository holds no `DEEPGRAM_API_KEY` secret, or on a fork's pull request |
 | `mistral-realtime` conformance cases (ungated and VAD) | only when the repository holds no `MISTRAL_API_KEY` secret, or on a fork's pull request |
-| `openai-realtime-compatible` conformance cases (ungated and VAD) | only when the repository holds no `OPENAI_API_KEY` secret, or on a fork's pull request |
-| `openai-transcriptions-compatible` conformance case (`test_engine_modules_vad` only) | only when the repository holds no `OPENAI_API_KEY` secret, or on a fork's pull request |
+| `openai-realtime-compatible` conformance cases (ungated, VAD and converted) | only when the repository holds no `OPENAI_API_KEY` secret, or on a fork's pull request |
+| `openai-transcriptions-compatible` conformance cases (`test_engine_modules_vad` and `test_engine_modules_converted`) | only when the repository holds no `OPENAI_API_KEY` secret, or on a fork's pull request |
 
-The VAD cases add no skip of their own on the runner: the `silero` extra is in the `dev` group, and `onnxruntime` and `soxr` publish wheels for every CI platform, so a "needs onnxruntime" skip there is a regression.
+The VAD cases add no skip of their own on the runner: the `silero` extra is in the `dev` group, and `onnxruntime` and `soxr` (a core dependency) publish wheels for every CI platform, so a "needs onnxruntime" skip there is a regression.
 
 - **The status checks to require on `main`** are `check`, the four `fast-tier` entries and `e2e`. Requiring them is a repository setting on GitHub, outside the repo.
 

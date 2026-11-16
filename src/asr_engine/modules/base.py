@@ -5,7 +5,7 @@ import logging
 import os
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Awaitable, Callable, ClassVar, Literal
+from typing import Awaitable, Callable, ClassVar, Literal, TypeGuard
 
 from asr_engine.audio import DEFAULT_AUDIO_FORMAT, AudioFormat, EndOfSpeech
 
@@ -86,63 +86,108 @@ def _is_concrete(cls: type) -> bool:
     return True
 
 
-def _reconcile_dimension(
-    value: object,
-    supported: frozenset | None,
-    default: object,
-    *,
-    field: str,
-    module_name: str,
-    on_unsupported: str,
-) -> object:
-    """Resolve one format dimension against a module's declared support.
+def parse_sample_rate_overrides(
+    config: dict, module_cls: type[ASRModule], module_label: str
+) -> tuple[frozenset[int] | None, int]:
+    """Read the optional ``supported_sample_rates`` / ``default_sample_rate`` fields.
 
-    Returns *value* when supported (or support is unconstrained). Otherwise
-    raises ``ValueError`` (``on_unsupported="error"``) or logs and falls back to
-    *default* (``on_unsupported="fallback"``).
+    For a protocol module whose servers differ in the rates they accept: the class
+    attributes describe the default server, and these two config fields describe
+    another one. Returns ``(supported, default)`` for the instance.
+
+    - Neither field: the class values.
+    - ``supported_sample_rates`` only: the default is the class default when the
+      list holds it, else the list's single value; a longer list needs an explicit
+      ``default_sample_rate``.
+    - ``default_sample_rate`` only: that rate is the only one supported.
+
+    Raises ``ValueError`` on a malformed field or a default outside the list.
     """
-    if supported is None or value in supported:
-        return value
-    if on_unsupported == "error":
+
+    def is_rate(value: object) -> TypeGuard[int]:
+        return isinstance(value, int) and not isinstance(value, bool) and value > 0
+
+    supported_raw = config.get("supported_sample_rates")
+    default_raw = config.get("default_sample_rate")
+    if supported_raw is None and default_raw is None:
+        return module_cls.SUPPORTED_SAMPLE_RATES, module_cls.DEFAULT_SAMPLE_RATE
+
+    default: int | None = None
+    if default_raw is not None:
+        if not is_rate(default_raw):
+            raise ValueError(
+                f"{module_label} module: 'default_sample_rate' must be a positive "
+                f"integer"
+            )
+        default = default_raw
+    if supported_raw is None:
+        assert default is not None  # one of the two fields is set
+        return frozenset({default}), default
+
+    if (
+        not isinstance(supported_raw, list)
+        or not supported_raw
+        or not all(is_rate(rate) for rate in supported_raw)
+    ):
         raise ValueError(
-            f"{module_name} does not support {field}={value!r}. "
-            f"Supported: {sorted(supported)}. Set "
-            f"engine.audio.on_unsupported_format='fallback' to use the module "
-            f"default ({default!r}) instead."
+            f"{module_label} module: 'supported_sample_rates' must be a non-empty "
+            f"list of positive integers"
         )
-    log.warning(
-        "%s does not support %s=%r; falling back to module default %r",
-        module_name,
-        field,
-        value,
-        default,
-    )
-    return default
+    supported: frozenset[int] = frozenset(supported_raw)
+    if default is None:
+        if module_cls.DEFAULT_SAMPLE_RATE in supported:
+            return supported, module_cls.DEFAULT_SAMPLE_RATE
+        if len(supported) == 1:
+            return supported, next(iter(supported))
+        raise ValueError(
+            f"{module_label} module: 'supported_sample_rates' {sorted(supported)} "
+            f"does not hold the module's default rate "
+            f"({module_cls.DEFAULT_SAMPLE_RATE}): set 'default_sample_rate' to one "
+            f"of them"
+        )
+    if default not in supported:
+        raise ValueError(
+            f"{module_label} module: 'default_sample_rate' {default} is not in "
+            f"'supported_sample_rates' {sorted(supported)}"
+        )
+    return supported, default
 
 
-def reconcile_audio_format(
-    desired: AudioFormat,
-    module_cls: type[ASRModule],
+def resolve_module_audio_format(
+    module: ASRModule,
     *,
-    on_unsupported: str = "error",
+    sample_rate: int | None = None,
+    channels: int | None = None,
+    encoding: str | None = None,
 ) -> AudioFormat:
-    """Resolve *desired* against *module_cls*'s declared capabilities.
+    """The format *module* is fed: its defaults, unless the config asks otherwise.
 
-    Each dimension (rate/channels/encoding) is kept if the module supports it;
-    an unsupported value either raises or falls back to the module's default per
-    *on_unsupported* (``"error"`` | ``"fallback"``).
+    The arguments are the fields of ``engine.module.audio_format``. Each replaces
+    the module's default when set, and must then be a value the module supports,
+    else ``ValueError``. The audio source plays no part: the engine converts
+    whatever it produces into this format.
     """
-    module_name = getattr(module_cls, "__name__", str(module_cls))
-    resolved = {}
-    for default_attr, supported_attr, field in _FORMAT_DIMENSIONS:
-        resolved[field] = _reconcile_dimension(
-            getattr(desired, field),
-            getattr(module_cls, supported_attr),
-            getattr(module_cls, default_attr),
-            field=field,
-            module_name=module_name,
-            on_unsupported=on_unsupported,
-        )
+    requested = (
+        ("sample_rate", sample_rate, module.supported_sample_rates),
+        ("channels", channels, module.SUPPORTED_CHANNELS),
+        ("encoding", encoding, module.SUPPORTED_ENCODINGS),
+    )
+    resolved: dict = {
+        "sample_rate": module.default_sample_rate,
+        "channels": module.DEFAULT_CHANNELS,
+        "encoding": module.DEFAULT_ENCODING,
+    }
+    for field, value, supported in requested:
+        if value is None:
+            continue
+        if supported is not None and value not in supported:
+            raise ValueError(
+                f"{type(module).__name__} does not support "
+                f"engine.module.audio_format.{field}={value!r}. "
+                f"Supported: {sorted(supported)}. Remove the field to use the "
+                f"module's default ({resolved[field]!r})."
+            )
+        resolved[field] = value
     return AudioFormat(**resolved)
 
 
@@ -187,6 +232,21 @@ class ASRModule(ABC):
     def __init__(self, config: dict) -> None:
         self.config = config
 
+    @property
+    def supported_sample_rates(self) -> frozenset[int] | None:
+        """The rates this instance accepts (``None`` = any).
+
+        The class attribute, unless the module lets its config say otherwise (a
+        protocol module pointed at another server: ``parse_sample_rate_overrides``).
+        """
+        return self.SUPPORTED_SAMPLE_RATES
+
+    @property
+    def default_sample_rate(self) -> int:
+        """The rate this instance is fed unless ``engine.module.audio_format`` sets
+        another."""
+        return self.DEFAULT_SAMPLE_RATE
+
     @abstractmethod
     async def start(
         self,
@@ -202,8 +262,9 @@ class ASRModule(ABC):
         - audio_queue: PCM chunks. A module whose ``VAD_GATING`` is not
           ``"unsupported"`` may also receive ``END_OF_SPEECH`` markers on it (only
           when a VAD is configured) and calls ``finalize()`` for each.
-        - audio_format: the reconciled format (rate/channels/encoding) of the
-          chunks arriving on ``audio_queue``; the module reports it to its backend.
+        - audio_format: the format (rate/channels/encoding) of the chunks arriving
+          on ``audio_queue`` — ``engine.module_audio_format``, which the engine
+          resolved against this module; the module reports it to its backend.
 
         Runs indefinitely until stop() is called. Responsible for reconnecting
         to the backend on connection loss and draining audio_queue while reconnecting.

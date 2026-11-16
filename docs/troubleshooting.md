@@ -18,13 +18,20 @@ The MCP server needs the `mcp` extra: `uv sync --no-default-groups --extra <modu
 
 `Unknown ASR type '...'. Available: ...` means `module.type` is not a registered module. Types are written with hyphens (`deepgram-v1`); the message lists the valid ones.
 
+## The audio source block is refused
+
+- `engine.audio is now engine.audio_source`: the block was renamed and has a `type`. Write `"audio_source": {"type": "input-device", "device": ...}`, or remove the block to read the default input device.
+- `... does not apply to type '...'`: the block holds a field of another type, such as `audio_file` with `"input-device"`.
+- `engine.audio_source.type is 'custom', but no source was given`: a `custom` source is passed in code, as `ASREngine(config, audio_source=...)`. The MCP server cannot take one; use `"input-device"` or `"file"` there.
+- `An audio source was passed to ASREngine, but engine.audio_source.type is '...'`: set the type to `"custom"`. A config with no `audio_source` block reads the input device, so a source passed with it would be ignored; the engine refuses instead.
+
 ## The module does not support the sample rate
 
 ```text
-... does not support sample_rate=16000. ...
+... does not support engine.module.audio_format.sample_rate=16000. Supported: [24000]. ...
 ```
 
-The `audio` block asks for a format the module cannot take. The message lists the supported values. Two modules need `"audio": {"sample_rate": 24000}`: `kyutai` and `openai-realtime-compatible`. To let the engine pick the module's default instead of failing, set `"on_unsupported_format": "fallback"` ([audio-input.md](audio-input.md#audio-format-negotiation)).
+`module.audio_format` asks for a rate, channel count or encoding the module cannot take. The message lists the supported ones. Remove the field to use the module's default, or pick a listed value. A source at another rate needs no setting: the engine converts it ([audio-input.md](audio-input.md#audio-format-and-conversion)).
 
 ## The module needs a VAD
 
@@ -45,7 +52,8 @@ ASR module 'mlx-audio' needs a VAD to know when an utterance ends: add an engine
 
 ## A file input is rejected
 
-`expected sample rate 16000, got 44100` (or the same for channels): files are not resampled. Set `audio.sample_rate` and `audio.channels` to the file's own values, as long as the module supports them.
+- `audio_format does not apply to type 'file'`: a file is read at its own sample rate and channel count, and converted for the module when needed. Remove the field.
+- `Audio file not found` or `not a readable audio file`: the path in `audio_source.audio_file` is wrong, or the file is not something `libsndfile` decodes.
 
 ## The engine runs but nothing is transcribed
 
@@ -56,7 +64,7 @@ ASR module 'mlx-audio' needs a VAD to know when an utterance ends: add an engine
 
 ## The last words of a file are missing
 
-A streaming backend finalizes an utterance on the silence that follows it, and a file ends abruptly. Set `audio.trailing_silence_s` to a couple of seconds.
+A streaming backend finalizes an utterance on the silence that follows it, and a file ends abruptly. Set `audio_source.trailing_silence_s` to a couple of seconds.
 
 ## `listen` or dictation is refused
 

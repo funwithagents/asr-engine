@@ -49,10 +49,10 @@ This spec covers the gate and the end-of-speech signal it sends to the ASR modul
 
 ```
 AudioSource (mic / file / injected)
-        │  PCM chunks in engine.audio_format (~100 ms)
+        │  PCM chunks in engine.module_audio_format (~100 ms)
         ▼
    VadGate ── VADModule.process_frame() on an analysis copy
-        │  speech-only PCM in engine.audio_format, then END_OF_SPEECH
+        │  speech-only PCM in engine.module_audio_format, then END_OF_SPEECH
         ▼
    ASRModule ─▶ SpeechUtterance ─▶ Segmenter ─▶ SpeechSegment
 ```
@@ -203,12 +203,12 @@ Durations are counted in whole analysis frames, rounded up (Silero's frames are 
 
 Two formats are in play, and the gate keeps them apart:
 
-- **Pipeline format** (`engine.audio_format`): what the source produces and the ASR module consumes. It is reconciled against the ASR module exactly as today. VAD never changes it, and the bytes the gate forwards are the source's bytes, untouched.
+- **Pipeline format** (`engine.module_audio_format`): what the gate receives and the ASR module consumes. It is the source's format, or the format converter's output when the engine converts ([format-conversion.md](format-conversion.md)): the converter sits before the gate. VAD never changes it, and the bytes the gate forwards are the bytes it received, untouched.
 - **Analysis format**: mono float32 at a rate the VAD module supports. The gate builds an analysis **copy** of the incoming audio and uses it only to decide.
 
 The analysis rate is chosen automatically: the pipeline rate when the VAD module supports it (no resampling), otherwise the module's `DEFAULT_SAMPLE_RATE`. There is no configuration for it.
 
-For each incoming chunk the gate decodes it to s16 (`mulaw` through a new `mulaw_to_linear16` helper in `audio.py`), averages the channels to mono, resamples when the rates differ, and cuts the result into `frame_samples` frames, carrying the remainder to the next chunk. Resampling uses `soxr`'s streaming resampler, imported only when resampling is actually needed; when it is missing the engine fails at construction with an install hint.
+For each incoming chunk the gate decodes it to s16 (`mulaw` through a new `mulaw_to_linear16` helper in `audio.py`), averages the channels to mono, resamples when the rates differ, and cuts the result into `frame_samples` frames, carrying the remainder to the next chunk. Resampling uses `soxr`'s streaming resampler (a core dependency), imported only when resampling is actually needed.
 
 So any pipeline format an ASR module accepts works with any VAD: a 44.1 kHz `linear16` pipeline for Deepgram and a 24 kHz one for Kyutai are both analysed at 16 kHz by Silero, and a 16 kHz pipeline is analysed as it is.
 
@@ -302,10 +302,10 @@ One visible difference: with VAD on, the number and boundaries of finals follow 
 
 ## Engine integration
 
-- **Construction.** When `config.vad` is set, the engine resolves the VAD class (unknown type → `ValueError`, missing extra → `ImportError` with the install hint), instantiates it (config validation), applies the [checks above](#engine-checks-at-construction), and verifies `soxr` is importable when the analysis rate differs from the pipeline rate. It does not load the model.
-- **Start.** In `_start_with_segmentation_mode`, after choosing the base source: load the VAD model in a thread on first use (`asyncio.to_thread(vad.load)`), wrap the base source in a `VadGate`, and start the gate in place of the source. The queue it returns goes to the module as today.
+- **Construction.** When `config.vad` is set, the engine resolves the VAD class (unknown type → `ValueError`, missing extra → `ImportError` with the install hint), instantiates it (config validation), and applies the [checks above](#engine-checks-at-construction). It does not load the model.
+- **Start.** In `_start_with_segmentation_mode`, after choosing the base source (and wrapping it in the format converter when the formats differ): load the VAD model in a thread on first use (`asyncio.to_thread(vad.load)`), wrap the base source in a `VadGate`, and start the gate in place of the source. The queue it returns goes to the module as today.
 - **Stop** and `listen()` teardown stop the gate, which stops the inner source. The VAD module stays loaded.
-- `engine.audio_format` is unchanged by VAD.
+- `engine.audio_format` and `engine.module_audio_format` are unchanged by VAD.
 - `status()` gains `"vad": <type> | None`.
 - `vad_state` (read-only property) exposes the gate for display: `None` without VAD, else a frozen `VadState` (`gate.py`) with `speaking` (the gate is open) and `failed_open`. The Gradio demo polls it ([gradio-demo.md](gradio-demo.md)).
 
@@ -360,7 +360,6 @@ Any pipeline `encoding` and `sample_rate` the ASR module supports is valid with 
 [project.optional-dependencies]
 silero = [
     "onnxruntime; sys_platform != 'darwin' or platform_machine != 'x86_64'",
-    "soxr",
 ]
 all = ["asr-engine[deepgram,mcp,mistral,mlx-audio,openai-compatible,silero]"]  # Kyutai: own env, see project.md
 
@@ -368,8 +367,8 @@ all = ["asr-engine[deepgram,mcp,mistral,mlx-audio,openai-compatible,silero]"]  #
 dev = ["asr-engine[deepgram,mcp,mistral,openai-compatible,silero]", "mlx-audio[stt]>=0.6; …", ...]
 ```
 
-- `soxr` (0.2 MB, numpy only) sits in the VAD backend's extra, not in core: only the gate uses it, and only when the pipeline rate is not one the VAD supports.
-- Both packages publish wheels for Linux x86_64 and arm64, macOS arm64 and Windows x86_64. **`onnxruntime` publishes no Intel macOS wheel**, hence its marker: on that platform the extra installs without it, the environment still syncs, and selecting `silero` raises the registry's install hint ([project.md](project.md) notes the caveat; the platform is best effort). The Silero tests skip there.
+- `soxr`, which resamples the analysis copy when the pipeline rate is not one the VAD supports, is a core dependency ([format-conversion.md](format-conversion.md) "Dependency").
+- `onnxruntime` and `soxr` publish wheels for Linux x86_64 and arm64, macOS arm64 and Windows x86_64. **`onnxruntime` publishes no Intel macOS wheel**, hence its marker: on that platform the extra installs without it, the environment still syncs, and selecting `silero` raises the registry's install hint ([project.md](project.md) notes the caveat; the platform is best effort). The Silero tests skip there.
 - The extra is light, so it joins `dev`, and the fast tier exercises it on every CI platform.
 
 ## Fit with planned modules
@@ -381,7 +380,7 @@ Checked against the modules considered for later (batch and realtime-protocol AS
 - **`openai-realtime` / `vllm-realtime`.** Streaming with server-side turn detection, so the gate is optional, as for Deepgram. The protocol has an explicit commit message for the input buffer, which is what `finalize()` would send (to be confirmed when that module is specced).
 - **Smart Turn** (a semantic end-of-turn model run on top of Silero in speech-to-speech). It fits as an optional check inside the gate, consulted before a marker is emitted, so the modules' contract would not change. Deferred.
 - **FireRed Stream-VAD**, WebRTC VAD, TEN VAD: further `VADModule` backends. The registry takes them without an interface change.
-- **Pipeline resampling** (source rate ≠ ASR rate) stays a separate concern. The gate's analysis copy is never the ASR feed: reusing it would tie the VAD's rate to the ASR's and break "forward the original bytes".
+- **Pipeline resampling** (source rate ≠ ASR rate) is a separate stage, built since: the format converter, in front of the gate ([format-conversion.md](format-conversion.md)). The gate's analysis copy is still never the ASR feed: reusing it would tie the VAD's rate to the ASR's and break "forward the bytes received".
 
 ## Testing
 
