@@ -331,6 +331,79 @@ async def test_a_rejected_session_update_retries_and_logs_the_server_message(
     assert "Expected a value >= 24000" in caplog.text
 
 
+async def test_settings_the_server_did_not_apply_are_warned_about(
+    harnesses, caplog
+) -> None:
+    # A server on the older session layout: it answers session.updated but keeps
+    # its own turn detection and drops the language (speaches, measured).
+    ignoring = FakeConnection(
+        update_reply={
+            "type": "session.updated",
+            "session": {
+                "turn_detection": {"type": "server_vad", "threshold": 0.9},
+                "input_audio_transcription": {"model": "small", "language": None},
+            },
+        }
+    )
+    h = harnesses(
+        {"model": "small", "language": "en", "turn_detection": False}, ignoring
+    )
+    with caplog.at_level(logging.WARNING):
+        await h.start()
+
+    assert h.connected == [True]  # a warning, not a failed handshake
+    (record,) = [r for r in caplog.records if r.levelno == logging.WARNING]
+    message = record.getMessage()
+    assert "turn_detection (asked for off, the server has server_vad)" in message
+    assert "language (asked for 'en', the server has None)" in message
+    assert "model" not in message  # the model was applied
+
+
+@pytest.mark.parametrize(
+    "session",
+    [
+        # The GA layout echoing what was asked (hosted OpenAI).
+        {
+            "audio": {
+                "input": {
+                    "transcription": {"model": "small", "language": "en"},
+                    "turn_detection": None,
+                }
+            }
+        },
+        # A server that reports only part of the session (mlx-audio: no language).
+        {"audio": {"input": {"transcription": {"model": "small"}}}},
+        {},
+    ],
+)
+async def test_applied_or_unreported_settings_are_not_warned_about(
+    harnesses, caplog, session: dict[str, Any]
+) -> None:
+    conn = FakeConnection(update_reply={"type": "session.updated", "session": session})
+    h = harnesses({"model": "small", "language": "en", "turn_detection": False}, conn)
+    with caplog.at_level(logging.WARNING):
+        await h.start()
+
+    assert h.connected == [True]
+    assert [r for r in caplog.records if r.levelno >= logging.WARNING] == []
+
+
+async def test_a_server_without_the_asked_turn_detection_is_warned_about(
+    harnesses, caplog
+) -> None:
+    conn = FakeConnection(
+        update_reply={
+            "type": "session.updated",
+            "session": {"audio": {"input": {"turn_detection": None}}},
+        }
+    )
+    h = harnesses({}, conn)
+    with caplog.at_level(logging.WARNING):
+        await h.start()
+
+    assert "turn_detection (asked for server_vad, the server has off)" in caplog.text
+
+
 # ----------------------------------------------------------------------- streaming
 
 

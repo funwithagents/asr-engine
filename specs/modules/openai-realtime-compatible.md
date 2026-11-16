@@ -5,6 +5,7 @@ code:
   - src/asr_engine/modules/__init__.py
   - pyproject.toml
   - scripts/probe_openai_realtime.py
+  - scripts/check_local_server.py
 tests:
   - tests/modules/test_openai_realtime_compatible.py
   - tests-e2e/test_engine_modules.py
@@ -47,6 +48,19 @@ Compared with the existing backends:
 | Idle (no audio sent) | Socket still open after 70 s. No idle kill observed. |
 | Extra events | `conversation.item.added` / `conversation.item.done` per item (ignored) |
 
+### Measured against local servers (2026-11-16)
+
+`scripts/check_local_server.py realtime` runs the engine with this module against a server on the same machine (Apple M5 Pro), on the same fixture.
+
+| Server | Setup | Result |
+|---|---|---|
+| mlx-audio 0.6.5 server (`/v1/realtime?model=…`), `mlx-community/Voxtral-Mini-4B-Realtime-2602-4bit` | Server turn detection | One delta per word during speech, about a second behind it; final 1.5 to 2.5 s after speech end. `session.updated` reports the GA layout, without `language`. |
+| same | `turn_detection: false` + Silero gate | Same interims; the gate's marker commits, final ≈ 1.6 s after speech end |
+| speaches (faster-whisper `small`, CPU), `/v1/realtime?intent=transcription&model=…` | Server turn detection | A correct final, no deltas. `session.updated` shows the settings were ignored: `turn_detection` still `server_vad`, `language` null. Needs `LOOPBACK_HOST_URL` set on the server (speaches issue 559). |
+| same | Silero gate, with `turn_detection` true or false | **The server drops the connection on the commit.** It cannot turn its turn detection off (a null `turn_detection` fails its schema), the gate withholds the silence its VAD waits for, and its commit handler asserts that its VAD saw the end of speech. The module reconnects; the utterance is lost. |
+
+The user-facing recipes are in [docs/local-speech-recognition.md](../../docs/local-speech-recognition.md).
+
 ## Decisions
 
 | Decision | Choice | Rationale |
@@ -56,6 +70,7 @@ Compared with the existing backends:
 | Transport | **Raw `websockets`, not the `openai` SDK** | About eight JSON message types. The SDK's realtime client is built around OpenAI's conversation sessions and pulls in a much larger dependency for nothing used here. Owning the socket also keeps the module server-neutral, as with `mistral-realtime`. |
 | Session shape | **GA `session.update`, `session.type = "transcription"`** | What hosted OpenAI documents and accepts (measured), and what Dynamo and LiteLLM accept. The beta `transcription_session.update` is no longer documented. |
 | Handshake | **Wait for `session.updated`; an `error` instead fails the session** | Measured: a rejected `session.update` (e.g. an unsupported rate) leaves a live session with no transcription model that silently never transcribes. Treating it as a failed handshake surfaces the server's message at error level and retries with the standard backoff, as `mistral-realtime` does for a rejected handshake. |
+| Settings the server did not apply | **Compare `session.updated` with the request, and warn** | Measured on speaches: a server on the older session layout answers `session.updated` but applies nothing, keeping its own turn detection and dropping the language, and nothing in the log said so. The module compares turn detection (on or off, and its type), `model` and `language` with what the server reports, in the GA layout (`audio.input.*`) or the older flat one (`turn_detection`, `input_audio_transcription`), and logs one warning naming each difference. A setting the server does not report is unknown and not warned about. The session still runs: such a server can transcribe with its own settings, so failing the handshake would lose a working setup. |
 | Utterance boundary | **The server's**: `completed` closes an item | It carries the authoritative transcript. With server turn detection the server commits on silence. Without it, the VAD gate's `finalize()` or `stop()` commits. |
 | Turn detection | **On by default** (`{"type": "server_vad"}`, server-default parameters) | Without it nothing commits on a continuous stream, and no final ever comes. `false` is for models that don't support it (`gpt-realtime-whisper`) or servers that don't (Dynamo), and then needs `engine.vad`. |
 | Sample rate | **`{24000}`** | The only rate hosted OpenAI accepts (measured), and the protocol's documented rate. Compatible servers that accept more (LiteLLM: 8–48 kHz) still accept 24 kHz. A 16 kHz or 44.1 kHz input is a resampling concern of the engine (a deferral), not of this module. |
@@ -69,7 +84,7 @@ Compared with the existing backends:
 | connect | `url` as configured (default `wss://api.openai.com/v1/realtime?intent=transcription`), header `Authorization: Bearer <key>` when a key is configured | One connection = one session |
 | ← | `session.created` | First message (10 s handshake timeout) |
 | → | `session.update` `{session: {type: "transcription", audio: {input: {format, transcription, turn_detection, noise_reduction?}}}}` | Sent once, before any audio |
-| ← | `session.updated` | The session is live: `on_connected(True)`. An `error` instead fails the handshake. |
+| ← | `session.updated` `{session}` | The session is live: `on_connected(True)`. An `error` instead fails the handshake. The `session` it carries is compared with the request (see Decisions, "Settings the server did not apply"). |
 | → | `input_audio_buffer.append` `{audio: "<base64 pcm16>"}` | One per audio-queue chunk |
 | → | `input_audio_buffer.commit` | `finalize()` (VAD marker) and `stop()`, when the buffer holds ≥ 100 ms |
 | → | `input_audio_buffer.clear` | `finalize()` when the buffer holds < 100 ms, or when the server's own turn detection already committed the utterance |
@@ -213,7 +228,7 @@ The module file imports `websockets` at top level, so without the extra the regi
 
 The module talks to a **scripted fake connection** injected through a keyword-only `connect` constructor argument, with the same `(url, headers) → async context manager → connection` shape as `mistral-realtime`. No network.
 
-- **Handshake:** the first client message is `session.update` with the GA transcription shape, the reconciled rate, `model`, and `language`/`prompt`/`noise_reduction` when set, and `turn_detection` per config (`{"type": "server_vad"}` / `null` / passed through). The URL is used verbatim. The header carries the key, and is absent without one. `on_connected(True)` waits for `session.updated`, and an `error` instead retries the handshake.
+- **Handshake:** the first client message is `session.update` with the GA transcription shape, the reconciled rate, `model`, and `language`/`prompt`/`noise_reduction` when set, and `turn_detection` per config (`{"type": "server_vad"}` / `null` / passed through). The URL is used verbatim. The header carries the key, and is absent without one. `on_connected(True)` waits for `session.updated`, and an `error` instead retries the handshake. A `session.updated` reporting another turn detection or language than asked (in the older flat layout) logs one warning naming both and still connects; one echoing the request, reporting only part of it, or nothing, logs none.
 - **Audio:** queue chunks arrive as base64 that decodes back to the exact bytes, in order.
 - **Interims and finals:** a delta sequence yields the exact cumulative interims, and `completed` the final with its own transcript.
 - **Ordering:** when a later item completes first, its final waits for the earlier item's. A later item's deltas surface as interims only once it is the oldest.
@@ -234,6 +249,7 @@ A `MODULES` row: type `openai-realtime-compatible`, `api_key_env: OPENAI_API_KEY
 - `src/asr_engine/modules/__init__.py`: `"openai-realtime-compatible": LazyModule("asr_engine.modules.openai_realtime_compatible.module:OpenAIRealtimeCompatibleModule", extra="openai-compatible")`
 - `pyproject.toml`: the extra, `all`, `dev`
 - `scripts/probe_openai_realtime.py`: the live probe behind [Measured](#measured-live-probe-hosted-openai-2026-11-13)
+- `scripts/check_local_server.py`: runs the engine with this module (or `openai-transcriptions-compatible`) against a local server; behind [Measured against local servers](#measured-against-local-servers-2026-11-16)
 - `examples/config/openai-realtime-compatible.json`: a complete server config, with the VAD gate on
 - `tests/modules/test_openai_realtime_compatible.py`, `tests-e2e/helpers.py` (`MODULES` row), `.github/workflows/ci.yml` (secret mapping)
 - Spec and doc touch-ups: [asr-module-interface.md](../asr-module-interface.md) (registry snippet, extras table and naming rule), [configuration.md](../configuration.md), [ci.md](../ci.md), [e2e-testing.md](../e2e-testing.md), [vad.md](../vad.md) (module tables), [project.md](../project.md) (package and extras lists), `README.md`, `AGENTS.md`
@@ -246,4 +262,5 @@ None load-bearing. Deferrals:
 - **Compatible servers' rates.** LiteLLM accepts 8–48 kHz. A config field widening `SUPPORTED_SAMPLE_RATES` per instance needs the capability check to move from class to instance. Not worth it until a user needs it.
 - **`vllm-realtime`.** vLLM's `/v1/realtime` speaks its own dialect (`session.update {model}`, `commit {final}`, `transcription.delta`/`done`), so it is a separate module. When it is built, the WebSocket driver (session loop, reconnection, queue helpers) shared with this module and `mistral-realtime` should move to a common internal file.
 - **`semantic_vad`, `include: logprobs`, diarization (`gpt-4o-transcribe-diarize`).** Accepted or passable, but nothing downstream consumes confidence or speakers yet.
-- **Live probes against LiteLLM, Dynamo and LocalAI.** The documented shapes match, but only hosted OpenAI was probed.
+- **Live probes against LiteLLM, Dynamo and LocalAI.** The documented shapes match, but they were not run. Hosted OpenAI, the mlx-audio server and speaches were ([Measured against local servers](#measured-against-local-servers-2026-11-16)).
+- **The older session layout** (`session.turn_detection`, `session.input_audio_transcription`). A server that only reads it ignores this module's settings, which the warning now reports. Sending both layouts was not pursued: the one such server measured, speaches, cannot turn its turn detection off in either, and its batch endpoint serves it better.

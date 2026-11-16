@@ -7,10 +7,11 @@ Every module plugs into the same engine, so the choice is about the backend: whe
 | If you need… | Use | Why |
 |---|---|---|
 | nothing to leave the machine, on an Apple Silicon Mac | [`mlx-audio`](modules/mlx-audio.md) | Local, multilingual with the default Parakeet model, very fast decodes |
-| nothing to leave the machine, on Linux or Windows | [`kyutai`](modules/kyutai.md), or [`openai-transcriptions-compatible`](modules/openai-transcriptions-compatible.md) pointed at a local server | Kyutai runs in process (English and French; its PyTorch backend is not yet verified). A local whisper.cpp, speaches or vLLM server covers more languages |
+| nothing to leave the machine, on Linux or Windows | [`kyutai`](modules/kyutai.md), or [`openai-transcriptions-compatible`](modules/openai-transcriptions-compatible.md) pointed at a local server | Kyutai runs in process (English and French; its PyTorch backend is not yet verified). A local whisper.cpp, speaches or vLLM server covers more languages: [local-speech-recognition.md](local-speech-recognition.md) has a recipe for each |
 | a quick start with a hosted API, many languages | [`deepgram-v1`](modules/deepgram.md) or [`mistral-realtime`](modules/mistral.md) | Streaming, multilingual with automatic detection, one API key |
 | an English voice agent that knows when the speaker has finished | [`deepgram-v2`](modules/deepgram.md) | Flux decides the end of a turn from context, not only from silence |
 | OpenAI's transcription models | [`openai-realtime-compatible`](modules/openai-realtime-compatible.md) for streaming, [`openai-transcriptions-compatible`](modules/openai-transcriptions-compatible.md) for one request per utterance | Same models, two protocols |
+| words appearing as you speak, locally, on an Apple Silicon Mac | [`openai-realtime-compatible`](modules/openai-realtime-compatible.md) pointed at the mlx-audio server | A streaming model (Voxtral realtime) behind the Realtime protocol: [the recipe](local-speech-recognition.md#mlx-audio-server-streaming) |
 | a model served by your own gateway (LiteLLM, Dynamo, LocalAI, Groq, …) | whichever of the two OpenAI-compatible modules matches the protocol the server speaks | Both take a `url` |
 | to test your application without any backend | [`fake`](modules/fake.md) | Scripted, deterministic, in the base installation |
 

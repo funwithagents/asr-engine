@@ -118,6 +118,52 @@ def _parse_turn_detection(value: object) -> dict[str, Any] | None:
     return dict(value)
 
 
+_MISSING: Any = object()
+
+
+def _turn_label(value: object) -> str:
+    """How a ``turn_detection`` value reads in a log line."""
+    if isinstance(value, dict):
+        return str(value.get("type") or "on")
+    return "off" if value is None else str(value)
+
+
+def _unapplied_settings(requested: dict[str, Any], session: object) -> list[str]:
+    """The settings of our ``session.update`` that the server's ``session.updated``
+    reports differently, one description each.
+
+    Only what the server reports is compared: a setting it leaves out is unknown,
+    not unapplied. Both layouts are read, the GA one (``audio.input.*``) and the
+    older flat one (``turn_detection``, ``input_audio_transcription``), since a
+    server that ignores our GA update usually answers in the older one.
+    """
+    if not isinstance(session, dict):
+        return []
+    audio = session.get("audio")
+    ga = audio.get("input") if isinstance(audio, dict) else None
+    if not isinstance(ga, dict):
+        ga = {}
+    turn = ga.get("turn_detection", session.get("turn_detection", _MISSING))
+    transcription = ga.get(
+        "transcription", session.get("input_audio_transcription", _MISSING)
+    )
+
+    unapplied: list[str] = []
+    if turn is not _MISSING:
+        want, got = _turn_label(requested["turn_detection"]), _turn_label(turn)
+        if want != got:
+            unapplied.append(f"turn_detection (asked for {want}, the server has {got})")
+    if isinstance(transcription, dict):
+        for field in ("model", "language"):
+            want = requested["transcription"].get(field)
+            got = transcription.get(field, _MISSING)
+            if want is not None and got is not _MISSING and got != want:
+                unapplied.append(
+                    f"{field} (asked for {want!r}, the server has {got!r})"
+                )
+    return unapplied
+
+
 async def _cancel(*tasks: asyncio.Task) -> None:
     for task in tasks:
         task.cancel()
@@ -345,7 +391,8 @@ class OpenAIRealtimeCompatibleModule(ASRModule):
             deadline = loop.time() + _HANDSHAKE_TIMEOUT_S
             await self._expect(conn, "session.created", deadline)
             await conn.send(json.dumps(session_update))
-            await self._expect(conn, "session.updated", deadline)
+            updated = await self._expect(conn, "session.updated", deadline)
+            self._warn_unapplied(session_update, updated.get("session"))
             self._handshake_ok = True
             self._conn = conn
             self._set_connected(True)
@@ -368,10 +415,25 @@ class OpenAIRealtimeCompatibleModule(ASRModule):
                 self._conn = None
                 await _cancel(receiver, sender)
 
+    def _warn_unapplied(self, session_update: dict[str, Any], session: object) -> None:
+        """Warn when ``session.updated`` shows the server kept other settings than
+        the ones asked for (see the spec's "Handshake" decision)."""
+        requested = session_update["session"]["audio"]["input"]
+        unapplied = _unapplied_settings(requested, session)
+        if unapplied:
+            log.warning(
+                "%s: the server accepted the session but did not apply %s. It may "
+                "implement another version of the protocol; transcription can "
+                "still work, with the server's own settings.",
+                _LABEL,
+                "; ".join(unapplied),
+            )
+
     async def _expect(
         self, conn: RealtimeConnection, kind: str, deadline: float
-    ) -> None:
-        """Read events until *kind*; an ``error`` rejects the session setup."""
+    ) -> dict[str, Any]:
+        """Read events until *kind* and return it; an ``error`` rejects the
+        session setup."""
         loop = asyncio.get_running_loop()
         while True:
             remaining = deadline - loop.time()
@@ -381,7 +443,7 @@ class OpenAIRealtimeCompatibleModule(ASRModule):
             if event.get("type") == kind:
                 if kind == "session.updated":
                     log.debug("%s session: %s", _LABEL, event.get("session"))
-                return
+                return event
             if event.get("type") == "error":
                 code, message = _error_of(event)
                 raise SessionRejected(

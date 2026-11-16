@@ -6,6 +6,7 @@ The documentation of `asr-engine`, by what you want to do. The [README](../READM
 |---|---|
 | transcribe speech from Python | the README's [quick start](../README.md#quick-start), then [running-the-engine.md](running-the-engine.md): the callbacks, utterances and segments, `start`, `listen` and dictation |
 | pick an ASR module | [choosing-a-module.md](choosing-a-module.md): hosted or local, streaming or batch, languages, cost |
+| keep the audio on my machine | [local-speech-recognition.md](local-speech-recognition.md): a model in process, or a local server (mlx-audio, whisper.cpp, speaches) behind an OpenAI-compatible module |
 | set up one module | its page under [modules/](modules/index.md): install, a minimal config, every field, troubleshooting |
 | write or load a configuration | [configuration.md](configuration.md): the engine block, loading it from a dict or a JSON file, credentials |
 | decide when a segment ends (a trigger word, a silence) | [segmentation.md](segmentation.md): the three modes and their settings |

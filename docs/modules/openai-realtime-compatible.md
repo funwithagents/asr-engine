@@ -2,7 +2,7 @@
 
 **Kind:** hosted · **Backend:** OpenAI Realtime transcription, or any server speaking its protocol · **Extra:** `openai-compatible` · **Credentials:** API key (optional on other servers) · **VAD gate:** optional
 
-A protocol module: it talks to any server that implements OpenAI's Realtime transcription API over a WebSocket. Hosted OpenAI is the default; LiteLLM, NVIDIA Dynamo, LocalAI and others expose the same protocol in front of their own models.
+A protocol module: it talks to any server that implements OpenAI's Realtime transcription API over a WebSocket. Hosted OpenAI is the default; LiteLLM, NVIDIA Dynamo, LocalAI and others expose the same protocol in front of their own models. The mlx-audio server does too, which gives local streaming on an Apple Silicon Mac: [the recipe](../local-speech-recognition.md#mlx-audio-server-streaming).
 
 ```bash
 uv sync --no-default-groups --extra openai-compatible
@@ -40,12 +40,13 @@ pip install 'asr-engine[openai-compatible]'
 
 - With `gpt-4o-transcribe`, the text of an utterance arrives once the server has closed it, so the interims come in a burst just before the final. `gpt-realtime-whisper` streams words as they are spoken.
 - With `"vad": {"type": "silero"}` the gate ends each utterance and only speech is sent ([vad.md](../vad.md)).
-- To check an endpoint's behaviour, run `uv run python scripts/probe_openai_realtime.py` from a checkout (`--url` for another server).
+- To check an endpoint's behaviour, run `uv run python scripts/probe_openai_realtime.py` from a checkout (`--url` for another server). `scripts/check_local_server.py realtime` runs the whole engine against a local server.
 
 ## Troubleshooting
 
 - Engine construction fails on the sample rate: add `"audio": {"sample_rate": 24000}` to the engine block.
 - No final ever arrives with `turn_detection: false`: nothing ends the utterances. Add an `engine.vad` block.
+- `the server accepted the session but did not apply ...` in the log: the server answered the session setup but kept its own value for the settings named (turn detection, model or language). It usually implements an older version of the protocol. Transcription may still work with the server's settings; if the line names `turn_detection`, do not rely on `"turn_detection": false` or on the VAD gate with that server. speaches is one such server ([details](../local-speech-recognition.md#speaches-faster-whisper)).
 - A missing-key error against hosted OpenAI: set the variable named by `api_key_env` in the process running the engine. Against another server the key is optional and no `Authorization` header is sent without one.
 
 ## See also

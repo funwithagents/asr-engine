@@ -4,6 +4,8 @@
 
 A protocol module for batch transcription over HTTP. Hosted OpenAI is the default; Groq, speaches, the whisper.cpp server, vLLM and others implement the same endpoint, hosted or on your own machine.
 
+To run it against a server on your own machine, [local-speech-recognition.md](../local-speech-recognition.md) has a tested recipe for the mlx-audio server, whisper.cpp and speaches (faster-whisper).
+
 Each utterance is uploaded as one WAV file once it has ended, so the module needs the [VAD gate](../vad.md) to know where utterances end. Install the `silero` extra with it:
 
 ```bash
@@ -47,6 +49,7 @@ pip install 'asr-engine[openai-compatible,silero]'
 
 - `needs a VAD to know when an utterance ends`: add `"vad": {"type": "silero"}` to the engine block and install the `silero` extra.
 - The engine starts but `connected` stays `false`: the start-up request failed. The log gives the HTTP status; check `url`, the key and `model`.
+- The first words after a start are missing: a local server loads its model on the start-up request, and speech before `connected` is not transcribed. Wait for `connected`, or load the model on the server beforehand.
 - No interim results: that is the default here. Set `interim_interval_s`, keeping in mind that each interim is a billed request on a hosted API.
 
 ## See also
@@ -54,4 +57,5 @@ pip install 'asr-engine[openai-compatible,silero]'
 - [specs/modules/openai-transcriptions-compatible.md](../../specs/modules/openai-transcriptions-compatible.md): the module's contract.
 - [specs/batch-asr-module.md](../../specs/batch-asr-module.md): how batch modules buffer, decode and produce interims.
 - [examples/config/openai-transcriptions-compatible.json](../../examples/config/openai-transcriptions-compatible.json): a complete server config.
+- [local-speech-recognition.md](../local-speech-recognition.md): recipes for local servers.
 - [`openai-realtime-compatible`](openai-realtime-compatible.md): the streaming protocol, for servers that speak OpenAI's Realtime API.
