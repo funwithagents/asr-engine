@@ -5,7 +5,7 @@ module points at the server, and prints every interim and final with its time
 since the audio started. The audio starts only once the module is connected, so a
 server that loads its model on the first request does not lose the first words.
 
-The recipes behind docs/local-speech-recognition.md, each with its server already
+The checks behind docs/local-speech-recognition.md, each with its server already
 running (see that page for the commands that start them):
 
     # mlx-audio server, batch

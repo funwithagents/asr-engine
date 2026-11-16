@@ -9,7 +9,7 @@ Implements "Settings the server did not apply" in `specs/modules/openai-realtime
 - `src/asr_engine/modules/openai_realtime_compatible/module.py` — `_unapplied_settings()` and `_warn_unapplied()`; `_expect()` returns the event it waited for
 - `tests/modules/test_openai_realtime_compatible.py` — the warning cases
 - `scripts/check_local_server.py` — runs a fixture through the engine against a local server, for both OpenAI-compatible modules
-- `docs/local-speech-recognition.md` — new page: in process or a local server, what to pick, one recipe per server run
+- `docs/local-speech-recognition.md` — new page: the three ways to run locally (in process, a batch server, a streaming server), then each solution with where it runs, its best use and, for the servers run, the commands
 - `README.md`, `docs/index.md`, `docs/choosing-a-module.md`, `docs/modules/openai-realtime-compatible.md`, `docs/modules/openai-transcriptions-compatible.md` — links to the page; the warning and the lost first words in the two troubleshooting lists
 - `specs/modules/openai-realtime-compatible.md`, `specs/modules/openai-transcriptions-compatible.md`, `specs/project.md`, `AGENTS.md` — the decision, the measurements, the page lists
 

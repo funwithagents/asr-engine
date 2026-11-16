@@ -4,7 +4,7 @@
 
 A protocol module for batch transcription over HTTP. Hosted OpenAI is the default; Groq, speaches, the whisper.cpp server, vLLM and others implement the same endpoint, hosted or on your own machine.
 
-To run it against a server on your own machine, [local-speech-recognition.md](../local-speech-recognition.md) has a tested recipe for the mlx-audio server, whisper.cpp and speaches (faster-whisper).
+To run it against a server on your own machine, [local-speech-recognition.md](../local-speech-recognition.md) lists the servers that were run (whisper.cpp, speaches, the mlx-audio server) with their commands.
 
 Each utterance is uploaded as one WAV file once it has ended, so the module needs the [VAD gate](../vad.md) to know where utterances end. Install the `silero` extra with it:
 

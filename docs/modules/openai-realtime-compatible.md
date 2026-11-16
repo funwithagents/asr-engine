@@ -2,7 +2,7 @@
 
 **Kind:** hosted · **Backend:** OpenAI Realtime transcription, or any server speaking its protocol · **Extra:** `openai-compatible` · **Credentials:** API key (optional on other servers) · **VAD gate:** optional
 
-A protocol module: it talks to any server that implements OpenAI's Realtime transcription API over a WebSocket. Hosted OpenAI is the default; LiteLLM, NVIDIA Dynamo, LocalAI and others expose the same protocol in front of their own models. The mlx-audio server does too, which gives local streaming on an Apple Silicon Mac: [the recipe](../local-speech-recognition.md#mlx-audio-server-streaming).
+A protocol module: it talks to any server that implements OpenAI's Realtime transcription API over a WebSocket. Hosted OpenAI is the default; LiteLLM, NVIDIA Dynamo, LocalAI and others expose the same protocol in front of their own models. A server on your own machine works the same way: [local-speech-recognition.md](../local-speech-recognition.md#mlx-audio-server-streaming) has one that was run, the mlx-audio server.
 
 ```bash
 uv sync --no-default-groups --extra openai-compatible
