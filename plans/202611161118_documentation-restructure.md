@@ -4,7 +4,7 @@
 
 Implements the documentation layers and checks settled in `specs/project.md` ("Documentation", "Documentation checks") and step 7 of the module checklist in `specs/asr-module-interface.md`. It delivers a short README, a task-oriented `docs/` tree with one page per backend, a `CONTRIBUTING.md`, and two fast-tier test files that keep them in step with the code. It changes no library code and no behavior: `src/` is untouched.
 
-The shape follows the sibling projects `tts-engine` and `reachy-mini-bridge`, adapted: flat guide pages (as in `tts-engine`) since the API is small, and no benchmark or audition section, which have no ASR equivalent yet.
+The guide pages are flat, with no `guides/` and `reference/` split, since the API is small.
 
 ## Why
 
@@ -39,7 +39,7 @@ The shape follows the sibling projects `tts-engine` and `reachy-mini-bridge`, ad
 ## Decisions taken while building
 
 - **Module pages mirror specs, not registry keys.** `deepgram-v1` and `deepgram-v2` share `docs/modules/deepgram.md`, as they share a spec, so the fields check compares one page with one spec. The module tables still have one row per registered type.
-- **No `kind` attribute on modules.** `tts-engine` checks a `kind` column against a class attribute; here the "Kind" column (hosted, local, test double) is prose and the tables are checked on what the registry does know: the type and its extra. Adding the attribute would be a library change, out of scope.
+- **No `kind` attribute on modules.** The registry does not know whether a module is hosted or local, so the "Kind" column (hosted, local, test double) is prose and the tables are checked on what the registry does know: the type and its extra. Adding the attribute would be a library change, out of scope.
 - **Config paths named in code are checked too.** The link checker skips code on purpose, but the bug that prompted this plan lived in a `cp` command, so a separate check covers `examples/config/*.json` wherever it is written.
 - **Not done:** the `docs/vad.md` field table is not checked against `specs/vad.md`, whose table has an "other fields" row; and the per-module "Audio and behaviour" prose is not machine-checked.
 
