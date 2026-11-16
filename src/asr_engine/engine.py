@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import importlib.util
 import logging
 from typing import TYPE_CHECKING, cast
 
@@ -10,14 +9,16 @@ from asr_engine.audio import (
     AudioFormat,
     AudioSource,
     FileAudioSource,
+    read_file_format,
 )
 from asr_engine.config import ASREngineConfig
+from asr_engine.format_converter import ConvertedAudioSource, check_convertible
 from asr_engine.modules import resolve_module_class
 from asr_engine.modules.base import (
     AudioQueue,
     SpeechUtterance,
     UtteranceCallback,
-    reconcile_audio_format,
+    resolve_module_audio_format,
 )
 from asr_engine.segmenter import (
     VALID_MODES,
@@ -32,6 +33,10 @@ if TYPE_CHECKING:
     from asr_engine.vad.gate import VadGate, VadState
 
 log = logging.getLogger(__name__)
+
+
+def _describe(fmt: AudioFormat) -> str:
+    return f"{fmt.sample_rate} Hz, {fmt.channels} channel(s), {fmt.encoding}"
 
 
 async def _noop_utterance(utterance: SpeechUtterance) -> None:
@@ -71,19 +76,11 @@ class ASREngine:
         self._module_cls = resolve_module_class(config.module.type)
         self._asr_module = self._module_cls(config=config.module.extra)
 
-        # Reconcile the configured audio format against what the module supports.
-        # Fails fast here (construction/startup) on an unsupported format under
-        # the default "error" policy; "fallback" logs and uses module defaults.
-        desired_format = AudioFormat(
-            sample_rate=config.audio.sample_rate,
-            channels=config.audio.channels,
-            encoding=config.audio.encoding,
-        )
-        self._audio_format = reconcile_audio_format(
-            desired_format,
-            self._module_cls,
-            on_unsupported=config.audio.on_unsupported_format,
-        )
+        self._audio_source = audio_source
+        # Two formats (specs/format-conversion.md): what the source produces
+        # (audio_format) and what the module is fed (module_audio_format). Where
+        # they differ, start() puts a converter between the two.
+        self._audio_format, self._module_audio_format = self._resolve_formats()
         self._vad_module, self._vad_loaded = self._build_vad(), False
         self._vad_gate: VadGate | None = None  # the last run's gate, for vad_state
 
@@ -91,10 +88,10 @@ class ASREngine:
             on_speech_utterance or _noop_utterance
         )
         self.on_speech_segment: SegmentCallback = on_speech_segment or _noop_segment
-        self._audio_source = audio_source
         self._running = False
         self._connected = False
-        # The running source: the VAD gate when one is configured, else the source.
+        # The running source, under whatever wraps it (the format converter, the
+        # VAD gate): stopping the outermost one stops the source.
         self._audio_capture: AudioSource | VadGate | None = None
         self._task: asyncio.Task | None = None
 
@@ -123,6 +120,49 @@ class ASREngine:
         self._dictation_end_on_final = False
         self._dictation_ending = False
 
+    def _resolve_formats(self) -> tuple[AudioFormat, AudioFormat]:
+        """Resolve the source's format and the module's (specs/format-conversion.md).
+
+        Raises ``ValueError`` on a file that contradicts ``engine.audio``, an
+        ``engine.module.sample_rate`` the module does not support, or a channel
+        layout that cannot be converted.
+        """
+        audio = self._config.audio
+        rate, channels = audio.sample_rate, audio.channels
+        if self._audio_source is None and audio.audio_file:
+            # A file's rate and channel count are facts, read from its header. A
+            # value set in engine.audio is then a check, not a request.
+            file_rate, file_channels = read_file_format(audio.audio_file)
+            if rate is not None and rate != file_rate:
+                raise ValueError(
+                    f"{audio.audio_file}: expected sample rate {rate} "
+                    f"(engine.audio.sample_rate), got {file_rate}. Remove the "
+                    f"field to use the file's own rate."
+                )
+            if channels is not None and channels != file_channels:
+                raise ValueError(
+                    f"{audio.audio_file}: expected {channels} channel(s) "
+                    f"(engine.audio.channels), got {file_channels}. Remove the "
+                    f"field to use the file's own channel count."
+                )
+            rate, channels = file_rate, file_channels
+
+        module_format = resolve_module_audio_format(
+            self._asr_module,
+            sample_rate=rate,
+            channels=channels,
+            encoding=audio.encoding,
+            requested_sample_rate=self._config.module.sample_rate,
+        )
+        # A source with no rate or channel count of its own follows the module.
+        source_format = AudioFormat(
+            sample_rate=rate if rate is not None else module_format.sample_rate,
+            channels=channels if channels is not None else module_format.channels,
+            encoding=audio.encoding,
+        )
+        check_convertible(source_format, module_format)
+        return source_format, module_format
+
     def _build_vad(self) -> VADModule | None:
         """Resolve and check the optional VAD stage (specs/vad.md).
 
@@ -149,23 +189,10 @@ class ASREngine:
             )
 
         from asr_engine.vad import resolve_vad_class
-        from asr_engine.vad.gate import analysis_sample_rate
 
         # Raises ValueError (unknown type) or ImportError (extra missing).
         vad_cls = resolve_vad_class(vad_config.type)
-        vad_module = vad_cls(config=vad_config.extra)
-        pipeline_rate = self._audio_format.sample_rate
-        analysis_rate = analysis_sample_rate(vad_cls, pipeline_rate)
-        if analysis_rate != pipeline_rate and importlib.util.find_spec("soxr") is None:
-            raise ImportError(
-                f"VAD '{vad_config.type}' analyses audio at {analysis_rate} Hz but "
-                f"the pipeline runs at {pipeline_rate} Hz; resampling needs the "
-                f"'soxr' package, which is not installed. Install it with: "
-                f"pip install soxr (it is part of 'asr-engine[silero]'), or set "
-                f"engine.audio.sample_rate to one of "
-                f"{sorted(vad_cls.SUPPORTED_SAMPLE_RATES)}."
-            )
-        return vad_module
+        return vad_cls(config=vad_config.extra)
 
     def _build_segmenter(self, mode: str | None = None) -> Segmenter:
         """Build a Segmenter for *mode* (default: the current mode).
@@ -259,6 +286,18 @@ class ASREngine:
                 self._audio_config.device, loop, audio_format=self._audio_format
             )
 
+        if self._audio_format != self._module_audio_format:
+            # Before the VAD gate, so the gate and the module see the same audio.
+            log.info(
+                "Converting audio for the '%s' module: %s -> %s",
+                self._config.module.type,
+                _describe(self._audio_format),
+                _describe(self._module_audio_format),
+            )
+            source = ConvertedAudioSource(
+                source, self._audio_format, self._module_audio_format
+            )
+
         audio_queue: AudioQueue
         vad_config = self._config.vad
         if self._vad_module is not None and vad_config is not None:
@@ -272,7 +311,7 @@ class ASREngine:
             gate = VadGate(
                 source,
                 self._vad_module,
-                self._audio_format,
+                self._module_audio_format,
                 threshold=vad_config.threshold,
                 min_speech_duration_ms=vad_config.min_speech_duration_ms,
                 min_silence_duration_ms=vad_config.min_silence_duration_ms,
@@ -294,7 +333,7 @@ class ASREngine:
                 audio_queue,
                 self._handle_utterance,
                 self.set_connected,
-                audio_format=self._audio_format,
+                audio_format=self._module_audio_format,
             )
         )
         self._running = True
@@ -397,8 +436,17 @@ class ASREngine:
 
     @property
     def audio_format(self) -> AudioFormat:
-        """The reconciled audio format the capture layer and module use."""
+        """The format the audio source produces.
+
+        What an injected ``AudioSource`` must put on its queue. Valid right after
+        construction. Equal to ``module_audio_format`` unless the engine converts.
+        """
         return self._audio_format
+
+    @property
+    def module_audio_format(self) -> AudioFormat:
+        """The format the ASR module is fed (after any conversion)."""
+        return self._module_audio_format
 
     @property
     def segmentation_mode(self) -> str:

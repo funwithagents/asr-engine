@@ -19,7 +19,6 @@ The Kyutai extras cannot be installed together with `mlx-audio`, and so are not 
 
 ```json
 {
-  "audio": { "sample_rate": 24000 },
   "module": {
     "type": "kyutai",
     "backend": "auto",
@@ -28,7 +27,7 @@ The Kyutai extras cannot be installed together with `mlx-audio`, and so are not 
 }
 ```
 
-**`audio.sample_rate` must be `24000`**, the model's only rate. With the 16000 default, engine construction fails with the supported values.
+The model takes 24 kHz only. There is nothing to set: the microphone is opened at 24 kHz, and a file or source at another rate is resampled ([audio-input.md](../audio-input.md#audio-format-and-conversion)).
 
 | Field | Default | Description |
 |---|---|---|
@@ -60,7 +59,7 @@ To check that a machine keeps up with real time, run `uv run python scripts/benc
 ## Troubleshooting
 
 - An `ImportError` naming `kyutai-mlx` or `kyutai-torch`: the backend's extra is not installed in this environment.
-- Engine construction fails on the sample rate: add `"audio": {"sample_rate": 24000}`.
+- Engine construction fails on `engine.module.sample_rate`: the model takes 24000 only. Remove the field.
 - A warning that the model is lagging, then dropped audio: the machine does not keep up with real time. Run the benchmark above.
 - Utterances only close after two seconds of silence: the selected `hf_repo` has no end-of-turn heads, so only the `finalize_after_silence_s` fallback applies. Use the `-candle` repo.
 

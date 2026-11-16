@@ -101,10 +101,11 @@ def test_load_config_defaults(tmp_path: Path) -> None:
     assert cfg.engine.sound_feedback.enabled is True
     assert cfg.engine.sound_feedback.output_device is None
     assert cfg.engine.audio.device is None
-    assert cfg.engine.audio.sample_rate == 16000
-    assert cfg.engine.audio.channels == 1
+    # No rate or channel count of its own: the engine resolves them.
+    assert cfg.engine.audio.sample_rate is None
+    assert cfg.engine.audio.channels is None
     assert cfg.engine.audio.encoding == "linear16"
-    assert cfg.engine.audio.on_unsupported_format == "error"
+    assert cfg.engine.module.sample_rate is None
     assert cfg.engine.module.extra == {}
 
 
@@ -118,15 +119,14 @@ def test_load_config_audio_format_fields(tmp_path: Path) -> None:
                         "sample_rate": 48000,
                         "channels": 1,
                         "encoding": "mulaw",
-                        "on_unsupported_format": "fallback",
                     }
                 }
             ),
         )
     )
     assert cfg.engine.audio.sample_rate == 48000
+    assert cfg.engine.audio.channels == 1
     assert cfg.engine.audio.encoding == "mulaw"
-    assert cfg.engine.audio.on_unsupported_format == "fallback"
 
 
 def test_load_config_rejects_unknown_encoding(tmp_path: Path) -> None:
@@ -135,12 +135,58 @@ def test_load_config_rejects_unknown_encoding(tmp_path: Path) -> None:
         MCPServerConfig.from_json_file(path)
 
 
-def test_load_config_rejects_unknown_unsupported_policy(tmp_path: Path) -> None:
+def test_the_removed_unsupported_format_policy_is_ignored_with_a_warning(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
     path = write_config(
-        tmp_path, _min({"audio": {"on_unsupported_format": "resample"}})
+        tmp_path, _min({"audio": {"on_unsupported_format": "fallback"}})
     )
-    with pytest.raises(ValueError, match="on_unsupported_format"):
-        MCPServerConfig.from_json_file(path)
+    with caplog.at_level("WARNING", logger="asr_engine.config"):
+        cfg = MCPServerConfig.from_json_file(path)  # an old config still loads
+    assert "on_unsupported_format is no longer used" in caplog.text
+    assert not hasattr(cfg.engine.audio, "on_unsupported_format")
+
+
+def test_module_sample_rate_is_the_engines_field_not_the_modules() -> None:
+    cfg = ASREngineConfig.from_dict(
+        {"module": {"type": "deepgram-v1", "sample_rate": 8000, "model": "nova-3"}}
+    )
+    assert cfg.module.sample_rate == 8000
+    # It is not handed to the module with its own fields.
+    assert cfg.module.extra == {"model": "nova-3"}
+
+
+@pytest.mark.parametrize(
+    "engine_block, field",
+    [
+        ({"audio": {"sample_rate": 0}}, "engine.audio.sample_rate"),
+        ({"audio": {"sample_rate": "16000"}}, "engine.audio.sample_rate"),
+        ({"audio": {"sample_rate": 16000.0}}, "engine.audio.sample_rate"),
+        ({"audio": {"channels": -1}}, "engine.audio.channels"),
+        ({"audio": {"channels": True}}, "engine.audio.channels"),
+        ({"module": {"type": "fake", "sample_rate": 0}}, "engine.module.sample_rate"),
+        (
+            {"module": {"type": "fake", "sample_rate": "8k"}},
+            "engine.module.sample_rate",
+        ),
+    ],
+)
+def test_rates_and_channels_must_be_positive_integers(
+    engine_block: dict, field: str
+) -> None:
+    with pytest.raises(ValueError, match=f"Invalid {field}: must be a positive"):
+        ASREngineConfig.from_dict({"module": {"type": "fake"}, **engine_block})
+
+
+def test_null_rates_and_channels_mean_unset() -> None:
+    cfg = ASREngineConfig.from_dict(
+        {
+            "audio": {"sample_rate": None, "channels": None},
+            "module": {"type": "fake", "sample_rate": None},
+        }
+    )
+    assert (cfg.audio.sample_rate, cfg.audio.channels) == (None, None)
+    assert cfg.module.sample_rate is None
 
 
 def test_load_config_partial_server_defaults(tmp_path: Path) -> None:
@@ -285,10 +331,9 @@ def test_from_dict_defaults_for_omitted_blocks() -> None:
     assert cfg.sound_feedback.enabled is True
     assert cfg.sound_feedback.output_device is None
     assert cfg.audio.device is None
-    assert cfg.audio.sample_rate == 16000
-    assert cfg.audio.channels == 1
+    assert cfg.audio.sample_rate is None
+    assert cfg.audio.channels is None
     assert cfg.audio.encoding == "linear16"
-    assert cfg.audio.on_unsupported_format == "error"
     assert cfg.module.extra == {}
 
 
@@ -330,16 +375,6 @@ def test_from_dict_invalid_encoding() -> None:
     with pytest.raises(ValueError, match="encoding"):
         ASREngineConfig.from_dict(
             {"audio": {"encoding": "opus"}, "module": {"type": "deepgram"}}
-        )
-
-
-def test_from_dict_invalid_unsupported_format_policy() -> None:
-    with pytest.raises(ValueError, match="on_unsupported_format"):
-        ASREngineConfig.from_dict(
-            {
-                "audio": {"on_unsupported_format": "resample"},
-                "module": {"type": "deepgram"},
-            }
         )
 
 

@@ -108,7 +108,8 @@ Omit `segmentation_mode`, or pass `None`, to use `dictation_default_segmentation
 | `vad_state` | With a VAD configured: whether speech is reaching the module right now (`None` without one) |
 | `dictating` | Whether a dictation session is active |
 | `segmentation_mode` | The mode active right now |
-| `audio_format` | The audio format reconciled with the module ([audio-input.md](audio-input.md#audio-format-negotiation)) |
+| `audio_format` | The format the audio source produces ([audio-input.md](audio-input.md#audio-format-and-conversion)) |
+| `module_audio_format` | The format the module is fed, after any conversion |
 | `await set_segmentation_params(...)` | Change the trigger words or timeouts and rebuild the segmenter |
 | `set_listen_default_segmentation_mode(mode)` | Change the default for future listens |
 | `set_dictation_default_segmentation_mode(mode)` | Change the default for future dictations |

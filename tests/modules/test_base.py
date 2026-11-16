@@ -13,8 +13,9 @@ from asr_engine.modules.base import (
     ASRModule,
     AudioQueue,
     SpeechUtterance,
-    reconcile_audio_format,
+    parse_sample_rate_overrides,
     resolve_api_key,
+    resolve_module_audio_format,
 )
 
 # ---------------------------------------------------------------------------
@@ -279,12 +280,12 @@ def test_abstract_intermediate_base_is_exempt() -> None:
 
 
 # ---------------------------------------------------------------------------
-# reconcile_audio_format
+# resolve_module_audio_format
 # ---------------------------------------------------------------------------
 
 
 class _PickyModule(ASRModule):
-    """Supports only 16 k / mono / linear16 — for reconcile tests."""
+    """Supports 16 k and 48 k / mono / linear16 and mulaw — for format-resolution tests."""
 
     SUPPORTED_SAMPLE_RATES = frozenset({16000, 48000})
     SUPPORTED_CHANNELS = frozenset({1})
@@ -302,19 +303,88 @@ class _PickyModule(ASRModule):
         pass
 
 
-def test_reconcile_keeps_supported_format_unchanged() -> None:
-    desired = AudioFormat(sample_rate=48000, channels=1, encoding="mulaw")
-    assert reconcile_audio_format(desired, _PickyModule) == desired
+def _resolve(module: ASRModule | None = None, **source) -> AudioFormat:
+    source = {"sample_rate": None, "channels": None, "encoding": "linear16", **source}
+    return resolve_module_audio_format(module or _PickyModule(config={}), **source)
 
 
-def test_reconcile_errors_on_unsupported_by_default() -> None:
-    desired = AudioFormat(sample_rate=44100)  # not in {16000, 48000}
-    with pytest.raises(ValueError, match="sample_rate=44100"):
-        reconcile_audio_format(desired, _PickyModule)
+def test_a_source_format_the_module_supports_is_kept_unchanged() -> None:
+    resolved = _resolve(sample_rate=48000, channels=1, encoding="mulaw")
+    assert resolved == AudioFormat(sample_rate=48000, channels=1, encoding="mulaw")
 
 
-def test_reconcile_fallback_uses_module_default_and_keeps_supported_dims() -> None:
-    desired = AudioFormat(sample_rate=44100, channels=1, encoding="mulaw")
-    resolved = reconcile_audio_format(desired, _PickyModule, on_unsupported="fallback")
-    # Unsupported rate falls back to the module default; supported dims are kept.
+def test_each_unsupported_dimension_resolves_to_the_module_default() -> None:
+    # 44.1 kHz stereo is not something the module takes; mulaw is.
+    resolved = _resolve(sample_rate=44100, channels=2, encoding="mulaw")
     assert resolved == AudioFormat(sample_rate=16000, channels=1, encoding="mulaw")
+
+
+def test_a_source_with_no_rate_of_its_own_gets_the_module_defaults() -> None:
+    assert _resolve() == AudioFormat(sample_rate=16000, channels=1)
+
+
+def test_a_requested_rate_wins_over_the_source_rate() -> None:
+    # The source's 16 kHz is supported, yet the module is asked to be fed 48 kHz.
+    resolved = _resolve(sample_rate=16000, requested_sample_rate=48000)
+    assert resolved.sample_rate == 48000
+
+
+def test_a_requested_rate_the_module_does_not_support_is_an_error() -> None:
+    with pytest.raises(ValueError, match=r"engine.module.sample_rate=44100.*16000"):
+        _resolve(sample_rate=16000, requested_sample_rate=44100)
+
+
+class _AnyRateModule(_PickyModule):
+    SUPPORTED_SAMPLE_RATES = None
+
+
+def test_a_module_taking_any_rate_keeps_the_source_or_the_requested_rate() -> None:
+    module = _AnyRateModule(config={})
+    assert _resolve(module, sample_rate=44100).sample_rate == 44100
+    assert _resolve(module, requested_sample_rate=11025).sample_rate == 11025
+
+
+# ---------------------------------------------------------------------------
+# parse_sample_rate_overrides
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "config, expected",
+    [
+        ({}, (frozenset({16000, 48000}), 16000)),
+        # A list holding the class default keeps it as the default.
+        ({"supported_sample_rates": [8000, 16000]}, (frozenset({8000, 16000}), 16000)),
+        # A single other rate is its own default.
+        ({"supported_sample_rates": [24000]}, (frozenset({24000}), 24000)),
+        # A default alone is the only rate supported.
+        ({"default_sample_rate": 8000}, (frozenset({8000}), 8000)),
+        (
+            {"supported_sample_rates": [8000, 24000], "default_sample_rate": 24000},
+            (frozenset({8000, 24000}), 24000),
+        ),
+    ],
+)
+def test_sample_rate_overrides(config, expected) -> None:
+    assert parse_sample_rate_overrides(config, _PickyModule, "picky") == expected
+
+
+@pytest.mark.parametrize(
+    "config, message",
+    [
+        ({"supported_sample_rates": []}, "non-empty list"),
+        ({"supported_sample_rates": 24000}, "non-empty list"),
+        ({"supported_sample_rates": [24000, "16000"]}, "non-empty list"),
+        ({"default_sample_rate": 0}, "'default_sample_rate' must be a positive"),
+        ({"default_sample_rate": True}, "'default_sample_rate' must be a positive"),
+        # Two rates, neither the class default: which one to feed is ambiguous.
+        ({"supported_sample_rates": [8000, 24000]}, "set 'default_sample_rate'"),
+        (
+            {"supported_sample_rates": [8000], "default_sample_rate": 24000},
+            "is not in 'supported_sample_rates'",
+        ),
+    ],
+)
+def test_invalid_sample_rate_overrides_are_rejected(config, message) -> None:
+    with pytest.raises(ValueError, match=f"picky module: .*{message}"):
+        parse_sample_rate_overrides(config, _PickyModule, "picky")

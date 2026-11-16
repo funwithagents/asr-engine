@@ -15,10 +15,11 @@ sample_<sample_rate>_<transcript>.<ext>
   transcript is recoverable from the name (`theskyisblue` → "the sky is blue").
 - `<ext>` — container/encoding: `wav` (16-bit signed PCM, mono) or `mp3`.
 
-A file's audio format is therefore fully described by its name. Because file
-sources are **validated, not resampled** (see
-[configuration.md](../../specs/configuration.md)), a fixture must be played
-through an engine configured with a matching `sample_rate` / `encoding`.
+A file's audio format is therefore fully described by its name. A
+`ScriptableAudioSource` plays files recorded in its own format, so the tests
+build it with the fixture's format. The engine converts that format for a module
+that is fed another one (see
+[format-conversion.md](../../specs/format-conversion.md)).
 
 ## Files
 

@@ -109,7 +109,7 @@ Validation in `__init__`: `url` is an `http(s)://` string. A key is resolved whe
 }
 ```
 
-`engine.vad` is mandatory (`{"type": "silero"}`), and `engine.audio.sample_rate` is 16000 (the default).
+`engine.vad` is mandatory (`{"type": "silero"}`). The module is fed 16 kHz, with no `sample_rate` to set: the engine converts a source at another rate ([format-conversion.md](../format-conversion.md)).
 
 ## Runtime
 

@@ -96,14 +96,15 @@ class AudioSource(Protocol):
 
     - ``start()`` opens the source and returns the ``asyncio.Queue[bytes]`` it
       **owns and feeds**; the engine reads that queue (it does not create it).
-    - Each queue item is one chunk of raw PCM bytes **in the engine's reconciled
-      ``engine.audio_format``**: ``linear16`` is signed 16-bit little-endian,
+    - Each queue item is one chunk of raw PCM bytes **in the engine's source
+      format, ``engine.audio_format``**: ``linear16`` is signed 16-bit little-endian,
       ``mulaw`` is G.711; mono unless ``channels > 1`` (then interleaved). Any
       reasonable chunk size is accepted — the module forwards bytes as-is; the
       ``~CHUNK_MS`` target is what the bundled sources use, not a requirement.
-    - The engine does **not** resample/re-encode chunks from an injected source;
-      a custom source must produce ``engine.audio_format`` itself (which is valid
-      immediately after construction, before ``start()``).
+    - A source produces ``engine.audio_format`` (valid immediately after
+      construction, before ``start()``). By default that is the module's format;
+      a source with a format of its own states it in ``engine.audio`` and the
+      engine converts it for the module (specs/format-conversion.md).
     - ``stop()`` halts feeding and releases resources. The engine calls it on
       ``engine.stop()`` and in ``listen()`` teardown (always, even on error), and
       may call ``start()`` again afterwards — the source must be restartable.
@@ -193,6 +194,22 @@ def _validate_audio_format(info, path: Path, fmt: AudioFormat) -> None:
         raise ValueError(
             f"{path}: expected {fmt.channels} channel(s), got {info.channels}"
         )
+
+
+def read_file_format(path: Path | str) -> tuple[int, int]:
+    """The sample rate and channel count of the audio file at *path*.
+
+    Read from the file's header, without decoding it. Raises ``FileNotFoundError``
+    for a missing file and ``ValueError`` for one libsndfile cannot read.
+    """
+    path = Path(path)
+    if not path.is_file():
+        raise FileNotFoundError(f"Audio file not found: {path}")
+    try:
+        info = sf.info(str(path))
+    except sf.LibsndfileError as exc:
+        raise ValueError(f"{path}: not a readable audio file ({exc})") from exc
+    return info.samplerate, info.channels
 
 
 def _iter_audio_chunks(path: Path | str, fmt: AudioFormat) -> Iterator[bytes]:

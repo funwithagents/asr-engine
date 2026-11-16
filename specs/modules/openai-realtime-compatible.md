@@ -73,7 +73,7 @@ The user-facing recipes are in [docs/local-speech-recognition.md](../../docs/loc
 | Settings the server did not apply | **Compare `session.updated` with the request, and warn** | Measured on speaches: a server on the older session layout answers `session.updated` but applies nothing, keeping its own turn detection and dropping the language, and nothing in the log said so. The module compares turn detection (on or off, and its type), `model` and `language` with what the server reports, in the GA layout (`audio.input.*`) or the older flat one (`turn_detection`, `input_audio_transcription`), and logs one warning naming each difference. A setting the server does not report is unknown and not warned about. The session still runs: such a server can transcribe with its own settings, so failing the handshake would lose a working setup. |
 | Utterance boundary | **The server's**: `completed` closes an item | It carries the authoritative transcript. With server turn detection the server commits on silence. Without it, the VAD gate's `finalize()` or `stop()` commits. |
 | Turn detection | **On by default** (`{"type": "server_vad"}`, server-default parameters) | Without it nothing commits on a continuous stream, and no final ever comes. `false` is for models that don't support it (`gpt-realtime-whisper`) or servers that don't (Dynamo), and then needs `engine.vad`. |
-| Sample rate | **`{24000}`** | The only rate hosted OpenAI accepts (measured), and the protocol's documented rate. Compatible servers that accept more (LiteLLM: 8–48 kHz) still accept 24 kHz. A 16 kHz or 44.1 kHz input is a resampling concern of the engine (a deferral), not of this module. |
+| Sample rate | **`{24000}` by default, overridable per instance** | The only rate hosted OpenAI accepts (measured), and the protocol's documented rate. A source at another rate is resampled by the engine ([format-conversion.md](../format-conversion.md)). Compatible servers differ (LiteLLM: 8–48 kHz), so `supported_sample_rates` and `default_sample_rate` describe the server the module is pointed at. |
 | Idle sessions | **No parking** | No idle kill observed in 70 s, and the 60 min session expiry is covered by reconnection. Parking stays a `mistral-realtime` concern. |
 | Missing key | **Required for hosted OpenAI, optional elsewhere** | A local server (Dynamo, LocalAI) usually needs no key. A key-less config pointed at `api.openai.com` can only fail, so it is rejected at construction. |
 
@@ -127,6 +127,8 @@ On the server-VAD path a final lands ≈ 1.1 s after speech end (measured, `gpt-
 | `turn_detection` | bool \| object | `true` | `true` sends `{"type": "server_vad"}` (server defaults). `false` sends `null`: utterances end only on VAD markers or `stop()`, so it needs `engine.vad`. An object is passed through after validation. |
 | `noise_reduction` | string \| null | `null` | `"near_field"` or `"far_field"`, sent as `noise_reduction: {type}`. Omitted when null. |
 | `stop_timeout_s` | float | `5.0` | How long `stop()` waits for the last items to complete |
+| `supported_sample_rates` | list of integers \| null | `null` (`[24000]`) | The rates the server accepts, when not hosted OpenAI's. The engine feeds the module the source's rate when it is in the list, with no resampling. |
+| `default_sample_rate` | integer \| null | `null` (`24000`) | The rate the module is fed when the source's is not in the list. Alone, it is the only rate supported. Must be in `supported_sample_rates` when both are set. |
 
 **Validation in `__init__`** (per the [constructor contract](../asr-module-interface.md#module-constructor-contract)). Each failure raises `ValueError` naming the field:
 
@@ -137,7 +139,8 @@ On the server-VAD path a final lands ≈ 1.1 s after speech end (measured, `gpt-
 - `prompt` is null or a string;
 - `turn_detection` is a bool, or an object whose `type` is `"server_vad"` or `"semantic_vad"` (other keys pass through; the server validates them and a rejection fails the handshake with its message);
 - `noise_reduction` is null, `"near_field"` or `"far_field"`;
-- `stop_timeout_s > 0`.
+- `stop_timeout_s > 0`;
+- `supported_sample_rates` is null or a non-empty list of positive integers, `default_sample_rate` is null or a positive integer, and the pair is consistent (the default is in the list; a list of several rates that does not hold 24000 comes with a default).
 
 ### Examples
 
@@ -186,7 +189,20 @@ SUPPORTED_ENCODINGS = frozenset({"linear16"})
 DEFAULT_SAMPLE_RATE, DEFAULT_CHANNELS, DEFAULT_ENCODING = 24000, 1, "linear16"
 ```
 
-The module sends `format: {"type": "audio/pcm", "rate": 24000}`. Our `linear16` is s16 little-endian, which is what `audio/pcm` means, so chunks pass through unchanged apart from base64. The microphone captures at 24 kHz natively. A file source at another rate is rejected by the engine's reconciliation, or falls back as configured.
+The module sends `format: {"type": "audio/pcm", "rate": <the rate it is fed>}`, 24000 by default. Our `linear16` is s16 little-endian, which is what `audio/pcm` means, so chunks pass through unchanged apart from base64. The microphone captures at 24 kHz natively. A source at another rate is resampled by the engine ([format-conversion.md](../format-conversion.md)).
+
+**Per-instance rates.** The class attributes describe hosted OpenAI. `supported_sample_rates` and `default_sample_rate` replace them for one instance, through `parse_sample_rate_overrides` and the `supported_sample_rates` / `default_sample_rate` properties the engine reads ([format-conversion.md](../format-conversion.md#per-instance-rates)):
+
+```json
+{
+  "type": "openai-realtime-compatible",
+  "url": "ws://localhost:4000/v1/realtime",
+  "supported_sample_rates": [8000, 16000, 24000, 48000],
+  "default_sample_rate": 16000
+}
+```
+
+A 16 kHz source then reaches this server unconverted, and a 44.1 kHz one is resampled to 16 kHz. The fields are a statement about the server, which the module cannot verify: a rate the server refuses fails the handshake, with the server's message in the log (see "Handshake" above).
 
 ## Lifecycle
 
@@ -258,8 +274,6 @@ A `MODULES` row: type `openai-realtime-compatible`, `api_key_env: OPENAI_API_KEY
 
 None load-bearing. Deferrals:
 
-- **Resampling.** The 24 kHz-only contract excludes 16 kHz and 44.1 kHz file sources. Forward resampling in the engine (`soxr` is already in the `silero` extra) would lift it for every module at once.
-- **Compatible servers' rates.** LiteLLM accepts 8–48 kHz. A config field widening `SUPPORTED_SAMPLE_RATES` per instance needs the capability check to move from class to instance. Not worth it until a user needs it.
 - **`vllm-realtime`.** vLLM's `/v1/realtime` speaks its own dialect (`session.update {model}`, `commit {final}`, `transcription.delta`/`done`), so it is a separate module. When it is built, the WebSocket driver (session loop, reconnection, queue helpers) shared with this module and `mistral-realtime` should move to a common internal file.
 - **`semantic_vad`, `include: logprobs`, diarization (`gpt-4o-transcribe-diarize`).** Accepted or passable, but nothing downstream consumes confidence or speakers yet.
 - **Live probes against LiteLLM, Dynamo and LocalAI.** The documented shapes match, but they were not run. Hosted OpenAI, the mlx-audio server and speaches were ([Measured against local servers](#measured-against-local-servers-2026-11-16)).

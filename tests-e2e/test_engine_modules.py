@@ -14,12 +14,19 @@ Needs each module's API key env var set (see helpers); modules lacking one skip.
 Local-model modules (kyutai, mlx-audio) run once their weights are cached: see
 ``helpers.require_local_model``. VAD-required (batch) modules run only behind the
 gate: ``MODULES_UNGATED`` leaves them out of ``test_engine_streams``.
+
+``test_engine_modules_converted`` runs the modules of ``MODULES_CONVERTED`` on
+44.1 kHz audio they are not fed as such (specs/format-conversion.md): the engine
+resamples it, and the backend must still recognize the speech.
 """
 
 from __future__ import annotations
 
 import pytest
 from helpers import (
+    FIXTURE_BLUE,
+    FORMAT_MP3_44100,
+    MODULES_CONVERTED,
     MODULES_UNGATED,
     MODULES_VAD,
     ModuleAudio,
@@ -157,3 +164,57 @@ async def test_engine_modules_vad(
         await engine.stop()
 
     assert engine.status() == {"running": False, "connected": False, "vad": "silero"}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "module_type, module_config, silence_s, module_sample_rate, expected_rate, vad",
+    MODULES_CONVERTED,
+)
+async def test_engine_modules_converted(
+    module_type: str,
+    module_config: dict,
+    silence_s: float,
+    module_sample_rate: int | None,
+    expected_rate: int,
+    vad: dict | None,
+) -> None:
+    """A module recognizes speech from a source whose rate it is not fed.
+
+    The source plays the 44.1 kHz MP3; the engine resamples it to the module's
+    rate. Only a live backend can show the converted audio is still intelligible.
+    """
+    require_api_key(module_config)
+    require_local_model(module_type, module_config)
+    if vad is not None:
+        require_vad_runtime()
+    utterances: list[SpeechUtterance] = []
+
+    async def on_utt(u: SpeechUtterance) -> None:
+        utterances.append(u)
+
+    source = ScriptableAudioSource(audio_format=FORMAT_MP3_44100)
+    engine = build_engine(
+        source,
+        module_type,
+        module_config,
+        audio_format=FORMAT_MP3_44100,
+        module_sample_rate=module_sample_rate,
+        on_speech_utterance=on_utt,
+        vad=vad,
+    )
+    # The source keeps its own rate; the module is fed another.
+    assert engine.audio_format == FORMAT_MP3_44100
+    assert engine.module_audio_format.sample_rate == expected_rate
+    try:
+        await engine.start()
+        await wait_until(lambda: engine.status()["connected"])
+        await source.play(FIXTURE_BLUE, trailing_silence_s=silence_s)
+        await wait_until(
+            lambda: any(
+                u.is_final and "the sky is blue" in normalize_transcript(u.transcript)
+                for u in utterances
+            )
+        )
+    finally:
+        await engine.stop()

@@ -31,21 +31,21 @@ class AudioSource(Protocol):
 - **Stability:** this is the blessed extension point. The Protocol surface (`start()` returning the queue, `stop()`) is kept **stable**; a breaking change to it is a versioned change, not a silent one. Callers may depend on it long-term.
 - **`start()`** opens/arms the source, spawns whatever background work feeds audio, and **returns the `asyncio.Queue[bytes]` it owns and will feed**. The engine reads this queue (via the ASR module) — it does not create or wrap it.
 - **`stop()`** halts feeding and releases the source's resources.
-- **VAD does not change this contract.** When `engine.vad` is configured the engine wraps the source — injected or not — in its internal speech gate ([vad.md](vad.md)), which reads the source's queue and feeds the ASR module from a queue of its own. The source still puts only `bytes` on an `asyncio.Queue[bytes]`; the gate's end-of-speech marker never appears on a source's queue, and a source cannot emit one.
+- **VAD does not change this contract.** When `engine.vad` is configured the engine wraps the source — injected or not — in its internal speech gate ([vad.md](vad.md)), which reads the source's queue (or the format converter's, when the engine converts) and feeds the ASR module from a queue of its own. The source still puts only `bytes` on an `asyncio.Queue[bytes]`; the gate's end-of-speech marker never appears on a source's queue, and a source cannot emit one.
 
 ## Chunk contract
 
-Each queue element is **one chunk of raw PCM bytes** in the engine's reconciled `AudioFormat`:
+Each queue element is **one chunk of raw PCM bytes** in the engine's source format, `engine.audio_format`:
 
 - **Encoding** matches `engine.audio_format.encoding`: `linear16` is **signed 16-bit little-endian** PCM; `mulaw` is G.711 μ-law (1 byte/sample).
 - **Channels** match `engine.audio_format.channels` — **mono** unless `channels > 1`, in which case samples are interleaved.
 - **Sample rate** matches `engine.audio_format.sample_rate`.
 - **Chunk size:** **any reasonable size the backend can drain is accepted.** The `~CHUNK_MS` / `AudioFormat.frames_per_chunk` figure is the *target* the bundled mic/file sources chunk to (it sets `AudioCapture`'s `blocksize` and the file block size), **not** a requirement imposed on a custom source. The ASR module forwards whatever bytes arrive on the queue straight to the backend.
-- **The source must produce chunks already in `engine.audio_format`.** The engine does **not** resample, remix, or re-encode chunks that come from an injected source — only the bundled mic/file sources transcode, and they do it internally before the chunk reaches the queue (see [asr-module-interface.md](asr-module-interface.md) "Who converts"). A custom source whose upstream differs from the reconciled format converts on its own side.
+- **The source must produce chunks in `engine.audio_format`**, and it decides what that format is. With no `sample_rate` / `channels` in `engine.audio`, it is the module's format, as it always was. When the upstream stream has a format of its own, state it in `engine.audio` (`sample_rate`, `channels`, `encoding`): `engine.audio_format` is then that format, and the engine converts it to the module's ([format-conversion.md](format-conversion.md)). The source never converts for the module.
 
 ## `engine.audio_format` is authoritative and available pre-`start()`
 
-The engine reconciles the configured `AudioFormat` against the selected module's declared support in `__init__` (via `reconcile_audio_format`, see [asr-module-interface.md](asr-module-interface.md)), and exposes the resolved value as the read-only `audio_format` property. It is therefore **valid immediately after construction, before `start()`** — a custom source reads `engine.audio_format` up front to know exactly what to produce (rate/channels/encoding), including in the case where the module's `SUPPORTED_*` or a non-default config pushes the reconciled target away from the source's native rate.
+The engine resolves the source format in `__init__` ([format-conversion.md](format-conversion.md) "The source format") and exposes it as the read-only `audio_format` property. It is therefore **valid immediately after construction, before `start()`** — a custom source reads `engine.audio_format` up front to know exactly what to produce (rate/channels/encoding). `engine.module_audio_format` is what the module is fed; a source does not need it.
 
 ## Lifecycle
 

@@ -1,6 +1,6 @@
 # ASR Engine
 
-ASR Engine is a real-time Automatic Speech Recognition engine usable directly from Python or through the Model Context Protocol. `ASREngine` owns audio capture, pluggable ASR modules, audio-format negotiation, segmentation, sound feedback, and lifecycle. It emits every backend result as a `SpeechUtterance` and passes each utterance through its `Segmenter` to produce `SpeechSegment` updates.
+ASR Engine is a real-time Automatic Speech Recognition engine usable directly from Python or through the Model Context Protocol. `ASREngine` owns audio capture, pluggable ASR modules, audio-format conversion, segmentation, sound feedback, and lifecycle. It emits every backend result as a `SpeechUtterance` and passes each utterance through its `Segmenter` to produce `SpeechSegment` updates.
 
 `AsrTools` provides transport-independent lifecycle, listening, and dictation operations over the engine. In-process agents can register these methods directly, while the bundled MCP server exposes the same operations as MCP tools and publishes `asr://utterance` and `asr://segment` as rolling latest-value resources over StreamableHTTP.
 
@@ -20,6 +20,7 @@ Per-backend ASR module specs live in [`modules/`](modules/), one file per backen
 | [overview.md](overview.md) | Goals, components, constraints, non-goals | Implemented |
 | [architecture.md](architecture.md) | System diagram, concurrency model, data flow | Implemented |
 | [audio-source.md](audio-source.md) | `AudioSource` injection seam: public/stable extension point, chunk contract, `audio_format` pre-`start()`, `stop()`/queue lifecycle | Implemented |
+| [format-conversion.md](format-conversion.md) | Source format vs module format: resolution rules (`engine.audio.*`, `engine.module.sample_rate`, per-instance rates), the converter stage before the VAD gate (resampling with `soxr`, channel downmix, `mulaw`), replaces `on_unsupported_format` | Implemented |
 | [engine.md](engine.md) | `ASREngine` (from `ASREngineConfig`) + `Segmenter`: callbacks, dictation (`start_dictation`/`stop_dictation`), `set_segmentation_params`, `segmentation_mode`/`dictating` getters, `listen` | Implemented |
 | [configuration.md](configuration.md) | Config file schema (`server` + nested `engine`/`ASREngineConfig`), fields, validation rules (no default module; extra-not-installed error) | Implemented |
 | [tools.md](tools.md) | Transport-agnostic `AsrTools` for direct in-process agent registration or MCP adaptation over an `ASREngine` | Implemented |

@@ -8,8 +8,7 @@
     "auto_start_dictation": false,
     "dictation_default_segmentation_mode": "trigger_word",
     "audio": {
-      "device": null,
-      "sample_rate": 24000
+      "device": null
     },
     "module": {
       "type": "kyutai",

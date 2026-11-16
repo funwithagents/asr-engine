@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -23,7 +24,18 @@ _DEFAULT_TRIGGER_WORDS: list[str] = [
 
 _SEGMENT_MODES = ("utterance", "trigger_word", "timeout")
 _ENCODINGS = ("linear16", "mulaw")
-_UNSUPPORTED_FORMAT_POLICIES = ("error", "fallback")
+
+log = logging.getLogger(__name__)
+
+
+def _optional_positive_int(data: dict[str, Any], key: str, where: str) -> int | None:
+    """``data[key]`` as a positive integer, or ``None`` when absent or null."""
+    value = data.get(key)
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        raise ValueError(f"Invalid {where}.{key}: must be a positive integer or null.")
+    return value
 
 
 def _read_file(path: str) -> str:
@@ -63,15 +75,20 @@ class AudioConfig:
     device: str | None = None
     audio_file: str | None = None
     trailing_silence_s: float = 0.0
-    sample_rate: int = 16000
-    channels: int = 1
+    # The format the audio source produces. ``None`` = no rate (or channel count)
+    # of its own: a file uses its own, a microphone or an injected source the
+    # module's. See specs/format-conversion.md.
+    sample_rate: int | None = None
+    channels: int | None = None
     encoding: str = "linear16"
-    on_unsupported_format: str = "error"
 
 
 @dataclass
 class ModuleConfig:
     type: str = ""
+    # The rate the module is fed, when it must differ from the engine's choice
+    # (the source's rate if the module supports it, else the module's default).
+    sample_rate: int | None = None
     extra: dict[str, Any] = field(default_factory=dict)
 
 
@@ -176,7 +193,7 @@ class ASREngineConfig:
         library, and where all engine validation lives: it takes the object under
         the top-level ``"engine"`` key (not the whole config file) and validates it
         — segmentation modes in {utterance, trigger_word, timeout}, encoding in
-        {linear16, mulaw}, on_unsupported_format in {error, fallback},
+        {linear16, mulaw}, the audio and module sample rates positive integers,
         ``auto_start_dictation`` requires ``auto_start``, ``module.type`` is
         required, and the optional ``vad`` block's ``type`` and gate parameters. ``from_json``/``from_json_file`` layer JSON string/file loading
         over it, and ``MCPServerConfig.from_dict`` delegates its ``engine`` block
@@ -232,29 +249,39 @@ class ASREngineConfig:
                 f"Invalid engine.audio.encoding: '{encoding}'. "
                 f"Must be one of {', '.join(_ENCODINGS)}."
             )
-        on_unsupported = audio_data.get("on_unsupported_format", "error")
-        if on_unsupported not in _UNSUPPORTED_FORMAT_POLICIES:
-            raise ValueError(
-                f"Invalid engine.audio.on_unsupported_format: '{on_unsupported}'. "
-                f"Must be one of {', '.join(_UNSUPPORTED_FORMAT_POLICIES)}."
+        if "on_unsupported_format" in audio_data:
+            log.warning(
+                "engine.audio.on_unsupported_format is no longer used and is "
+                "ignored: the engine now converts the audio to a format the "
+                "module supports. Remove it from the config."
             )
         audio = AudioConfig(
             device=audio_data.get("device", None),
             audio_file=audio_data.get("audio_file", None),
             trailing_silence_s=audio_data.get("trailing_silence_s", 0.0),
-            sample_rate=audio_data.get("sample_rate", 16000),
-            channels=audio_data.get("channels", 1),
+            sample_rate=_optional_positive_int(
+                audio_data, "sample_rate", "engine.audio"
+            ),
+            channels=_optional_positive_int(audio_data, "channels", "engine.audio"),
             encoding=encoding,
-            on_unsupported_format=on_unsupported,
         )
 
         module_data = engine_block.get("module", {})
         module_type = module_data.get("type")
         if not module_type:
             raise ValueError("Config is missing required field: engine.module.type")
-        extra = {k: v for k, v in module_data.items() if k != "type"}
+        # `type` and `sample_rate` are the engine's; the rest is the module's own.
+        extra = {
+            k: v for k, v in module_data.items() if k not in ("type", "sample_rate")
+        }
         # An old key (`deepgram_v1`) is stored as its new one, with a warning.
-        module = ModuleConfig(type=canonical_module_type(module_type), extra=extra)
+        module = ModuleConfig(
+            type=canonical_module_type(module_type),
+            sample_rate=_optional_positive_int(
+                module_data, "sample_rate", "engine.module"
+            ),
+            extra=extra,
+        )
 
         vad = _parse_vad(engine_block.get("vad"))
 

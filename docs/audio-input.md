@@ -22,10 +22,7 @@ Set `audio.audio_file` to stream a decoded audio file (WAV, MP3, …) at real-ti
 {
   "audio": {
     "audio_file": "speech.mp3",
-    "trailing_silence_s": 2.0,
-    "sample_rate": 44100,
-    "channels": 1,
-    "encoding": "linear16"
+    "trailing_silence_s": 2.0
   },
   "module": {
     "type": "deepgram-v1",
@@ -34,7 +31,7 @@ Set `audio.audio_file` to stream a decoded audio file (WAV, MP3, …) at real-ti
 }
 ```
 
-The file is decoded and checked against the resolved sample rate and channel count; it is **not resampled**, so `audio.sample_rate` must be the file's own rate. `trailing_silence_s` appends silence after the file, which gives a remote backend the pause it needs to finalize the last utterance.
+The file is read at its own sample rate and channel count, and converted when the module takes another format ([below](#audio-format-and-conversion)). Setting `audio.sample_rate` or `audio.channels` with a file is a check: a file that differs is refused. `trailing_silence_s` appends silence after the file, which gives a remote backend the pause it needs to finalize the last utterance.
 
 ## Injecting your own source
 
@@ -70,21 +67,40 @@ engine = ASREngine(config, audio_source=source)
 The contract in brief:
 
 - `start()` returns the queue the source owns and feeds; `stop()` halts feeding. The engine may call `start()` again later, so a source must be restartable.
-- Each item is a chunk of raw PCM **already in `engine.audio_format`**. The engine does not resample or re-encode what an injected source provides. `engine.audio_format` is valid right after construction, before `start()`, so a source can read it to know what to produce.
+- Each item is a chunk of raw PCM **in `engine.audio_format`**. By default that is the module's format, and the source produces it. When your stream has a format of its own, state it in the `audio` block (`sample_rate`, `channels`, `encoding`) and the engine converts it for the module ([below](#audio-format-and-conversion)). `engine.audio_format` is valid right after construction, before `start()`, so a source can read it to know what to produce.
 - Any reasonable chunk size works.
 
 The bundled sources follow the same protocol: `AudioCapture` (the microphone), `FileAudioSource`, and `ScriptableAudioSource`, which feeds silence and plays files on demand for tests ([testing-your-application.md](testing-your-application.md)). The full contract is in the [audio-source specification](../specs/audio-source.md).
 
-## Audio-format negotiation
+## Audio format and conversion
 
-`audio.sample_rate`, `audio.channels` and `audio.encoding` describe the format the engine should deliver to the module. The defaults are 16000 Hz, mono, `linear16`. Every module declares the values it supports and a default for each.
+The engine keeps two formats and converts between them when they differ:
 
-| `on_unsupported_format` | When a requested value is unsupported |
-|---|---|
-| `error` (default) | Engine construction fails with a message listing the module's supported values |
-| `fallback` | That value is replaced by the module's default and a warning is logged |
+- the **source format**, `engine.audio_format`: what the audio source produces;
+- the **module format**, `engine.module_audio_format`: what the ASR module is fed.
 
-The resolved format is `engine.audio_format`, and both the audio source and the module receive it.
+You rarely need to set either. With an empty `audio` block the microphone is opened at the module's format, and a file is read at its own. When the source's format is not one the module takes, the engine resamples it, mixes it down to mono and re-encodes it as needed, and logs one line saying so.
+
+| Field | Describes | When unset |
+|---|---|---|
+| `audio.sample_rate`, `audio.channels` | What the source produces | Microphone or injected source: the module's. File: the file's own |
+| `audio.encoding` | The source's encoding, `linear16` or `mulaw` | `linear16` |
+| `module.sample_rate` | The rate the module is fed | The source's rate when the module supports it, otherwise the module's default |
+
+Set `module.sample_rate` to feed a module another rate than the engine would pick. It must be one the module supports. For example, a 48 kHz microphone sending 16 kHz to Deepgram:
+
+```json
+{
+  "audio": { "sample_rate": 48000 },
+  "module": {
+    "type": "deepgram-v1",
+    "api_key_env": "DEEPGRAM_API_KEY",
+    "sample_rate": 16000
+  }
+}
+```
+
+The rates and encodings each module takes, with its default rate first:
 
 | Module | Sample rates (Hz) | Encodings |
 |---|---|---|
@@ -95,4 +111,6 @@ The resolved format is `engine.audio_format`, and both the audio source and the 
 | `kyutai` | 24000 only | `linear16` |
 | `fake` | any | any |
 
-All modules take mono audio. Two modules need a rate other than the default: set `audio.sample_rate` to `24000` for `kyutai` and for `openai-realtime-compatible`.
+All modules take mono audio. `openai-realtime-compatible` lists hosted OpenAI's rate; its `supported_sample_rates` and `default_sample_rate` fields describe a server that takes others ([modules/openai-realtime-compatible.md](modules/openai-realtime-compatible.md)).
+
+Resampling delays the audio by 5 to 30 ms for the usual rate pairs. A stereo source is averaged to mono; a layout where neither side is mono cannot be converted and fails at construction.

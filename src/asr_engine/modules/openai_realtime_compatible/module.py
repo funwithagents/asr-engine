@@ -32,6 +32,7 @@ from asr_engine.modules.base import (
     ConnectedCallback,
     SpeechUtterance,
     UtteranceCallback,
+    parse_sample_rate_overrides,
     resolve_api_key,
 )
 
@@ -247,6 +248,11 @@ class OpenAIRealtimeCompatibleModule(ASRModule):
                 f"{_LABEL} module: 'stop_timeout_s' must be a positive number"
             )
         self._stop_timeout_s = float(stop_timeout_s)
+        # The class attributes describe hosted OpenAI; another server may take
+        # other rates (specs/modules/openai-realtime-compatible.md).
+        self._supported_sample_rates, self._default_sample_rate = (
+            parse_sample_rate_overrides(config, type(self), _LABEL)
+        )
 
         self._connect: Connector = connect or _websockets_connect
 
@@ -271,6 +277,14 @@ class OpenAIRealtimeCompatibleModule(ASRModule):
         self._settled = asyncio.Event()  # no open item, no commit in flight
 
     # ------------------------------------------------------------------ lifecycle
+
+    @property
+    def supported_sample_rates(self) -> frozenset[int] | None:
+        return self._supported_sample_rates
+
+    @property
+    def default_sample_rate(self) -> int:
+        return self._default_sample_rate
 
     async def start(
         self,
