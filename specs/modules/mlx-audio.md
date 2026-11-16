@@ -109,7 +109,7 @@ A `MODULES` row: type `mlx-audio`, the default model, the 16 kHz WAV `ModuleAudi
 - `src/asr_engine/modules/mlx_audio/download.py`: `python -m asr_engine.modules.mlx_audio.download [model]` fetches a model through mlx-audio's own `get_model_path`; `is_cached()` (no network) for the e2e gate. It reads the cache directly, because `snapshot_download(local_files_only=True)` treats mlx-audio's pattern-filtered snapshot as incomplete.
 - `src/asr_engine/modules/__init__.py`: `"mlx-audio": LazyModule("asr_engine.modules.mlx_audio.module:MlxAudioModule")`
 - `pyproject.toml` / `uv.lock`, `.gitignore` (`.venv-kyutai/`)
-- `examples/config/mlx_audio.json`, `tests/examples/test_configs.py`
+- `examples/config/mlx-audio.json`, `tests/examples/test_configs.py`
 - `tests/modules/test_mlx_audio.py`, `tests-e2e/helpers.py`, `tests-e2e/test_engine_modules.py`
 - Doc touch-ups: [asr-module-interface.md](../asr-module-interface.md) (registry, extras table), [project.md](../project.md) (extras rule, layout), [vad.md](../vad.md) (module tables), [e2e-testing.md](../e2e-testing.md) (rows, `"required"` rule), [configuration.md](../configuration.md), [ci.md](../ci.md) (expected skips), `README.md`, `AGENTS.md`
 

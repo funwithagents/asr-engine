@@ -128,7 +128,7 @@ A `MODULES` row: type `openai-transcriptions-compatible`, `gpt-4o-transcribe` on
 - `src/asr_engine/modules/batch.py`: `DEFAULT_INTERIM_INTERVAL_S`
 - `src/asr_engine/modules/__init__.py`: the registry entry, `extra="openai-compatible"`
 - `pyproject.toml` / `uv.lock`: the extra, in `all` and `dev`
-- `examples/config/openai_transcriptions_compatible.json`, `tests/examples/test_configs.py`
+- `examples/config/openai-transcriptions-compatible.json`, `tests/examples/test_configs.py`
 - `tests/modules/test_openai_transcriptions_compatible.py`, `tests-e2e/helpers.py`
 - Doc touch-ups: [asr-module-interface.md](../asr-module-interface.md) (registry, extras table), [batch-asr-module.md](../batch-asr-module.md) (the interim default), [vad.md](../vad.md) (module tables), [e2e-testing.md](../e2e-testing.md) (rows), [configuration.md](../configuration.md), [ci.md](../ci.md) (expected skips), `README.md`, `examples/README.md`, `AGENTS.md`
 

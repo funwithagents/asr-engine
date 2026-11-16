@@ -12,6 +12,9 @@ Where things live. This is a coarse, module-level map — for the full file inve
 
 | Path | What's there |
 |---|---|
+| `README.md` | The landing page — what the engine is, install, the keyless quick start, the module table, the documentation links, feedback and contributions, how it is developed, license; its examples are executed by `tests/test_docs_examples.py` |
+| `CONTRIBUTING.md` | How the project is run: one maintainer, no external pull requests for now, feedback through issues |
+| `docs/` | The user documentation, by task, indexed by [docs/index.md](docs/index.md): configuration, running the engine, segmentation, audio input, VAD, agents and MCP, choosing a module, testing your application, troubleshooting, and one page per backend under `docs/modules/` mirroring `specs/modules/` (its field tables checked against the spec's by `tests/test_docs.py`) — see [specs/project.md](specs/project.md) "Documentation" |
 | `src/asr_engine/` | The library itself — one module per core concept (see below); pluggable ASR backends in `modules/` — the registry, `base.py` and the batch base class `batch.py` at its root, then **one package per backend** (`modules/deepgram/`, `modules/mistral/`, `modules/openai_realtime_compatible/`, `modules/openai_transcriptions_compatible/`, `modules/kyutai/`, `modules/mlx_audio/`, `modules/fake/`); the optional VAD stage in `vad/` — its registry, `base.py` and the shared `gate.py` at its root, then one package per VAD backend (`vad/silero/`) — see [specs/vad.md](specs/vad.md); bundled cues in `sounds/` |
 | `specs/` | Pre-implementation design docs, one per concept, each with a `**Status:**` — indexed by [specs/_index.md](specs/_index.md). Per-backend specs live in `specs/modules/` (one `<backend>.md` each, mirroring `src/asr_engine/modules/<backend>/`); the contract they all implement stays at the top level ([asr-module-interface.md](specs/asr-module-interface.md)) |
 | `plans/` | Implementation plans turning settled specs into buildable steps — indexed by [plans/_index.md](plans/_index.md) |
@@ -36,6 +39,8 @@ Where things live. This is a coarse, module-level map — for the full file inve
 | [sound_feedback.py](src/asr_engine/sound_feedback.py) | `SoundFeedback` + `NoOpSoundFeedback`: WAV cue playback | [sound-feedback.md](specs/sound-feedback.md) |
 | [_logging.py](src/asr_engine/_logging.py) | `setup_logging()` for entry points and scripts | [project.md](specs/project.md) |
 | [__init__.py](src/asr_engine/__init__.py) | Package glue (no owning spec) | — |
+
+**Keep the documentation current:** the README and `docs/` are the user's view of what the specs decide, so a change that alters behavior a page describes updates that page in the same change — a new or renamed config field goes in the module's spec table *and* its `docs/modules/` page, a new module gets a page and a row in both module tables (the checklist in [specs/asr-module-interface.md](specs/asr-module-interface.md#adding-a-module-checklist)). `tests/test_docs.py` fails on a broken relative link or anchor, a missing `examples/config/` file named in the text, a module table out of step with the registry, or a module page whose fields differ from its spec's; `tests/test_docs_examples.py` runs the documentation's Python examples.
 
 **Keep this map current:** when you add, rename, or remove a top-level `src/asr_engine/` module or a root directory, update the map in the same change — same discipline as keeping spec/plan statuses honest (below). A test (`tests/test_project_map.py`) enforces that every `src/asr_engine/*.py` module appears here and vice-versa — and that the spec frontmatter (see below) stays honest too.
 
