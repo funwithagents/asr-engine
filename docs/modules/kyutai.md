@@ -59,7 +59,7 @@ To check that a machine keeps up with real time, run `uv run python scripts/benc
 ## Troubleshooting
 
 - An `ImportError` naming `kyutai-mlx` or `kyutai-torch`: the backend's extra is not installed in this environment.
-- Engine construction fails on `engine.module.sample_rate`: the model takes 24000 only. Remove the field.
+- Engine construction fails on `engine.module.audio_format.sample_rate`: the model takes 24000 only. Remove the field.
 - A warning that the model is lagging, then dropped audio: the machine does not keep up with real time. Run the benchmark above.
 - Utterances only close after two seconds of silence: the selected `hf_repo` has no end-of-turn heads, so only the `finalize_after_silence_s` fallback applies. Use the `-candle` repo.
 

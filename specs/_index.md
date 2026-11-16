@@ -20,7 +20,7 @@ Per-backend ASR module specs live in [`modules/`](modules/), one file per backen
 | [overview.md](overview.md) | Goals, components, constraints, non-goals | Implemented |
 | [architecture.md](architecture.md) | System diagram, concurrency model, data flow | Implemented |
 | [audio-source.md](audio-source.md) | `AudioSource` injection seam: public/stable extension point, chunk contract, `audio_format` pre-`start()`, `stop()`/queue lifecycle | Implemented |
-| [format-conversion.md](format-conversion.md) | Source format vs module format: resolution rules (`engine.audio.*`, `engine.module.sample_rate`, per-instance rates), the converter stage before the VAD gate (resampling with `soxr`, channel downmix, `mulaw`), replaces `on_unsupported_format` | Implemented |
+| [format-conversion.md](format-conversion.md) | Source format vs module format, each set by an `audio_format` object (`engine.module.audio_format`, defaulting to the module's own; `engine.audio.audio_format`, defaulting to the module format, a file using its own rate; per-instance rates), the converter stage before the VAD gate (resampling with `soxr`, channel downmix, `mulaw`), replaces `on_unsupported_format` | Implemented |
 | [engine.md](engine.md) | `ASREngine` (from `ASREngineConfig`) + `Segmenter`: callbacks, dictation (`start_dictation`/`stop_dictation`), `set_segmentation_params`, `segmentation_mode`/`dictating` getters, `listen` | Implemented |
 | [configuration.md](configuration.md) | Config file schema (`server` + nested `engine`/`ASREngineConfig`), fields, validation rules (no default module; extra-not-installed error) | Implemented |
 | [tools.md](tools.md) | Transport-agnostic `AsrTools` for direct in-process agent registration or MCP adaptation over an `ASREngine` | Implemented |

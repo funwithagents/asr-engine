@@ -21,10 +21,10 @@ The MCP server needs the `mcp` extra: `uv sync --no-default-groups --extra <modu
 ## The module does not support the sample rate
 
 ```text
-... does not support engine.module.sample_rate=16000. Supported: [24000]. ...
+... does not support engine.module.audio_format.sample_rate=16000. Supported: [24000]. ...
 ```
 
-`module.sample_rate` asks for a rate the module cannot take. The message lists the supported ones. Remove the field to let the engine choose, or pick a listed rate. A source at another rate needs no setting: the engine converts it ([audio-input.md](audio-input.md#audio-format-and-conversion)).
+`module.audio_format` asks for a rate, channel count or encoding the module cannot take. The message lists the supported ones. Remove the field to use the module's default, or pick a listed value. A source at another rate needs no setting: the engine converts it ([audio-input.md](audio-input.md#audio-format-and-conversion)).
 
 ## The module needs a VAD
 
@@ -45,7 +45,7 @@ ASR module 'mlx-audio' needs a VAD to know when an utterance ends: add an engine
 
 ## A file input is rejected
 
-- `expected sample rate 16000 (engine.audio.sample_rate), got 44100` (or the same for channels): the `audio` block states a rate or channel count the file does not have. Remove the field; the file's own values are used, and converted for the module when needed.
+- `expected sample rate 16000 (engine.audio.audio_format.sample_rate), got 44100` (or the same for channels): `audio.audio_format` states a rate or channel count the file does not have. Remove the field; the file's own values are used, and converted for the module when needed.
 - `Audio file not found` or `not a readable audio file`: the path in `audio.audio_file` is wrong, or the file is not something `libsndfile` decodes.
 
 ## The engine runs but nothing is transcribed

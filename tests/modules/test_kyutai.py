@@ -858,20 +858,12 @@ def test_invalid_config_rejected(config, message):
 
 def test_declares_the_strict_24khz_mono_linear16_contract():
     module = KyutaiModule({}, backend_factory=ScriptedBackend)
-    # Whatever the source produces, the module is fed 24 kHz mono linear16.
-    for rate, channels, encoding in [(16000, 2, "mulaw"), (None, None, "linear16")]:
-        resolved = resolve_module_audio_format(
-            module, sample_rate=rate, channels=channels, encoding=encoding
-        )
-        assert resolved == FORMAT_24K
+    # The module is fed 24 kHz mono linear16, and nothing else can be asked for.
+    assert resolve_module_audio_format(module) == FORMAT_24K
     with pytest.raises(ValueError, match="24000"):
-        resolve_module_audio_format(
-            module,
-            sample_rate=None,
-            channels=None,
-            encoding="linear16",
-            requested_sample_rate=16000,
-        )
+        resolve_module_audio_format(module, sample_rate=16000)
+    with pytest.raises(ValueError, match="linear16"):
+        resolve_module_audio_format(module, encoding="mulaw")
 
 
 # ------------------------------------------------- weights download (download.py)

@@ -26,6 +26,8 @@ from examples.mcp_client.resource_client import AsrResourceClient
 @pytest.mark.asyncio
 async def test_resource_emits_final_transcript() -> None:
     # The server auto-starts before the client subscribes: script into the tail.
+    # The 44.1 kHz MP3 reaches the fake module (fed 16 kHz, its default) through
+    # the format converter, as in every server scenario of this tier.
     module_type, module_config = default_module(script_blue(delay_s=2.0))
     proc, config_path = await start_mcp_server(
         FIXTURE_BLUE, module_type, module_config, port=18001, trailing_silence_s=3.0
@@ -51,47 +53,6 @@ async def test_resource_emits_final_transcript() -> None:
 
     assert len(last_final_transcript) > 0, "No final result received"
     assert last_final_transcript == ["the sky is blue"]
-
-
-@pytest.mark.asyncio
-async def test_a_file_at_another_rate_than_the_module_needs_no_audio_config() -> None:
-    """The server plays a 44.1 kHz MP3 into a module fed 16 kHz, with no rate in
-    ``engine.audio``: the file's rate is read from the file, and the engine
-    converts (specs/format-conversion.md).
-
-    The fake module's clock is the audio it receives, counted at the 16 kHz it is
-    told it gets. The final is scripted 3.5 s in, near the end of the ~4.3 s of
-    audio fed, so it does not come out if the module is handed less audio than
-    that. Whether converted speech is still recognized is a live backend's to show
-    (``test_engine_modules_converted``).
-    """
-    module_type, module_config = default_module(script_blue(delay_s=2.3))
-    proc, config_path = await start_mcp_server(
-        FIXTURE_BLUE,
-        module_type,
-        {**module_config, "sample_rate": 16000},
-        port=18007,
-        trailing_silence_s=3.0,
-        audio_format=None,
-    )
-
-    final_event = asyncio.Event()
-    finals: list[str] = []
-
-    async def _on_event(payload: dict) -> None:
-        if payload.get("transcript") and payload.get("is_final"):
-            finals.append(payload["transcript"])
-            final_event.set()
-
-    client = AsrResourceClient("http://127.0.0.1:18007/mcp", _on_event)
-    try:
-        await client.start()
-        await asyncio.wait_for(final_event.wait(), timeout=30.0)
-    finally:
-        await client.stop()
-        await stop_mcp_server(proc, config_path)
-
-    assert finals == ["the sky is blue"]
 
 
 @pytest.mark.asyncio

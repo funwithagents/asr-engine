@@ -168,15 +168,14 @@ async def test_engine_modules_vad(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "module_type, module_config, silence_s, module_sample_rate, expected_rate, vad",
+    "module_type, module_config, silence_s, module_sample_rate, vad",
     MODULES_CONVERTED,
 )
 async def test_engine_modules_converted(
     module_type: str,
     module_config: dict,
     silence_s: float,
-    module_sample_rate: int | None,
-    expected_rate: int,
+    module_sample_rate: int,
     vad: dict | None,
 ) -> None:
     """A module recognizes speech from a source whose rate it is not fed.
@@ -205,7 +204,7 @@ async def test_engine_modules_converted(
     )
     # The source keeps its own rate; the module is fed another.
     assert engine.audio_format == FORMAT_MP3_44100
-    assert engine.module_audio_format.sample_rate == expected_rate
+    assert engine.module_audio_format.sample_rate == module_sample_rate
     try:
         await engine.start()
         await wait_until(lambda: engine.status()["connected"])

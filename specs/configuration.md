@@ -58,13 +58,11 @@ Both config classes expose the same three-rung constructor ladder — pick the r
       "device": null,
       "audio_file": null,
       "trailing_silence_s": 0.0,
-      "sample_rate": null,
-      "channels": null,
-      "encoding": "linear16"
+      "audio_format": { "sample_rate": null, "channels": null, "encoding": null }
     },
     "module": {
       "type": "<module_type>",
-      "sample_rate": null,
+      "audio_format": { "sample_rate": null, "channels": null, "encoding": null },
       "...": "...module-specific fields..."
     },
     "vad": null
@@ -127,21 +125,38 @@ The single source of segmentation parameters. The always-on segmenter, `listen`,
 | `device` | string / null | `null` | Audio input device name or index. `null` = system default. |
 | `audio_file` | string / null | `null` | Path to an audio file (WAV, MP3, … — anything `libsndfile`/`soundfile` decodes) to stream **instead of** the live input device, fed through a `FileAudioSource` at real-time pace. The file's own rate and channel count are used; the engine converts them to the module's when they differ ([format-conversion.md](format-conversion.md)). Primarily a testing hook — see [e2e-testing.md](e2e-testing.md). |
 | `trailing_silence_s` | float | `0.0` | (`audio_file` only) Seconds of silence appended after the file ends, so the ASR backend receives the tail-silence it needs to emit a final result. Ignored for live capture. |
-| `sample_rate` | integer / null | `null` | The sample rate the audio source produces. `null`: a microphone or an injected source uses the module's rate, a file its own. Set for a microphone, the device is opened at that rate. Set with `audio_file`, it is a check: a file at another rate is an error. |
-| `channels` | integer / null | `null` | The channel count the source produces. Same rules as `sample_rate`. |
-| `encoding` | string | `"linear16"` | The encoding the source produces: `"linear16"` (s16 PCM) or `"mulaw"` (G.711 μ-law). The bundled microphone and file sources encode their s16 to it. |
+| `audio_format` | object / null | `null` | The format the audio source produces: an [`audio_format` object](#the-audio_format-object). A field left unset follows the module's format. |
 
-The three format fields describe the **source format** (`engine.audio_format`). The ASR module is fed the **module format** (`engine.module_audio_format`): per dimension, the source's value when the module supports it, otherwise the module's default, with the engine converting in between. The rules, and the converter, are in [format-conversion.md](format-conversion.md). `mulaw` silence is `0xFF`, not zero bytes, so the sources transcode silence rather than assume it.
-
-> `on_unsupported_format` is gone: an unsupported format is converted, not refused. A config that still carries the field loads, with a warning.
+> `on_unsupported_format` is gone: an unsupported format is converted, not refused. A config that still carries the field loads, with a warning. `sample_rate`, `channels` and `encoding` used to sit directly in this block; they are still read, with a warning, and now belong in `audio_format`.
 
 #### `engine.module` sub-block
 
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `type` | string | yes | Identifies which ASR module to load (e.g. `"deepgram-v1"`). There is **no default module**. Provider modules need their extra installed (see [asr-module-interface.md](asr-module-interface.md) "Optional dependencies (extras)"); `"fake"` is a test double for tests only (see [modules/fake.md](modules/fake.md)). |
-| `sample_rate` | integer / null | no | The sample rate the module is fed, for every module. `null` (the default) lets the engine choose: the source's rate when the module supports it, otherwise the module's default. A set rate must be one the module supports. When it differs from the source's, the engine resamples ([format-conversion.md](format-conversion.md)). Read by the engine, not passed to the module. |
+| `audio_format` | object / null | no | The format the module is fed, for every module: an [`audio_format` object](#the-audio_format-object). A field left unset is the module's own default. Read by the engine, not passed to the module. |
 | *(other fields)* | any | depends | Module-specific configuration, parsed by the module. |
+
+#### The `audio_format` object
+
+The same object sets a format in `engine.audio` (what the source produces) and in `engine.module` (what the module is fed). Every field is optional.
+
+```json
+{ "sample_rate": 24000, "channels": 1, "encoding": "linear16" }
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `sample_rate` | integer / null | Sample rate in Hz. |
+| `channels` | integer / null | Channel count. Every bundled module takes mono. |
+| `encoding` | string / null | `"linear16"` (s16 PCM) or `"mulaw"` (G.711 μ-law). |
+
+How an unset field is resolved, in order:
+
+1. **The module format** (`engine.module_audio_format`): each field of `engine.module.audio_format`, else the module's own default. A set value must be one the module supports.
+2. **The source format** (`engine.audio_format`): each field of `engine.audio.audio_format`, else the module format's value. With `audio_file`, the rate and channel count are the file's own, and a set value is a check.
+
+When the two formats differ, the engine converts the source's audio into the module's. The rules, examples and the converter are in [format-conversion.md](format-conversion.md). `mulaw` silence is `0xFF`, not zero bytes, so the sources transcode silence rather than assume it.
 
 #### `engine.vad` sub-block
 
@@ -236,7 +251,7 @@ Requires the `mistral` extra (`pip install 'asr-engine[mistral]'`). See [modules
 
 ## Example: OpenAI Realtime config (24 kHz)
 
-Requires the `openai-compatible` extra (`pip install 'asr-engine[openai-compatible]'`). See [modules/openai-realtime-compatible.md](modules/openai-realtime-compatible.md) for the module fields, and for pointing `url` at another compatible server. The module is fed 24 kHz, the only rate hosted OpenAI accepts: the microphone is opened at that rate, and a source at another rate is resampled. No `sample_rate` is needed. A complete file ships as `examples/config/openai-realtime-compatible.json`, with `"vad": {"type": "silero"}` (needs the `silero` extra).
+Requires the `openai-compatible` extra (`pip install 'asr-engine[openai-compatible]'`). See [modules/openai-realtime-compatible.md](modules/openai-realtime-compatible.md) for the module fields, and for pointing `url` at another compatible server. The module is fed 24 kHz, the only rate hosted OpenAI accepts: the microphone is opened at that rate, and a source at another rate is resampled. No `audio_format` is needed. A complete file ships as `examples/config/openai-realtime-compatible.json`, with `"vad": {"type": "silero"}` (needs the `silero` extra).
 
 ```json
 {
@@ -319,7 +334,7 @@ Requires the `kyutai-mlx` (Apple Silicon) or `kyutai-torch` extra, in an environ
 }
 ```
 
-The module declares a strict 24 kHz contract. No `sample_rate` is needed: the microphone is opened at 24 kHz, and a source at another rate is resampled ([format-conversion.md](format-conversion.md)).
+The module declares a strict 24 kHz contract. No `audio_format` is needed: the microphone is opened at 24 kHz, and a source at another rate is resampled ([format-conversion.md](format-conversion.md)).
 
 ## Example: test config (fake module)
 
@@ -348,15 +363,15 @@ For tests only — a keyless, deterministic scripted module (see [modules/fake.m
   - `engine.listen_default_segmentation_mode` is not one of `utterance` / `trigger_word` / `timeout`
   - `engine.dictation_default_segmentation_mode` is not one of `utterance` / `trigger_word` / `timeout`
   - `engine.auto_start_dictation` is `true` while `engine.auto_start` is `false`
-  - `engine.audio.encoding` is not one of `linear16` / `mulaw`
-  - `engine.audio.sample_rate`, `engine.audio.channels` or `engine.module.sample_rate` is neither `null` nor a positive integer
+  - `engine.audio.audio_format` or `engine.module.audio_format` is not an object, holds an unknown field, a `sample_rate` or `channels` that is not a positive integer, or an `encoding` that is not `linear16` / `mulaw` (`null` is "not set" throughout)
+  - `engine.audio` holds both `audio_format` and one of the older flat format fields
   - `engine.vad` is present and not an object, or its `type` is missing or not a non-empty string
   - `engine.vad.threshold` is not a number strictly between 0 and 1, or one of `min_speech_duration_ms` (≥ 0), `min_silence_duration_ms` (> 0), `speech_pad_ms` (≥ 0) is not an integer within its bound — each error names `engine.vad.<field>`
   - The specified `engine.vad.type` is unknown, its extra is not installed, or its own fields are invalid — checked at engine construction, like `engine.module.type`
   - `engine.vad` is set with an ASR module that does not support VAD gating, or is absent with a module that requires it — checked at engine construction (see [asr-module-interface.md](asr-module-interface.md) "VAD gating")
 - The source and module formats are resolved at engine construction (startup), where these fail with a clear error ([format-conversion.md](format-conversion.md)):
-  - `engine.module.sample_rate` is not a rate the module supports (the message lists them)
-  - `engine.audio.audio_file` is missing or unreadable, or its rate or channel count differs from a value set in `engine.audio`
+  - a field of `engine.module.audio_format` is not a value the module supports (the message lists them)
+  - `engine.audio.audio_file` is missing or unreadable, or its rate or channel count differs from a value set in `engine.audio.audio_format`
   - the source's channels cannot be converted to the module's (neither side is mono)
 - A source format the module does not support is **not** an error: the engine converts it.
 - The specified audio device is verified when audio capture first starts, and an unknown device raises a clear error there — at startup when `engine.auto_start` is `true`, or on the first `start`/`listen` call when it is `false`.

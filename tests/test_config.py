@@ -10,6 +10,7 @@ import pytest
 
 from asr_engine.config import (
     ASREngineConfig,
+    AudioFormatConfig,
     MCPServerConfig,
     ModuleConfig,
     validate_asr_type,
@@ -101,11 +102,9 @@ def test_load_config_defaults(tmp_path: Path) -> None:
     assert cfg.engine.sound_feedback.enabled is True
     assert cfg.engine.sound_feedback.output_device is None
     assert cfg.engine.audio.device is None
-    # No rate or channel count of its own: the engine resolves them.
-    assert cfg.engine.audio.sample_rate is None
-    assert cfg.engine.audio.channels is None
-    assert cfg.engine.audio.encoding == "linear16"
-    assert cfg.engine.module.sample_rate is None
+    # Nothing set on either format: the engine resolves both.
+    assert cfg.engine.audio.audio_format == AudioFormatConfig()
+    assert cfg.engine.module.audio_format == AudioFormatConfig()
     assert cfg.engine.module.extra == {}
 
 
@@ -116,21 +115,23 @@ def test_load_config_audio_format_fields(tmp_path: Path) -> None:
             _min(
                 {
                     "audio": {
-                        "sample_rate": 48000,
-                        "channels": 1,
-                        "encoding": "mulaw",
+                        "audio_format": {
+                            "sample_rate": 48000,
+                            "channels": 2,
+                            "encoding": "mulaw",
+                        }
                     }
                 }
             ),
         )
     )
-    assert cfg.engine.audio.sample_rate == 48000
-    assert cfg.engine.audio.channels == 1
-    assert cfg.engine.audio.encoding == "mulaw"
+    assert cfg.engine.audio.audio_format == AudioFormatConfig(48000, 2, "mulaw")
 
 
 def test_load_config_rejects_unknown_encoding(tmp_path: Path) -> None:
-    path = write_config(tmp_path, _min({"audio": {"encoding": "opus"}}))
+    path = write_config(
+        tmp_path, _min({"audio": {"audio_format": {"encoding": "opus"}}})
+    )
     with pytest.raises(ValueError, match="encoding"):
         MCPServerConfig.from_json_file(path)
 
@@ -147,46 +148,77 @@ def test_the_removed_unsupported_format_policy_is_ignored_with_a_warning(
     assert not hasattr(cfg.engine.audio, "on_unsupported_format")
 
 
-def test_module_sample_rate_is_the_engines_field_not_the_modules() -> None:
+def test_the_module_audio_format_is_the_engines_not_the_modules() -> None:
     cfg = ASREngineConfig.from_dict(
-        {"module": {"type": "deepgram-v1", "sample_rate": 8000, "model": "nova-3"}}
+        {
+            "module": {
+                "type": "deepgram-v1",
+                "audio_format": {"sample_rate": 8000, "encoding": "mulaw"},
+                "model": "nova-3",
+            }
+        }
     )
-    assert cfg.module.sample_rate == 8000
+    assert cfg.module.audio_format == AudioFormatConfig(8000, None, "mulaw")
     # It is not handed to the module with its own fields.
     assert cfg.module.extra == {"model": "nova-3"}
 
 
+@pytest.mark.parametrize("block", ["audio", "module"])
 @pytest.mark.parametrize(
-    "engine_block, field",
+    "audio_format, message",
     [
-        ({"audio": {"sample_rate": 0}}, "engine.audio.sample_rate"),
-        ({"audio": {"sample_rate": "16000"}}, "engine.audio.sample_rate"),
-        ({"audio": {"sample_rate": 16000.0}}, "engine.audio.sample_rate"),
-        ({"audio": {"channels": -1}}, "engine.audio.channels"),
-        ({"audio": {"channels": True}}, "engine.audio.channels"),
-        ({"module": {"type": "fake", "sample_rate": 0}}, "engine.module.sample_rate"),
-        (
-            {"module": {"type": "fake", "sample_rate": "8k"}},
-            "engine.module.sample_rate",
-        ),
+        ({"sample_rate": 0}, "sample_rate: must be a positive integer"),
+        ({"sample_rate": "16000"}, "sample_rate: must be a positive integer"),
+        ({"sample_rate": 16000.0}, "sample_rate: must be a positive integer"),
+        ({"channels": -1}, "channels: must be a positive integer"),
+        ({"channels": True}, "channels: must be a positive integer"),
+        ({"encoding": "opus"}, "encoding: 'opus'"),
+        ({"rate": 16000}, r"unknown field\(s\) rate"),
+        ([16000, 1], "must be an object or null"),
     ],
 )
-def test_rates_and_channels_must_be_positive_integers(
-    engine_block: dict, field: str
+def test_an_invalid_audio_format_is_rejected_in_either_block(
+    block: str, audio_format: object, message: str
 ) -> None:
-    with pytest.raises(ValueError, match=f"Invalid {field}: must be a positive"):
-        ASREngineConfig.from_dict({"module": {"type": "fake"}, **engine_block})
+    engine_block: dict = {"module": {"type": "fake"}}
+    engine_block.setdefault(block, {})["audio_format"] = audio_format
+    with pytest.raises(ValueError, match=f"engine.{block}.audio_format.*{message}"):
+        ASREngineConfig.from_dict(engine_block)
 
 
-def test_null_rates_and_channels_mean_unset() -> None:
+def test_a_null_audio_format_or_field_means_not_set() -> None:
     cfg = ASREngineConfig.from_dict(
         {
-            "audio": {"sample_rate": None, "channels": None},
-            "module": {"type": "fake", "sample_rate": None},
+            "audio": {"audio_format": {"sample_rate": None, "encoding": None}},
+            "module": {"type": "fake", "audio_format": None},
         }
     )
-    assert (cfg.audio.sample_rate, cfg.audio.channels) == (None, None)
-    assert cfg.module.sample_rate is None
+    assert cfg.audio.audio_format == AudioFormatConfig()
+    assert cfg.module.audio_format == AudioFormatConfig()
+
+
+def test_the_older_flat_audio_fields_still_load_with_a_warning(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    with caplog.at_level("WARNING", logger="asr_engine.config"):
+        cfg = ASREngineConfig.from_dict(
+            {
+                "audio": {"sample_rate": 24000, "encoding": "mulaw"},
+                "module": {"type": "fake"},
+            }
+        )
+    assert cfg.audio.audio_format == AudioFormatConfig(24000, None, "mulaw")
+    assert "now belong in engine.audio.audio_format" in caplog.text
+
+
+def test_flat_audio_fields_next_to_an_audio_format_are_an_error() -> None:
+    with pytest.raises(ValueError, match="both audio_format and the older"):
+        ASREngineConfig.from_dict(
+            {
+                "audio": {"sample_rate": 24000, "audio_format": {"channels": 1}},
+                "module": {"type": "fake"},
+            }
+        )
 
 
 def test_load_config_partial_server_defaults(tmp_path: Path) -> None:
@@ -297,7 +329,10 @@ def test_from_dict_full_block() -> None:
                 "end_of_speech_timeout_s": 2.0,
             },
             "sound_feedback": {"enabled": False, "output_device": "speakers"},
-            "audio": {"device": "hw:0", "sample_rate": 48000, "encoding": "mulaw"},
+            "audio": {
+                "device": "hw:0",
+                "audio_format": {"sample_rate": 48000, "encoding": "mulaw"},
+            },
             "module": {"type": "deepgram", "api_key": "secret", "language": "fr"},
         }
     )
@@ -311,8 +346,7 @@ def test_from_dict_full_block() -> None:
     assert cfg.sound_feedback.enabled is False
     assert cfg.sound_feedback.output_device == "speakers"
     assert cfg.audio.device == "hw:0"
-    assert cfg.audio.sample_rate == 48000
-    assert cfg.audio.encoding == "mulaw"
+    assert cfg.audio.audio_format == AudioFormatConfig(48000, None, "mulaw")
     assert cfg.module.type == "deepgram"
     assert cfg.module.extra == {"api_key": "secret", "language": "fr"}
 
@@ -331,9 +365,7 @@ def test_from_dict_defaults_for_omitted_blocks() -> None:
     assert cfg.sound_feedback.enabled is True
     assert cfg.sound_feedback.output_device is None
     assert cfg.audio.device is None
-    assert cfg.audio.sample_rate is None
-    assert cfg.audio.channels is None
-    assert cfg.audio.encoding == "linear16"
+    assert cfg.audio.audio_format == AudioFormatConfig()
     assert cfg.module.extra == {}
 
 
@@ -374,7 +406,10 @@ def test_from_dict_invalid_dictation_default_mode() -> None:
 def test_from_dict_invalid_encoding() -> None:
     with pytest.raises(ValueError, match="encoding"):
         ASREngineConfig.from_dict(
-            {"audio": {"encoding": "opus"}, "module": {"type": "deepgram"}}
+            {
+                "audio": {"audio_format": {"encoding": "opus"}},
+                "module": {"type": "deepgram"},
+            }
         )
 
 

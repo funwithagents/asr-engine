@@ -306,17 +306,15 @@ def _vad_cases() -> list:
 MODULES_VAD = _vad_cases()
 
 
-# Modules run on the 44.1 kHz MP3s although they are fed another rate, so the
-# engine converts in between (specs/format-conversion.md): module type → (the
-# ``engine.module.sample_rate`` to set, the rate the module must end up fed).
-# ``None`` leaves the choice to the engine: these modules do not take 44.1 kHz, so
-# it resolves to their default. Deepgram does take it, hence the explicit rate.
-CONVERTED_RATES: dict[str, tuple[int | None, int]] = {
-    "deepgram-v1": (16000, 16000),
-    "openai-realtime-compatible": (None, 24000),
-    "openai-transcriptions-compatible": (None, 16000),
-    "kyutai": (None, 24000),
-    "mlx-audio": (None, 16000),
+# Modules run on the 44.1 kHz MP3s while fed another rate, so the engine converts
+# in between (specs/format-conversion.md): module type → the rate it is fed (its
+# default, set explicitly). deepgram-v2 and mistral-realtime share the path.
+CONVERTED_RATES: dict[str, int] = {
+    "deepgram-v1": 16000,
+    "openai-realtime-compatible": 24000,
+    "openai-transcriptions-compatible": 16000,
+    "kyutai": 24000,
+    "mlx-audio": 16000,
 }
 
 
@@ -324,10 +322,9 @@ def _converted_cases() -> list:
     cases = []
     for row in MODULES:
         module_type, module_config, silence_s, _audio = row.values
-        rates = CONVERTED_RATES.get(str(module_type))
-        if rates is None:
+        module_sample_rate = CONVERTED_RATES.get(str(module_type))
+        if module_sample_rate is None:
             continue
-        module_sample_rate, expected_rate = rates
         vad = {"type": "silero"} if module_type in VAD_REQUIRED_MODULES else None
         cases.append(
             pytest.param(
@@ -335,7 +332,6 @@ def _converted_cases() -> list:
                 module_config,
                 silence_s,
                 module_sample_rate,
-                expected_rate,
                 vad,
                 id=str(row.id),
             )
@@ -344,7 +340,7 @@ def _converted_cases() -> list:
 
 
 # Param table for ``test_engine_modules_converted``: (module_type, module_config,
-# silence_s, module_sample_rate, expected_module_rate, vad_block).
+# silence_s, module_sample_rate, vad_block).
 MODULES_CONVERTED = _converted_cases()
 
 
@@ -381,14 +377,16 @@ def build_engine(
     Sound feedback is disabled. ``audio_source`` is any object matching the
     ``AudioSource`` protocol — e.g. a ``FileAudioSource`` (see
     ``build_file_engine``) or a ``ScriptableAudioSource`` for hand-sequenced audio.
-    ``audio_format`` is what the source produces: it is set explicitly on the
-    engine config (``engine.audio``), and the engine converts it to the module's
-    format when the module does not take it. ``module_sample_rate`` is
-    ``engine.module.sample_rate``.
+    ``audio_format`` is what the source produces, set as
+    ``engine.audio.audio_format``. ``module_sample_rate`` is the rate in
+    ``engine.module.audio_format``; left out, the module
+    is fed the source's rate, so the audio reaches it unconverted. Pass another
+    rate to put the format converter in between.
     """
     from asr_engine.config import (
         ASREngineConfig,
         AudioConfig,
+        AudioFormatConfig,
         ModuleConfig,
         SegmentationConfig,
         SoundFeedbackConfig,
@@ -408,12 +406,18 @@ def build_engine(
         segmentation=seg,
         sound_feedback=SoundFeedbackConfig(enabled=False),
         audio=AudioConfig(
-            sample_rate=audio_format.sample_rate,
-            channels=audio_format.channels,
-            encoding=audio_format.encoding,
+            audio_format=AudioFormatConfig(
+                sample_rate=audio_format.sample_rate,
+                channels=audio_format.channels,
+                encoding=audio_format.encoding,
+            )
         ),
         module=ModuleConfig(
-            type=module_type, sample_rate=module_sample_rate, extra=module_config
+            type=module_type,
+            audio_format=AudioFormatConfig(
+                sample_rate=module_sample_rate or audio_format.sample_rate
+            ),
+            extra=module_config,
         ),
     )
     if vad is not None:
@@ -476,14 +480,11 @@ async def start_mcp_server(
     port: int,
     trailing_silence_s: float = 0.0,
     engine_overrides: dict | None = None,
-    audio_format: AudioFormat | None = FORMAT_MP3_44100,
 ) -> tuple[asyncio.subprocess.Process, str]:
     """Start an asr-engine-mcp subprocess.  Returns (process, tmp_config_path).
 
-    The ``engine.audio`` block is written with ``audio_format`` explicitly, so the
-    real binary checks *audio_file* (WAV or MP3) against it. Pass ``None`` to
-    leave the format out, as a user's config would: the engine then reads the
-    file's own rate and channel count.
+    The real binary decodes *audio_file* (WAV or MP3) at the file's own rate and
+    converts it to the module's format.
     ``engine_overrides`` is merged into the ``engine`` config block (e.g.
     ``auto_start``, ``auto_start_dictation``, ``dictation_default_segmentation_mode``,
     ``segmentation``, ``listen_default_segmentation_mode``, ``sound_feedback``).
@@ -495,12 +496,6 @@ async def start_mcp_server(
         },
         "module": {"type": module_type, **module_config},
     }
-    if audio_format is not None:
-        engine["audio"].update(
-            sample_rate=audio_format.sample_rate,
-            channels=audio_format.channels,
-            encoding=audio_format.encoding,
-        )
     if engine_overrides:
         engine.update(engine_overrides)
     config = {

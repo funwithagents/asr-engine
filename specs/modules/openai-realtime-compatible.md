@@ -127,8 +127,8 @@ On the server-VAD path a final lands ≈ 1.1 s after speech end (measured, `gpt-
 | `turn_detection` | bool \| object | `true` | `true` sends `{"type": "server_vad"}` (server defaults). `false` sends `null`: utterances end only on VAD markers or `stop()`, so it needs `engine.vad`. An object is passed through after validation. |
 | `noise_reduction` | string \| null | `null` | `"near_field"` or `"far_field"`, sent as `noise_reduction: {type}`. Omitted when null. |
 | `stop_timeout_s` | float | `5.0` | How long `stop()` waits for the last items to complete |
-| `supported_sample_rates` | list of integers \| null | `null` (`[24000]`) | The rates the server accepts, when not hosted OpenAI's. The engine feeds the module the source's rate when it is in the list, with no resampling. |
-| `default_sample_rate` | integer \| null | `null` (`24000`) | The rate the module is fed when the source's is not in the list. Alone, it is the only rate supported. Must be in `supported_sample_rates` when both are set. |
+| `supported_sample_rates` | list of integers \| null | `null` (`[24000]`) | The rates the server accepts, when not hosted OpenAI's: what `engine.module.audio_format.sample_rate` may be set to. |
+| `default_sample_rate` | integer \| null | `null` (`24000`) | The rate the module is fed unless `engine.module.audio_format.sample_rate` sets another. Alone, it is the only rate supported. Must be in `supported_sample_rates` when both are set. |
 
 **Validation in `__init__`** (per the [constructor contract](../asr-module-interface.md#module-constructor-contract)). Each failure raises `ValueError` naming the field:
 
@@ -202,7 +202,7 @@ The module sends `format: {"type": "audio/pcm", "rate": <the rate it is fed>}`, 
 }
 ```
 
-A 16 kHz source then reaches this server unconverted, and a 44.1 kHz one is resampled to 16 kHz. The fields are a statement about the server, which the module cannot verify: a rate the server refuses fails the handshake, with the server's message in the log (see "Handshake" above).
+This server is fed 16 kHz: the microphone is opened at 16 kHz, and a source at another rate is resampled. `engine.module.audio_format` may pick another rate of the list. The fields are a statement about the server, which the module cannot verify: a rate the server refuses fails the handshake, with the server's message in the log (see "Handshake" above).
 
 ## Lifecycle
 

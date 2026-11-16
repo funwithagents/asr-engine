@@ -303,45 +303,53 @@ class _PickyModule(ASRModule):
         pass
 
 
-def _resolve(module: ASRModule | None = None, **source) -> AudioFormat:
-    source = {"sample_rate": None, "channels": None, "encoding": "linear16", **source}
-    return resolve_module_audio_format(module or _PickyModule(config={}), **source)
+def _resolve(module: ASRModule | None = None, **requested) -> AudioFormat:
+    return resolve_module_audio_format(module or _PickyModule(config={}), **requested)
 
 
-def test_a_source_format_the_module_supports_is_kept_unchanged() -> None:
-    resolved = _resolve(sample_rate=48000, channels=1, encoding="mulaw")
+def test_a_module_is_fed_its_defaults_when_nothing_is_requested() -> None:
+    assert _resolve() == AudioFormat(sample_rate=16000, channels=1, encoding="linear16")
+
+
+def test_requested_fields_replace_the_defaults_one_by_one() -> None:
+    resolved = _resolve(sample_rate=48000, encoding="mulaw")
     assert resolved == AudioFormat(sample_rate=48000, channels=1, encoding="mulaw")
-
-
-def test_each_unsupported_dimension_resolves_to_the_module_default() -> None:
-    # 44.1 kHz stereo is not something the module takes; mulaw is.
-    resolved = _resolve(sample_rate=44100, channels=2, encoding="mulaw")
-    assert resolved == AudioFormat(sample_rate=16000, channels=1, encoding="mulaw")
-
-
-def test_a_source_with_no_rate_of_its_own_gets_the_module_defaults() -> None:
-    assert _resolve() == AudioFormat(sample_rate=16000, channels=1)
-
-
-def test_a_requested_rate_wins_over_the_source_rate() -> None:
-    # The source's 16 kHz is supported, yet the module is asked to be fed 48 kHz.
-    resolved = _resolve(sample_rate=16000, requested_sample_rate=48000)
-    assert resolved.sample_rate == 48000
+    assert _resolve(channels=1) == AudioFormat(sample_rate=16000)
 
 
 def test_a_requested_rate_the_module_does_not_support_is_an_error() -> None:
-    with pytest.raises(ValueError, match=r"engine.module.sample_rate=44100.*16000"):
-        _resolve(sample_rate=16000, requested_sample_rate=44100)
+    with pytest.raises(
+        ValueError, match=r"engine.module.audio_format.sample_rate=44100.*16000"
+    ):
+        _resolve(sample_rate=44100)
 
 
-class _AnyRateModule(_PickyModule):
+def test_a_requested_channel_count_the_module_does_not_support_is_an_error() -> None:
+    with pytest.raises(ValueError, match=r"audio_format.channels=2.*\[1\]"):
+        _resolve(channels=2)
+
+
+class _Linear16Module(_PickyModule):
+    SUPPORTED_ENCODINGS = frozenset({"linear16"})
+
+
+def test_a_requested_encoding_the_module_does_not_support_is_an_error() -> None:
+    with pytest.raises(ValueError, match=r"audio_format.encoding='mulaw'.*linear16"):
+        _resolve(_Linear16Module(config={}), encoding="mulaw")
+
+
+class _AnyFormatModule(_PickyModule):
     SUPPORTED_SAMPLE_RATES = None
+    SUPPORTED_ENCODINGS = None
 
 
-def test_a_module_taking_any_rate_keeps_the_source_or_the_requested_rate() -> None:
-    module = _AnyRateModule(config={})
-    assert _resolve(module, sample_rate=44100).sample_rate == 44100
-    assert _resolve(module, requested_sample_rate=11025).sample_rate == 11025
+def test_a_module_taking_anything_still_defaults_and_accepts_any_request() -> None:
+    module = _AnyFormatModule(config={})
+    assert _resolve(module) == AudioFormat(sample_rate=16000)
+    assert _resolve(module, sample_rate=11025).sample_rate == 11025
+    # Its channel support is still {1}.
+    with pytest.raises(ValueError, match="channels=2"):
+        _resolve(module, channels=2)
 
 
 # ---------------------------------------------------------------------------

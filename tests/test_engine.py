@@ -13,6 +13,7 @@ from asr_engine.audio import AudioFormat
 from asr_engine.config import (
     ASREngineConfig,
     AudioConfig,
+    AudioFormatConfig,
     ModuleConfig,
     SegmentationConfig,
     SoundFeedbackConfig,
@@ -120,57 +121,79 @@ def _restricted_module_class(
 
 
 def _engine_with_audio(
-    cls, *, module_sample_rate=None, audio_source=None, **audio_kwargs
+    cls,
+    *,
+    module_format: AudioFormatConfig | None = None,
+    audio_file: str | None = None,
+    audio_source=None,
+    **source_format,
 ) -> ASREngine:
+    """An engine whose ``engine.audio.audio_format`` is *source_format* and whose
+    ``engine.module.audio_format`` is *module_format*."""
     config = ASREngineConfig(
         sound_feedback=SoundFeedbackConfig(enabled=False),
-        audio=AudioConfig(**audio_kwargs),
-        module=ModuleConfig(type="mock", sample_rate=module_sample_rate, extra={}),
+        audio=AudioConfig(
+            audio_file=audio_file, audio_format=AudioFormatConfig(**source_format)
+        ),
+        module=ModuleConfig(
+            type="mock", audio_format=module_format or AudioFormatConfig(), extra={}
+        ),
     )
     with patch.dict("asr_engine.modules.REGISTRY", {"mock": cls}):
         return ASREngine(config, audio_source=audio_source)
 
 
-def test_a_source_rate_the_module_supports_is_used_end_to_end():
-    cls = _restricted_module_class(MagicMock(), rates=frozenset({16000, 48000}))
-    engine = _engine_with_audio(cls, sample_rate=48000)
-    assert engine.audio_format == AudioFormat(sample_rate=48000)
-    assert engine.module_audio_format == engine.audio_format
-
-
-def test_a_source_rate_the_module_does_not_support_is_converted_not_refused():
-    cls = _restricted_module_class(MagicMock(), rates=frozenset({16000}))
-    engine = _engine_with_audio(cls, sample_rate=44100, channels=2, encoding="mulaw")
-    # The source keeps what the config says it produces…
-    assert engine.audio_format == AudioFormat(44100, 2, "mulaw")
-    # …and the module is fed its own defaults.
-    assert engine.module_audio_format == AudioFormat(16000, 1, "linear16")
-
-
-def test_with_no_rate_configured_the_source_follows_the_module():
+def test_with_nothing_set_the_source_produces_the_modules_default_format():
     cls = _restricted_module_class(
         MagicMock(), rates=frozenset({24000}), default_rate=24000
     )
     engine = _engine_with_audio(cls)
-    assert engine.audio_format == AudioFormat(sample_rate=24000)
     assert engine.module_audio_format == AudioFormat(sample_rate=24000)
+    assert engine.audio_format == engine.module_audio_format
 
 
-def test_module_sample_rate_sets_the_module_rate_independently_of_the_source():
-    cls = _restricted_module_class(MagicMock(), rates=frozenset({8000, 16000, 48000}))
-    # A 48 kHz microphone feeding a module asked to run at 8 kHz.
-    engine = _engine_with_audio(cls, sample_rate=48000, module_sample_rate=8000)
-    assert engine.audio_format.sample_rate == 48000
-    assert engine.module_audio_format.sample_rate == 8000
-    # With no source rate, the source follows the requested module rate.
-    engine = _engine_with_audio(cls, module_sample_rate=8000)
-    assert engine.audio_format.sample_rate == 8000
+def test_the_module_format_does_not_depend_on_the_source():
+    cls = _restricted_module_class(
+        MagicMock(),
+        rates=frozenset({16000, 48000}),
+        encodings=frozenset({"linear16", "mulaw"}),
+    )
+    # The module supports the source's 48 kHz mulaw, yet is fed its own defaults.
+    engine = _engine_with_audio(cls, sample_rate=48000, channels=2, encoding="mulaw")
+    assert engine.audio_format == AudioFormat(48000, 2, "mulaw")
+    assert engine.module_audio_format == AudioFormat(16000, 1, "linear16")
 
 
-def test_an_unsupported_module_sample_rate_fails_at_construction():
+def test_the_module_audio_format_sets_what_the_module_is_fed():
+    cls = _restricted_module_class(
+        MagicMock(),
+        rates=frozenset({8000, 16000, 48000}),
+        encodings=frozenset({"linear16", "mulaw"}),
+    )
+    asked = AudioFormatConfig(sample_rate=8000, encoding="mulaw")
+    # A source with a rate of its own keeps it, and takes the rest from the module.
+    engine = _engine_with_audio(cls, sample_rate=48000, module_format=asked)
+    assert engine.module_audio_format == AudioFormat(8000, 1, "mulaw")
+    assert engine.audio_format == AudioFormat(48000, 1, "mulaw")
+    # A source with nothing set follows the module entirely.
+    engine = _engine_with_audio(cls, module_format=asked)
+    assert engine.audio_format == AudioFormat(8000, 1, "mulaw")
+
+
+@pytest.mark.parametrize(
+    "asked, message",
+    [
+        (AudioFormatConfig(sample_rate=44100), "audio_format.sample_rate=44100"),
+        (AudioFormatConfig(channels=2), "audio_format.channels=2"),
+        (AudioFormatConfig(encoding="mulaw"), "audio_format.encoding='mulaw'"),
+    ],
+)
+def test_a_module_format_the_module_does_not_support_fails_at_construction(
+    asked: AudioFormatConfig, message: str
+):
     cls = _restricted_module_class(MagicMock(), rates=frozenset({16000}))
-    with pytest.raises(ValueError, match="engine.module.sample_rate=44100"):
-        _engine_with_audio(cls, module_sample_rate=44100)
+    with pytest.raises(ValueError, match=f"engine.module.{message}"):
+        _engine_with_audio(cls, module_format=asked)
 
 
 def test_a_channel_layout_that_cannot_be_converted_fails_at_construction():
@@ -665,7 +688,7 @@ def _vad_engine(
 ) -> ASREngine:
     config = ASREngineConfig(
         sound_feedback=SoundFeedbackConfig(enabled=False),
-        audio=AudioConfig(sample_rate=sample_rate),
+        audio=AudioConfig(audio_format=AudioFormatConfig(sample_rate=sample_rate)),
         module=ModuleConfig(type="recording", extra=module_extra or {}),
         vad=vad,
     )
@@ -832,11 +855,12 @@ def _tone(ms: float, rate: int) -> np.ndarray:
 def _converting_engine(
     source: HandFedSource, *, vad: VadConfig | None = None
 ) -> ASREngine:
-    """A 44.1 kHz source feeding a recording module asked to run at 16 kHz."""
+    """A 44.1 kHz source feeding a recording module, which is fed its 16 kHz
+    default."""
     config = ASREngineConfig(
         sound_feedback=SoundFeedbackConfig(enabled=False),
-        audio=AudioConfig(sample_rate=44100),
-        module=ModuleConfig(type="recording", sample_rate=16000),
+        audio=AudioConfig(audio_format=AudioFormatConfig(sample_rate=44100)),
+        module=ModuleConfig(type="recording"),
         vad=vad,
     )
     with (
@@ -910,3 +934,23 @@ async def test_the_vad_gate_runs_on_the_converted_audio():
     # 300 ms of tone, plus the 20 ms pre-roll and the 50 ms hangover, at 16 kHz.
     assert len(speech) / 2 / 16000 == pytest.approx(0.37, abs=0.03)
     await engine.stop()
+
+
+@pytest.mark.asyncio
+async def test_each_start_logs_the_formats_in_use(caplog: pytest.LogCaptureFixture):
+    with caplog.at_level("INFO", logger="asr_engine.engine"):
+        same = _vad_engine(source=HandFedSource(), vad=None)
+        await same.start()
+        await same.stop()
+        converting = _converting_engine(HandFedSource())
+        await converting.start()
+        await converting.stop()
+    # What an injected source must produce is spelled out, converted or not.
+    assert (
+        "Audio format: 16000 Hz, 1 channel(s), linear16, for the source and the "
+        "'recording' module" in caplog.text
+    )
+    assert (
+        "Audio format: 44100 Hz, 1 channel(s), linear16 from the source, converted "
+        "to 16000 Hz, 1 channel(s), linear16 for the 'recording' module" in caplog.text
+    )

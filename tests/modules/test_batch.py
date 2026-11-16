@@ -20,7 +20,6 @@ import pytest
 from asr_engine.audio import END_OF_SPEECH, AudioFormat
 from asr_engine.config import (
     ASREngineConfig,
-    AudioConfig,
     ModuleConfig,
     SoundFeedbackConfig,
 )
@@ -325,7 +324,6 @@ async def test_stop_flushes_the_open_utterance(harnesses) -> None:
 def test_the_engine_rejects_a_batch_module_without_vad() -> None:
     config = ASREngineConfig(
         sound_feedback=SoundFeedbackConfig(enabled=False),
-        audio=AudioConfig(sample_rate=16000),
         module=ModuleConfig(type="scripted_batch", extra={}),
     )
     with patch.dict("asr_engine.modules.REGISTRY", {"scripted_batch": ScriptedBatch}):

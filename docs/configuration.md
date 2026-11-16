@@ -74,9 +74,7 @@ A complete engine block looks like this. Only `module` is required:
     "device": null,
     "audio_file": null,
     "trailing_silence_s": 0.0,
-    "sample_rate": null,
-    "channels": null,
-    "encoding": "linear16"
+    "audio_format": { "sample_rate": null, "channels": null, "encoding": null }
   },
   "vad": null,
   "module": {

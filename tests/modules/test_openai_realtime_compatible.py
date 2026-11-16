@@ -742,14 +742,14 @@ def test_the_registry_resolves_the_module() -> None:
 # ------------------------------------------------------------------- sample rates
 
 
-def _engine(module: dict[str, Any], audio: dict[str, Any] | None = None):
+def _engine(module: dict[str, Any], source_rate: int | None = None):
     from asr_engine import ASREngine, ASREngineConfig
 
     return ASREngine(
         ASREngineConfig.from_dict(
             {
                 "sound_feedback": {"enabled": False},
-                "audio": audio or {},
+                "audio": {"audio_format": {"sample_rate": source_rate}},
                 "module": {
                     "type": "openai-realtime-compatible",
                     "url": "ws://localhost:4000/v1/realtime",
@@ -761,32 +761,40 @@ def _engine(module: dict[str, Any], audio: dict[str, Any] | None = None):
 
 
 def test_by_default_the_module_is_fed_24khz_whatever_the_source_rate() -> None:
-    # Hosted OpenAI's only rate: other source rates are converted, not refused.
-    assert _engine({}).module_audio_format == FORMAT
-    engine = _engine({}, {"sample_rate": 16000})
+    # Hosted OpenAI's only rate. A source with no rate of its own produces it…
+    engine = _engine({})
+    assert engine.audio_format == FORMAT
+    assert engine.module_audio_format == FORMAT
+    # …and one at another rate is converted, not refused.
+    engine = _engine({}, source_rate=16000)
     assert engine.audio_format.sample_rate == 16000
     assert engine.module_audio_format == FORMAT
 
 
 def test_a_server_taking_other_rates_is_described_in_the_module_config() -> None:
-    server = {"supported_sample_rates": [8000, 16000, 24000, 48000]}
-    # A source rate the server takes goes through unconverted…
-    engine = _engine(server, {"sample_rate": 16000})
-    assert engine.module_audio_format.sample_rate == 16000
-    # …another one falls back to the default, which the config can move.
-    assert _engine(server, {"sample_rate": 44100}).module_audio_format == FORMAT
-    engine = _engine({**server, "default_sample_rate": 16000}, {"sample_rate": 44100})
-    assert engine.module_audio_format.sample_rate == 16000
     # A 16 kHz-only server needs only its default.
-    engine = _engine({"default_sample_rate": 16000})
-    assert engine.audio_format.sample_rate == 16000
-    assert engine.module_audio_format.sample_rate == 16000
+    assert _engine({"default_sample_rate": 16000}).module_audio_format == (
+        AudioFormat(sample_rate=16000)
+    )
+    # A server taking several: the default stays 24 kHz unless moved…
+    server = {"supported_sample_rates": [8000, 16000, 24000, 48000]}
+    assert _engine(server).module_audio_format == FORMAT
+    moved = _engine({**server, "default_sample_rate": 48000})
+    assert moved.module_audio_format.sample_rate == 48000
+    # …and any listed rate can be asked for, whatever the source's.
+    asked = _engine({**server, "audio_format": {"sample_rate": 8000}}, 16000)
+    assert asked.module_audio_format.sample_rate == 8000
 
 
-def test_module_sample_rate_is_checked_against_the_configured_rates() -> None:
-    with pytest.raises(ValueError, match=r"engine.module.sample_rate=16000.*24000"):
-        _engine({"sample_rate": 16000})
-    engine = _engine({"sample_rate": 16000, "supported_sample_rates": [16000, 24000]})
+def test_the_module_rate_is_checked_against_the_configured_rates() -> None:
+    with pytest.raises(ValueError, match=r"audio_format.sample_rate=16000.*24000"):
+        _engine({"audio_format": {"sample_rate": 16000}})
+    engine = _engine(
+        {
+            "audio_format": {"sample_rate": 16000},
+            "supported_sample_rates": [16000, 24000],
+        }
+    )
     assert engine.module_audio_format.sample_rate == 16000
 
 

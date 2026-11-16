@@ -123,42 +123,47 @@ class ASREngine:
     def _resolve_formats(self) -> tuple[AudioFormat, AudioFormat]:
         """Resolve the source's format and the module's (specs/format-conversion.md).
 
-        Raises ``ValueError`` on a file that contradicts ``engine.audio``, an
-        ``engine.module.sample_rate`` the module does not support, or a channel
-        layout that cannot be converted.
+        The module's format comes first and never depends on the source: the
+        module's defaults, unless ``engine.module.audio_format`` sets a field. The
+        source's format is ``engine.audio.audio_format``; a field left unset there
+        follows the module's (or the file's own rate and channel count).
+
+        Raises ``ValueError`` on a module field the module does not support, a file
+        that contradicts ``engine.audio.audio_format``, or a channel layout that
+        cannot be converted.
         """
+        requested = self._config.module.audio_format
+        module_format = resolve_module_audio_format(
+            self._asr_module,
+            sample_rate=requested.sample_rate,
+            channels=requested.channels,
+            encoding=requested.encoding,
+        )
+
         audio = self._config.audio
-        rate, channels = audio.sample_rate, audio.channels
+        source = audio.audio_format
+        rate, channels = source.sample_rate, source.channels
         if self._audio_source is None and audio.audio_file:
             # A file's rate and channel count are facts, read from its header. A
-            # value set in engine.audio is then a check, not a request.
+            # value set in engine.audio.audio_format is then a check, not a request.
             file_rate, file_channels = read_file_format(audio.audio_file)
             if rate is not None and rate != file_rate:
                 raise ValueError(
                     f"{audio.audio_file}: expected sample rate {rate} "
-                    f"(engine.audio.sample_rate), got {file_rate}. Remove the "
-                    f"field to use the file's own rate."
+                    f"(engine.audio.audio_format.sample_rate), got {file_rate}. "
+                    f"Remove the field to use the file's own rate."
                 )
             if channels is not None and channels != file_channels:
                 raise ValueError(
                     f"{audio.audio_file}: expected {channels} channel(s) "
-                    f"(engine.audio.channels), got {file_channels}. Remove the "
-                    f"field to use the file's own channel count."
+                    f"(engine.audio.audio_format.channels), got {file_channels}. "
+                    f"Remove the field to use the file's own channel count."
                 )
             rate, channels = file_rate, file_channels
-
-        module_format = resolve_module_audio_format(
-            self._asr_module,
-            sample_rate=rate,
-            channels=channels,
-            encoding=audio.encoding,
-            requested_sample_rate=self._config.module.sample_rate,
-        )
-        # A source with no rate or channel count of its own follows the module.
         source_format = AudioFormat(
             sample_rate=rate if rate is not None else module_format.sample_rate,
             channels=channels if channels is not None else module_format.channels,
-            encoding=audio.encoding,
+            encoding=source.encoding or module_format.encoding,
         )
         check_convertible(source_format, module_format)
         return source_format, module_format
@@ -286,14 +291,22 @@ class ASREngine:
                 self._audio_config.device, loop, audio_format=self._audio_format
             )
 
-        if self._audio_format != self._module_audio_format:
-            # Before the VAD gate, so the gate and the module see the same audio.
+        # Logged at every start: what the source must produce is otherwise
+        # implicit when engine.audio.audio_format leaves it to the module.
+        if self._audio_format == self._module_audio_format:
             log.info(
-                "Converting audio for the '%s' module: %s -> %s",
+                "Audio format: %s, for the source and the '%s' module",
+                _describe(self._audio_format),
                 self._config.module.type,
+            )
+        else:
+            log.info(
+                "Audio format: %s from the source, converted to %s for the '%s' module",
                 _describe(self._audio_format),
                 _describe(self._module_audio_format),
+                self._config.module.type,
             )
+            # Before the VAD gate, so the gate and the module see the same audio.
             source = ConvertedAudioSource(
                 source, self._audio_format, self._module_audio_format
             )
@@ -439,7 +452,8 @@ class ASREngine:
         """The format the audio source produces.
 
         What an injected ``AudioSource`` must put on its queue. Valid right after
-        construction. Equal to ``module_audio_format`` unless the engine converts.
+        construction. Equal to ``module_audio_format`` unless
+        ``engine.audio.audio_format`` (or a file) says otherwise.
         """
         return self._audio_format
 

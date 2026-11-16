@@ -156,56 +156,39 @@ def parse_sample_rate_overrides(
 def resolve_module_audio_format(
     module: ASRModule,
     *,
-    sample_rate: int | None,
-    channels: int | None,
-    encoding: str,
-    requested_sample_rate: int | None = None,
+    sample_rate: int | None = None,
+    channels: int | None = None,
+    encoding: str | None = None,
 ) -> AudioFormat:
-    """The format *module* is fed, given what the audio source produces.
+    """The format *module* is fed: its defaults, unless the config asks otherwise.
 
-    *sample_rate* / *channels* / *encoding* describe the source; ``None`` means
-    the source has no rate (or channel count) of its own and follows the module.
-    Per dimension, the source's value is kept when the module supports it (no
-    conversion); otherwise the module's default is used and the engine converts.
-
-    *requested_sample_rate* is ``engine.module.sample_rate``: an explicit rate for
-    the module, used whatever the source's is. It must be one the module supports,
-    else ``ValueError``.
+    The arguments are the fields of ``engine.module.audio_format``. Each replaces
+    the module's default when set, and must then be a value the module supports,
+    else ``ValueError``. The audio source plays no part: the engine converts
+    whatever it produces into this format.
     """
-    supported_rates = module.supported_sample_rates
-    if requested_sample_rate is not None:
-        if supported_rates is not None and requested_sample_rate not in supported_rates:
+    requested = (
+        ("sample_rate", sample_rate, module.supported_sample_rates),
+        ("channels", channels, module.SUPPORTED_CHANNELS),
+        ("encoding", encoding, module.SUPPORTED_ENCODINGS),
+    )
+    resolved: dict = {
+        "sample_rate": module.default_sample_rate,
+        "channels": module.DEFAULT_CHANNELS,
+        "encoding": module.DEFAULT_ENCODING,
+    }
+    for field, value, supported in requested:
+        if value is None:
+            continue
+        if supported is not None and value not in supported:
             raise ValueError(
                 f"{type(module).__name__} does not support "
-                f"engine.module.sample_rate={requested_sample_rate}. "
-                f"Supported: {sorted(supported_rates)}. Remove the field to let "
-                f"the engine choose."
+                f"engine.module.audio_format.{field}={value!r}. "
+                f"Supported: {sorted(supported)}. Remove the field to use the "
+                f"module's default ({resolved[field]!r})."
             )
-        rate = requested_sample_rate
-    elif sample_rate is not None and (
-        supported_rates is None or sample_rate in supported_rates
-    ):
-        rate = sample_rate
-    else:
-        rate = module.default_sample_rate
-
-    supported_channels = module.SUPPORTED_CHANNELS
-    if channels is not None and (
-        supported_channels is None or channels in supported_channels
-    ):
-        resolved_channels = channels
-    else:
-        resolved_channels = module.DEFAULT_CHANNELS
-
-    supported_encodings = module.SUPPORTED_ENCODINGS
-    if supported_encodings is None or encoding in supported_encodings:
-        resolved_encoding = encoding
-    else:
-        resolved_encoding = module.DEFAULT_ENCODING
-
-    return AudioFormat(
-        sample_rate=rate, channels=resolved_channels, encoding=resolved_encoding
-    )
+        resolved[field] = value
+    return AudioFormat(**resolved)
 
 
 class ASRModule(ABC):
@@ -260,7 +243,8 @@ class ASRModule(ABC):
 
     @property
     def default_sample_rate(self) -> int:
-        """The rate this instance is fed when the source's is not one it accepts."""
+        """The rate this instance is fed unless ``engine.module.audio_format`` sets
+        another."""
         return self.DEFAULT_SAMPLE_RATE
 
     @abstractmethod
