@@ -8,7 +8,7 @@
     "auto_start_dictation": false,
     "dictation_default_segmentation_mode": "trigger_word",
     "audio_source": {
-      "type": "microphone",
+      "type": "input-device",
       "device": null
     },
     "module": {

@@ -750,7 +750,7 @@ def _engine(module: dict[str, Any], source_rate: int | None = None):
             {
                 "sound_feedback": {"enabled": False},
                 "audio_source": {
-                    "type": "microphone",
+                    "type": "input-device",
                     "audio_format": {"sample_rate": source_rate},
                 },
                 "module": {

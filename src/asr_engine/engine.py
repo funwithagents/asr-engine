@@ -132,7 +132,7 @@ class ASREngine:
 
         The source's format depends on ``engine.audio_source.type``:
 
-        - ``microphone``: ``engine.audio_source.audio_format``, each unset field
+        - ``input-device``: ``engine.audio_source.audio_format``, each unset field
           following the module's format.
         - ``file``: the file's own rate and channel count, in the module's encoding.
         - ``custom``: what the injected source declares (its ``audio_format``
@@ -161,21 +161,21 @@ class ASREngine:
             raise ValueError(
                 "engine.audio_source.type is 'custom', but no source was given: "
                 "pass one as ASREngine(config, audio_source=...). The MCP server "
-                "cannot use a custom source; set the type to 'microphone' or 'file'."
+                "cannot use a custom source; set the type to 'input-device' or 'file'."
             )
         if source.type != "custom" and injected is not None:
             raise ValueError(
                 f"An audio source was passed to ASREngine, but "
                 f"engine.audio_source.type is '{source.type}': set it to 'custom'."
             )
-        if source.type != "microphone" and source.audio_format != AudioFormatConfig():
+        if source.type != "input-device" and source.audio_format != AudioFormatConfig():
             raise ValueError(
-                f"engine.audio_source.audio_format applies to type 'microphone' "
+                f"engine.audio_source.audio_format applies to type 'input-device' "
                 f"only, not '{source.type}': a file has its own format, and a "
                 f"custom source declares its own."
             )
 
-        if source.type == "microphone":
+        if source.type == "input-device":
             wanted = source.audio_format
             source_format = AudioFormat(
                 sample_rate=wanted.sample_rate or module_format.sample_rate,

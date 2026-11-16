@@ -12,7 +12,7 @@ import pytest
 from asr_engine import mcp_server_cli
 from asr_engine.modules import REGISTRY, LazyModule
 
-_SOURCE = {"audio_source": {"type": "microphone"}}
+_SOURCE = {"audio_source": {"type": "input-device"}}
 
 
 def write_config(tmp_path: Path, data: dict) -> str:

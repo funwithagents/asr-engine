@@ -29,7 +29,7 @@ from asr_engine.server import create_mcp_server, run_server
 def _engine_config(module_type: str = "mock", **kwargs) -> ASREngineConfig:
     return ASREngineConfig(
         sound_feedback=SoundFeedbackConfig(enabled=False),
-        audio_source=AudioSourceConfig(type="microphone"),
+        audio_source=AudioSourceConfig(type="input-device"),
         module=ModuleConfig(type=module_type),
         **kwargs,
     )

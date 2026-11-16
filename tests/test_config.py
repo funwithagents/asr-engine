@@ -17,7 +17,7 @@ from asr_engine.config import (
 )
 
 # The audio source every test config uses unless the source is what it tests.
-_SRC = {"audio_source": {"type": "microphone"}}
+_SRC = {"audio_source": {"type": "input-device"}}
 
 
 def write_config(tmp_path: Path, data: dict) -> str:
@@ -54,7 +54,7 @@ def test_load_config_full(tmp_path: Path) -> None:
                     "end_of_speech_timeout_s": 2.0,
                 },
                 "sound_feedback": {"enabled": False, "output_device": "speakers"},
-                "audio_source": {"type": "microphone", "device": "hw:0"},
+                "audio_source": {"type": "input-device", "device": "hw:0"},
                 "module": {"type": "deepgram", "api_key": "secret", "language": "fr"},
             },
         },
@@ -104,7 +104,7 @@ def test_load_config_defaults(tmp_path: Path) -> None:
     assert "submit" in cfg.engine.segmentation.trigger_words
     assert cfg.engine.sound_feedback.enabled is True
     assert cfg.engine.sound_feedback.output_device is None
-    assert cfg.engine.audio_source.type == "microphone"
+    assert cfg.engine.audio_source.type == "input-device"
     assert cfg.engine.audio_source.device is None
     # Nothing set on either format: the engine resolves both.
     assert cfg.engine.audio_source.audio_format == AudioFormatConfig()
@@ -119,7 +119,7 @@ def test_load_config_audio_format_fields(tmp_path: Path) -> None:
             _min(
                 {
                     "audio_source": {
-                        "type": "microphone",
+                        "type": "input-device",
                         "audio_format": {
                             "sample_rate": 48000,
                             "channels": 2,
@@ -139,7 +139,7 @@ def test_load_config_rejects_unknown_encoding(tmp_path: Path) -> None:
         _min(
             {
                 "audio_source": {
-                    "type": "microphone",
+                    "type": "input-device",
                     "audio_format": {"encoding": "opus"},
                 }
             }
@@ -183,7 +183,7 @@ def test_an_invalid_audio_format_is_rejected_in_either_block(
     block: str, audio_format: object, message: str
 ) -> None:
     engine_block: dict = {
-        "audio_source": {"type": "microphone"},
+        "audio_source": {"type": "input-device"},
         "module": {"type": "fake"},
     }
     engine_block[block]["audio_format"] = audio_format
@@ -195,7 +195,7 @@ def test_a_null_audio_format_or_field_means_not_set() -> None:
     cfg = ASREngineConfig.from_dict(
         {
             "audio_source": {
-                "type": "microphone",
+                "type": "input-device",
                 "audio_format": {"sample_rate": None, "encoding": None},
             },
             "module": {"type": "fake", "audio_format": None},
@@ -240,8 +240,8 @@ def test_a_custom_source_takes_no_other_field() -> None:
         ({"type": "webcam"}, "Invalid engine.audio_source.type: 'webcam'"),
         # Each type takes its own fields only.
         (
-            {"type": "microphone", "audio_file": "a.wav"},
-            "audio_file does not apply to type 'microphone'",
+            {"type": "input-device", "audio_file": "a.wav"},
+            "audio_file does not apply to type 'input-device'",
         ),
         (
             {"type": "file", "audio_file": "a.wav", "device": "hw:0"},
@@ -384,7 +384,7 @@ def test_from_dict_full_block() -> None:
             },
             "sound_feedback": {"enabled": False, "output_device": "speakers"},
             "audio_source": {
-                "type": "microphone",
+                "type": "input-device",
                 "device": "hw:0",
                 "audio_format": {"sample_rate": 48000, "encoding": "mulaw"},
             },
@@ -468,7 +468,7 @@ def test_from_dict_invalid_encoding() -> None:
         ASREngineConfig.from_dict(
             {
                 "audio_source": {
-                    "type": "microphone",
+                    "type": "input-device",
                     "audio_format": {"encoding": "opus"},
                 },
                 "module": {"type": "deepgram"},
@@ -494,7 +494,7 @@ def test_from_dict_matches_from_json_file(tmp_path: Path) -> None:
         "auto_start": False,
         "listen_default_segmentation_mode": "timeout",
         "segmentation": {"trigger_words": ["stop"], "end_of_speech_timeout_s": 2.0},
-        "audio_source": {"type": "microphone", "device": "hw:0"},
+        "audio_source": {"type": "input-device", "device": "hw:0"},
         "module": {"type": "deepgram", "api_key": "secret", "language": "fr"},
     }
     path = write_config(tmp_path, {"server": {"port": 9000}, "engine": engine_block})
@@ -527,7 +527,7 @@ def test_engine_from_json_parses_engine_block() -> None:
 
 def test_engine_from_json_matches_from_dict() -> None:
     block = {
-        "audio_source": {"type": "microphone", "device": "hw:0"},
+        "audio_source": {"type": "input-device", "device": "hw:0"},
         "module": {"type": "deepgram"},
     }
     assert ASREngineConfig.from_json(json.dumps(block)) == ASREngineConfig.from_dict(

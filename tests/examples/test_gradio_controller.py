@@ -105,7 +105,7 @@ def make_controller(vad: VadConfig | None = None) -> Iterator[DemoController]:
     """A controller whose engine is FakeEngine, torn down cleanly."""
     FakeEngine.instances.clear()
     base = ASREngineConfig(
-        audio_source=AudioSourceConfig(type="microphone"),
+        audio_source=AudioSourceConfig(type="input-device"),
         module=ModuleConfig(type="deepgram-v1"),
         vad=vad,
     )

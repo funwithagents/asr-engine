@@ -55,7 +55,7 @@ Both config classes expose the same three-rung constructor ladder — pick the r
       "output_device": null
     },
     "audio_source": {
-      "type": "microphone",
+      "type": "input-device",
       "device": null,
       "audio_format": { "sample_rate": null, "channels": null, "encoding": null }
     },
@@ -123,15 +123,15 @@ Where the audio comes from. **`type` is required**, and selects the other fields
 
 | `type` | Source | Other fields |
 |---|---|---|
-| `"microphone"` | A live input device (`AudioCapture`) | `device`, `audio_format` |
+| `"input-device"` | A live input device (`AudioCapture`): a microphone, a line input, a loopback or virtual device. Hyphenated like the module types | `device`, `audio_format` |
 | `"file"` | An audio file, streamed at real-time pace (`FileAudioSource`). Primarily a testing hook — see [e2e-testing.md](e2e-testing.md) | `audio_file`, `trailing_silence_s` |
 | `"custom"` | An `AudioSource` the application passes to `ASREngine(config, audio_source=...)` ([audio-source.md](audio-source.md)). Not usable with the MCP server, which is given no source | none |
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `type` | string | — (required) | `"microphone"`, `"file"` or `"custom"`. |
-| `device` | string / null | `null` | (`microphone`) Audio input device name or index. `null` = system default. |
-| `audio_format` | object / null | `null` | (`microphone`) The format the device is opened at: an [`audio_format` object](#the-audio_format-object). A field left unset follows the module's format. |
+| `type` | string | — (required) | `"input-device"`, `"file"` or `"custom"`. |
+| `device` | string / null | `null` | (`input-device`) Audio input device name or index. `null` = system default. |
+| `audio_format` | object / null | `null` | (`input-device`) The format the device is opened at: an [`audio_format` object](#the-audio_format-object). A field left unset follows the module's format. |
 | `audio_file` | string | — (required for `file`) | (`file`) Path to an audio file (WAV, MP3, … — anything `libsndfile`/`soundfile` decodes). Its own rate and channel count are used; the engine converts them to the module's when they differ ([format-conversion.md](format-conversion.md)). |
 | `trailing_silence_s` | float | `0.0` | (`file`) Seconds of silence appended after the file ends, so the ASR backend receives the tail-silence it needs to emit a final result. |
 
@@ -149,7 +149,7 @@ The type is checked against how the engine is built: `"custom"` with no source p
 
 #### The `audio_format` object
 
-The same object sets a format in `engine.module` (what the module is fed) and in a `microphone` `engine.audio_source` (what the device is opened at). Every field is optional.
+The same object sets a format in `engine.module` (what the module is fed) and in a `input-device` `engine.audio_source` (what the device is opened at). Every field is optional.
 
 ```json
 { "sample_rate": 24000, "channels": 1, "encoding": "linear16" }
@@ -165,7 +165,7 @@ How an unset field is resolved, in order:
 
 1. **The module format** (`engine.module_audio_format`): each field of `engine.module.audio_format`, else the module's own default. A set value must be one the module supports.
 2. **The source format** (`engine.audio_format`), by source type:
-   - `microphone`: each field of `engine.audio_source.audio_format`, else the module format's value;
+   - `input-device`: each field of `engine.audio_source.audio_format`, else the module format's value;
    - `file`: the file's own rate and channel count, in the module format's encoding;
    - `custom`: the format the source declares, else the module format.
 
@@ -226,7 +226,7 @@ Requires the `deepgram` extra (`pip install 'asr-engine[deepgram]'`), plus `sile
   },
   "engine": {
     "auto_start": true,
-    "audio_source": { "type": "microphone", "device": null },
+    "audio_source": { "type": "input-device", "device": null },
     "module": {
       "type": "deepgram-v1",
       "api_key_env": "DEEPGRAM_API_KEY",
@@ -250,7 +250,7 @@ Requires the `mistral` extra (`pip install 'asr-engine[mistral]'`). See [modules
   },
   "engine": {
     "auto_start": true,
-    "audio_source": { "type": "microphone", "device": null },
+    "audio_source": { "type": "input-device", "device": null },
     "module": {
       "type": "mistral-realtime",
       "api_key_env": "MISTRAL_API_KEY",
@@ -274,7 +274,7 @@ Requires the `openai-compatible` extra (`pip install 'asr-engine[openai-compatib
   },
   "engine": {
     "auto_start": true,
-    "audio_source": { "type": "microphone", "device": null },
+    "audio_source": { "type": "input-device", "device": null },
     "module": {
       "type": "openai-realtime-compatible",
       "api_key_env": "OPENAI_API_KEY",
@@ -294,7 +294,7 @@ Requires the `openai-compatible` extra, plus `silero`: **`engine.vad` is mandato
 ```json
 {
   "engine": {
-    "audio_source": { "type": "microphone", "device": null },
+    "audio_source": { "type": "input-device", "device": null },
     "module": {
       "type": "openai-transcriptions-compatible",
       "api_key_env": "OPENAI_API_KEY",
@@ -313,7 +313,7 @@ Requires the `mlx-audio` extra (Apple Silicon), plus `silero`: **`engine.vad` is
 ```json
 {
   "engine": {
-    "audio_source": { "type": "microphone", "device": null },
+    "audio_source": { "type": "input-device", "device": null },
     "module": {
       "type": "mlx-audio",
       "model": "mlx-community/Qwen3-ASR-0.6B-8bit",
@@ -336,7 +336,7 @@ Requires the `kyutai-mlx` (Apple Silicon) or `kyutai-torch` extra, in an environ
   },
   "engine": {
     "auto_start": true,
-    "audio_source": { "type": "microphone", "device": null },
+    "audio_source": { "type": "input-device", "device": null },
     "module": {
       "type": "kyutai",
       "backend": "auto",
@@ -370,7 +370,7 @@ For tests only — a keyless, deterministic scripted module (see [modules/fake.m
 - The server must fail fast at startup with a clear error message if:
   - The config file is missing or not valid JSON
   - The required field `engine.module.type` or `engine.audio_source.type` is absent
-  - `engine.audio_source.type` is not one of `microphone` / `file` / `custom`, the block holds a field its type does not take, or `audio_file` is missing with type `file`
+  - `engine.audio_source.type` is not one of `input-device` / `file` / `custom`, the block holds a field its type does not take, or `audio_file` is missing with type `file`
   - The old `engine.audio` block is present
   - The specified `engine.module.type` is unknown
   - The specified module's optional dependencies (its extra) are not installed — checked at engine construction, not at config parsing, with an `ImportError` naming the extra to install

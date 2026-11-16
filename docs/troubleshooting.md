@@ -20,10 +20,10 @@ The MCP server needs the `mcp` extra: `uv sync --no-default-groups --extra <modu
 
 ## The audio source block is refused
 
-- `engine.audio is now engine.audio_source`: the block was renamed and needs a `type`. Write `"audio_source": {"type": "microphone"}`, with `device` next to it if you set one.
-- `missing required field: engine.audio_source.type`: say where the audio comes from, `"microphone"`, `"file"` or `"custom"`.
-- `... does not apply to type '...'`: the block holds a field of another type, such as `audio_file` with `"microphone"`.
-- `engine.audio_source.type is 'custom', but no source was given`: a `custom` source is passed in code, as `ASREngine(config, audio_source=...)`. The MCP server cannot take one; use `"microphone"` or `"file"` there.
+- `engine.audio is now engine.audio_source`: the block was renamed and needs a `type`. Write `"audio_source": {"type": "input-device"}`, with `device` next to it if you set one.
+- `missing required field: engine.audio_source.type`: say where the audio comes from, `"input-device"`, `"file"` or `"custom"`.
+- `... does not apply to type '...'`: the block holds a field of another type, such as `audio_file` with `"input-device"`.
+- `engine.audio_source.type is 'custom', but no source was given`: a `custom` source is passed in code, as `ASREngine(config, audio_source=...)`. The MCP server cannot take one; use `"input-device"` or `"file"` there.
 - `An audio source was passed to ASREngine, but engine.audio_source.type is '...'`: set the type to `"custom"`.
 
 ## The module does not support the sample rate

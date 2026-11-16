@@ -104,7 +104,7 @@ To transcribe your microphone, change the two blocks and drop the `audio_source`
 ```python
 config = ASREngineConfig.from_dict(
     {
-        "audio_source": {"type": "microphone"},  # the default input device
+        "audio_source": {"type": "input-device"},  # the default input device
         "module": {"type": "deepgram-v1", "api_key_env": "DEEPGRAM_API_KEY"},
     }
 )

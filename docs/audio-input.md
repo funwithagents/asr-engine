@@ -4,19 +4,19 @@ The engine reads audio from one of three places, chosen by the required `audio_s
 
 | `type` | Source | Other fields |
 |---|---|---|
-| `"microphone"` | An input device | `device`, `audio_format` |
+| `"input-device"` | An input device: a microphone, a line input, a loopback or virtual device | `device`, `audio_format` |
 | `"file"` | An audio file | `audio_file`, `trailing_silence_s` |
 | `"custom"` | A source your application passes to the engine | none |
 
 A field that belongs to another type is refused, so a block never holds a setting that has no effect.
 
-## The microphone
+## An input device
 
 `device` names the input device. `null` selects the system's default input, and an unknown name fails with the list of available devices.
 
 ```json
 {
-  "audio_source": { "type": "microphone", "device": null }
+  "audio_source": { "type": "input-device", "device": null }
 }
 ```
 
@@ -113,20 +113,20 @@ The engine keeps two formats and converts between them when they differ:
 
 | Source | Its format |
 |---|---|
-| Microphone | `audio_source.audio_format`; a field left unset is the module's, so by default the device is opened at what the module takes |
+| Input device | `audio_source.audio_format`; a field left unset is the module's, so by default the device is opened at what the module takes |
 | File | The file's own sample rate and channel count |
 | Custom | What the source declares; a source that declares nothing produces the module's format |
 
 An `audio_format` object has three optional fields, `sample_rate`, `channels` and `encoding` (`linear16` or `mulaw`).
 
-Most configurations need none of this. With nothing set, the microphone is opened at the format the module takes and nothing is converted; a file is read at its own rate and converted when the module takes another. The engine logs the formats in use each time it starts.
+Most configurations need none of this. With nothing set, the input device is opened at the format the module takes and nothing is converted; a file is read at its own rate and converted when the module takes another. The engine logs the formats in use each time it starts.
 
 Two examples. A 48 kHz capture, which the engine resamples to Deepgram's 16 kHz default:
 
 ```json
 {
   "audio_source": {
-    "type": "microphone",
+    "type": "input-device",
     "audio_format": { "sample_rate": 48000 }
   },
   "module": { "type": "deepgram-v1", "api_key_env": "DEEPGRAM_API_KEY" }

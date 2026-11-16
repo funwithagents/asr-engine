@@ -32,7 +32,7 @@ _SCRIPT = [
     {"text": "send", "start_s": 1.2, "end_s": 1.4},
 ]
 _DEEPGRAM_BLOCK = {
-    "audio_source": {"type": "microphone"},
+    "audio_source": {"type": "input-device"},
     "sound_feedback": {"enabled": False},
     "segmentation": {"trigger_words": ["send"]},
     "module": {"type": "deepgram-v1", "api_key_env": "DEEPGRAM_API_KEY"},
@@ -104,7 +104,7 @@ def _offline(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.chdir(tmp_path)
 
 
-def _config(source_type: str = "microphone") -> ASREngineConfig:
+def _config(source_type: str = "input-device") -> ASREngineConfig:
     """The examples' config: on the microphone as they write it, or on a custom
     source for the examples (and checks) that pass one."""
     return ASREngineConfig.from_dict(

@@ -113,7 +113,7 @@ def _parse_audio_format(data: Any, where: str) -> AudioFormatConfig:
 
 # engine.audio_source.type → the fields that type takes, besides `type` itself.
 AUDIO_SOURCE_TYPES: dict[str, tuple[str, ...]] = {
-    "microphone": ("device", "audio_format"),
+    "input-device": ("device", "audio_format"),
     "file": ("audio_file", "trailing_silence_s"),
     "custom": (),
 }
@@ -125,7 +125,7 @@ class AudioSourceConfig:
 
     ``type`` is required and selects the fields that apply:
 
-    - ``"microphone"``: ``device``, and ``audio_format`` (what the device is opened
+    - ``"input-device"``: ``device``, and ``audio_format`` (what the device is opened
       at; a field left unset follows the module's format).
     - ``"file"``: ``audio_file`` and ``trailing_silence_s``. The format is the
       file's own.
@@ -145,8 +145,8 @@ def _parse_audio_source(engine_block: dict[str, Any]) -> AudioSourceConfig:
     if "audio" in engine_block:
         raise ValueError(
             "engine.audio is now engine.audio_source, with a required 'type' "
-            '("microphone", "file" or "custom"), e.g. '
-            '"audio_source": {"type": "microphone"}.'
+            '("input-device", "file" or "custom"), e.g. '
+            '"audio_source": {"type": "input-device"}.'
         )
     data = engine_block.get("audio_source")
     if not isinstance(data, dict) or not data.get("type"):

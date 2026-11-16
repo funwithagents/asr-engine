@@ -44,7 +44,7 @@ def make_config(
         dictation_default_segmentation_mode=dictation_default_segmentation_mode,
         segmentation=seg,
         sound_feedback=SoundFeedbackConfig(enabled=False),
-        audio_source=AudioSourceConfig(type="microphone"),
+        audio_source=AudioSourceConfig(type="input-device"),
         module=ModuleConfig(type=module_type, extra=extra or {}),
     )
 
@@ -93,7 +93,7 @@ def test_an_old_and_a_new_module_name_start_the_same_module():
         return ASREngine(
             ASREngineConfig.from_dict(
                 {
-                    "audio_source": {"type": "microphone"},
+                    "audio_source": {"type": "input-device"},
                     "module": {"type": module_type, "api_key": "test-key"},
                     "sound_feedback": {"enabled": False},
                 }
@@ -140,7 +140,7 @@ def _engine_with_audio(
             if audio_source is not None
             else "file"
             if audio_file
-            else "microphone"
+            else "input-device"
         )
     config = ASREngineConfig(
         sound_feedback=SoundFeedbackConfig(enabled=False),
@@ -299,9 +299,11 @@ def test_the_source_type_must_match_how_the_engine_is_built():
     # 'custom' with nothing passed: the engine does not fall back on a microphone.
     with pytest.raises(ValueError, match="'custom', but no source was given"):
         _engine_with_audio(cls, source_type="custom")
-    # A source passed to a 'microphone' config is not silently preferred.
-    with pytest.raises(ValueError, match="is 'microphone': set it to 'custom'"):
-        _engine_with_audio(cls, source_type="microphone", audio_source=HandFedSource())
+    # A source passed to a 'input-device' config is not silently preferred.
+    with pytest.raises(ValueError, match="is 'input-device': set it to 'custom'"):
+        _engine_with_audio(
+            cls, source_type="input-device", audio_source=HandFedSource()
+        )
     # The type is required.
     with pytest.raises(ValueError, match="audio_source.type is required"):
         _engine_with_audio(cls, source_type="")
@@ -310,9 +312,11 @@ def test_the_source_type_must_match_how_the_engine_is_built():
 def test_audio_format_applies_to_a_microphone_only(tmp_path):
     wav = _write_wav(tmp_path / "tone.wav", rate=16000)
     cls = _restricted_module_class(MagicMock(), rates=None)
-    with pytest.raises(ValueError, match="applies to type 'microphone' only.*'file'"):
+    with pytest.raises(ValueError, match="applies to type 'input-device' only.*'file'"):
         _engine_with_audio(cls, audio_file=wav, sample_rate=16000)
-    with pytest.raises(ValueError, match="applies to type 'microphone' only.*'custom'"):
+    with pytest.raises(
+        ValueError, match="applies to type 'input-device' only.*'custom'"
+    ):
         _engine_with_audio(cls, audio_source=HandFedSource(), sample_rate=16000)
 
 
@@ -761,7 +765,7 @@ def _vad_engine(
     config = ASREngineConfig(
         sound_feedback=SoundFeedbackConfig(enabled=False),
         audio_source=AudioSourceConfig(
-            type="custom" if source is not None else "microphone"
+            type="custom" if source is not None else "input-device"
         ),
         module=ModuleConfig(type="recording", extra=module_extra or {}),
         vad=vad,
@@ -885,7 +889,7 @@ def test_no_vad_configured_imports_nothing_vad_related():
         "sys.modules['sounddevice'] = MagicMock()\n"
         "from asr_engine import ASREngine, ASREngineConfig\n"
         "ASREngine(ASREngineConfig.from_dict({'module': {'type': 'fake'},"
-        " 'audio_source': {'type': 'microphone'},"
+        " 'audio_source': {'type': 'input-device'},"
         " 'sound_feedback': {'enabled': False}}))\n"
         "bad = [m for m in sys.modules if m.startswith(('asr_engine.vad',"
         " 'onnxruntime', 'soxr'))]\n"

@@ -45,7 +45,7 @@ async def run(version: str, module_config: dict, device: str | None) -> None:
         print(f"{tag} {result.transcript}{conf}")
 
     config = ASREngineConfig(
-        audio_source=AudioSourceConfig(type="microphone", device=device),
+        audio_source=AudioSourceConfig(type="input-device", device=device),
         sound_feedback=SoundFeedbackConfig(enabled=False),
         module=ModuleConfig(type=module_type, extra=module_config),
     )
