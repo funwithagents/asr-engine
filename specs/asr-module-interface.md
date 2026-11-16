@@ -196,7 +196,7 @@ def load_module(asr_config: dict) -> ASRModule: ...
 
 ## Module names
 
-A registry key is a user-facing name written in a config file, not a Python identifier, so it is spelled with `-` and never `_`. asr-engine, tts-engine and WICA share this rule (agreed 2026-11-16):
+A registry key is a user-facing name written in a config file, not a Python identifier, so it is spelled with `-` and never `_`:
 
 - a **provider module** (one vendor's API or one model family) is named after the provider and API (`deepgram-v1`, `mistral-realtime`) or the model family (`kyutai`);
 - a **runner module** (a generic model runner that serves many model families, the model being a config value) is named after the runner (`mlx-audio`);
@@ -223,7 +223,7 @@ Each real backend's third-party dependencies live in a `[project.optional-depend
 
 - a **provider module**'s extra is named after the provider (`deepgram`, `mistral`), or the model family and its backend (`kyutai-mlx`);
 - a **runner module**'s extra is named after the runner (`mlx-audio`);
-- **every protocol module of one origin shares one extra**, `<origin>-compatible`: `openai-compatible` holds the dependencies of all the OpenAI-protocol modules (`websockets` for `openai-realtime-compatible`, `httpx` for `openai-transcriptions-compatible`). The extra has the same short name in asr-engine, tts-engine and WICA, and in wica-interaction's mirror (`asr-openai-compatible`). The dependencies are small (`websockets` ≈ 1.1 MB installed, `httpx` and its dependencies ≈ 3.5 MB), so a user of one protocol module installing the other's is no real cost. If they ever need splitting, explicit per-module extras are added and `openai-compatible` becomes the bundle that lists them. The per-module extras that came before it (`openai-realtime-compatible`, `openai-transcriptions-compatible`, from 2026-11-13) were removed without aliases, since nothing mirrored them.
+- **every protocol module of one origin shares one extra**, `<origin>-compatible`: `openai-compatible` holds the dependencies of all the OpenAI-protocol modules (`websockets` for `openai-realtime-compatible`, `httpx` for `openai-transcriptions-compatible`). One short, stable name covers the whole protocol family, so adding another OpenAI-protocol module never adds an extra. The dependencies are small (`websockets` ≈ 1.1 MB installed, `httpx` and its dependencies ≈ 3.5 MB), so a user of one protocol module installing the other's is no real cost. If they ever need splitting, explicit per-module extras are added and `openai-compatible` becomes the bundle that lists them. The per-module extras that came before it (`openai-realtime-compatible`, `openai-transcriptions-compatible`, from 2026-11-13) were removed without aliases: they had shipped only days before.
 
 | Extra | Modules | Dependencies |
 |---|---|---|

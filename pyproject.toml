@@ -50,8 +50,8 @@ mistral = [
 ]
 # Every OpenAI-protocol module (module types `openai-realtime-compatible`,
 # websockets; `openai-transcriptions-compatible`, httpx) — see
-# specs/modules/openai-*-compatible.md. One extra for all of them, with the same
-# name in every repo (specs/asr-module-interface.md "Optional dependencies").
+# specs/modules/openai-*-compatible.md. One extra for all of them
+# (specs/asr-module-interface.md "Optional dependencies").
 openai-compatible = [
     "websockets>=14",
     "httpx>=0.27",

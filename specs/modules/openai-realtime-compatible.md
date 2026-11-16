@@ -18,7 +18,7 @@ tests:
 
 `openai-realtime-compatible` is a **cloud or self-hosted streaming** backend that speaks the transcription mode of the **OpenAI Realtime API** (GA): one WebSocket per session, base64 PCM16 audio in, `conversation.item.input_audio_transcription.*` events out. Its `url` defaults to hosted OpenAI. Any server implementing the same wire protocol works too: LiteLLM's proxy (e.g. Google Chirp behind it), NVIDIA Dynamo, LocalAI and others.
 
-It is a **protocol module**, not a provider module. The server, the model behind it and its pricing are chosen by `url` and `model`, and the module makes no assumption beyond the protocol. Hence the name: the key `openai-realtime` reads as "OpenAI's Realtime API", and the `-compatible` suffix says the module talks to anything compatible with it. That leaves `openai-realtime` free for an OpenAI-only module if OpenAI's own API ever diverges from what compatible servers implement. The same split already exists in the sibling `tts-engine` project (`openai` is the vendor module, `openai-compatible` the endpoint module).
+It is a **protocol module**, not a provider module. The server, the model behind it and its pricing are chosen by `url` and `model`, and the module makes no assumption beyond the protocol. Hence the name: the key `openai-realtime` reads as "OpenAI's Realtime API", and the `-compatible` suffix says the module talks to anything compatible with it. That leaves `openai-realtime` free for an OpenAI-only module if OpenAI's own API ever diverges from what compatible servers implement.
 
 Compared with the existing backends:
 
