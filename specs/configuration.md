@@ -210,7 +210,7 @@ Requires the `deepgram` extra (`pip install 'asr-engine[deepgram]'`), plus `sile
 
 ## Example: Voxtral config
 
-Requires the `mistral` extra (`pip install 'asr-engine[mistral]'`). See [modules/mistral.md](modules/mistral.md) for the module fields. A complete file ships as `examples/config/mistral_realtime.json`, with `"vad": {"type": "silero"}` (needs the `silero` extra).
+Requires the `mistral` extra (`pip install 'asr-engine[mistral]'`). See [modules/mistral.md](modules/mistral.md) for the module fields. A complete file ships as `examples/config/mistral-realtime.json`, with `"vad": {"type": "silero"}` (needs the `silero` extra).
 
 ```json
 {
@@ -234,7 +234,7 @@ Requires the `mistral` extra (`pip install 'asr-engine[mistral]'`). See [modules
 
 ## Example: OpenAI Realtime config (24 kHz)
 
-Requires the `openai-compatible` extra (`pip install 'asr-engine[openai-compatible]'`). See [modules/openai-realtime-compatible.md](modules/openai-realtime-compatible.md) for the module fields, and for pointing `url` at another compatible server. **`engine.audio.sample_rate` must be `24000`**, the only rate hosted OpenAI accepts. A complete file ships as `examples/config/openai_realtime_compatible.json`, with `"vad": {"type": "silero"}` (needs the `silero` extra).
+Requires the `openai-compatible` extra (`pip install 'asr-engine[openai-compatible]'`). See [modules/openai-realtime-compatible.md](modules/openai-realtime-compatible.md) for the module fields, and for pointing `url` at another compatible server. **`engine.audio.sample_rate` must be `24000`**, the only rate hosted OpenAI accepts. A complete file ships as `examples/config/openai-realtime-compatible.json`, with `"vad": {"type": "silero"}` (needs the `silero` extra).
 
 ```json
 {
@@ -259,7 +259,7 @@ Requires the `openai-compatible` extra (`pip install 'asr-engine[openai-compatib
 
 ## Example: OpenAI transcriptions config (batch over HTTP)
 
-Requires the `openai-compatible` extra, plus `silero`: **`engine.vad` is mandatory**, as for every batch module ([batch-asr-module.md](batch-asr-module.md)). See [modules/openai-transcriptions-compatible.md](modules/openai-transcriptions-compatible.md) for the module fields, and for pointing `url` at Groq or a local server. A complete file ships as `examples/config/openai_transcriptions_compatible.json`.
+Requires the `openai-compatible` extra, plus `silero`: **`engine.vad` is mandatory**, as for every batch module ([batch-asr-module.md](batch-asr-module.md)). See [modules/openai-transcriptions-compatible.md](modules/openai-transcriptions-compatible.md) for the module fields, and for pointing `url` at Groq or a local server. A complete file ships as `examples/config/openai-transcriptions-compatible.json`.
 
 ```json
 {
@@ -278,7 +278,7 @@ Requires the `openai-compatible` extra, plus `silero`: **`engine.vad` is mandato
 
 ## Example: mlx-audio config (local batch model, Apple Silicon)
 
-Requires the `mlx-audio` extra (Apple Silicon), plus `silero`: **`engine.vad` is mandatory**, since a batch module has no end-of-utterance signal of its own ([batch-asr-module.md](batch-asr-module.md)). A complete file ships as `examples/config/mlx_audio.json`.
+Requires the `mlx-audio` extra (Apple Silicon), plus `silero`: **`engine.vad` is mandatory**, since a batch module has no end-of-utterance signal of its own ([batch-asr-module.md](batch-asr-module.md)). A complete file ships as `examples/config/mlx-audio.json`.
 
 ```json
 {

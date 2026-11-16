@@ -20,7 +20,7 @@ From the repository root:
 ```bash
 uv sync --extra deepgram --extra silero   # the extras your config selects (module + VAD)
 export DEEPGRAM_API_KEY="..."
-cp examples/config/deepgram_v2.json config.json   # or another file in examples/config/
+cp examples/config/deepgram-v2.json config.json   # or another file in examples/config/
 uv run python -m examples.gradio_demo.app --config config.json
 ```
 

@@ -1,773 +1,201 @@
 # asr-engine
 
-`asr-engine` is an asynchronous, real-time speech-recognition engine for Python. It captures live or file-based audio, streams it to a configurable ASR module, and emits both atomic utterances and engine-segmented speech.
+A real-time speech-recognition engine for Python. Choose an ASR module, construct an `ASREngine`, and receive what is said as it is said, through async callbacks or one `await engine.listen()`.
 
 ```text
-AudioSource ──▶ ASREngine ──▶ ASRModule ──▶ ASR provider
+AudioSource ──▶ ASREngine ──▶ ASRModule ──▶ cloud API or local model
                   │
-                  ├──▶ SpeechUtterance callbacks
-                  └──▶ SpeechSegment callbacks
+                  ├──▶ SpeechUtterance callbacks   (each result of the backend)
+                  └──▶ SpeechSegment callbacks     (utterances grouped by the engine)
 ```
 
-The engine owns audio capture, backend selection, audio-format negotiation, provider-independent results, segmentation, lifecycle, and optional sound feedback. It can run continuously, listen for a single segment, or temporarily aggregate speech in a dictation session.
+The engine owns audio capture, the audio format, segmentation and the lifecycle. Speech recognition comes from a module you install as an extra: the Deepgram, Mistral Voxtral or OpenAI cloud APIs, any server compatible with OpenAI's transcription protocols, or a local model (Kyutai, or any mlx-audio model on Apple Silicon). There is no default provider. A built-in `fake` module stands in for a backend in tests and demos.
 
-`AsrTools` and the bundled MCP server are optional adapters over the same engine. You do not need MCP or an agent framework to use `asr-engine` in a Python application.
+Agent-friendly tools are included as an optional interface over the same engine, and an MCP server is available through the `mcp` extra. You need neither to use `asr-engine` in a Python application.
+
+**Start here:** the [quick start](#quick-start) below, then [docs/index.md](docs/index.md) for the documentation by task.
 
 ## Installation
 
-### Requirements
-
-- Python 3.11+, on Linux, macOS or Windows (Linux needs the system PortAudio for live capture — `libportaudio2` on Debian/Ubuntu)
-- [`uv`](https://docs.astral.sh/uv/)
-- An ASR module installed from its extra, plus that provider's credentials — no provider is installed or selected by default (see [ASR modules](#asr-modules))
-- An available system input device for live capture
-
-Install the project from source:
+This project requires Python 3.11+ on Linux, macOS or Windows, and uses [`uv`](https://docs.astral.sh/uv/) for dependency and environment management.
 
 ```bash
-git clone <repo-url>
+git clone https://github.com/funwithagents/asr-engine.git
 cd asr-engine
-uv sync --no-default-groups --extra deepgram   # the extra for the ASR module you will use
-export DEEPGRAM_API_KEY="..."
+uv sync --no-default-groups
 ```
 
-`--no-default-groups` is what keeps that install minimal: `uv sync` syncs the `dev` and `demo` groups by default, and `dev` pulls in the extras contributors need, so a bare `uv sync` here builds the full contributor environment — the Deepgram SDK, the MCP server stack, the Kyutai MLX backend (on Apple Silicon) and Gradio (see [Development](#development-and-project-documentation)).
+`--no-default-groups` is what keeps that install minimal: a bare `uv sync` also syncs the `dev` and `demo` groups, which builds the full contributor environment (see [How it is developed](#how-it-is-developed)).
 
-The base installation contains the engine, `AsrTools` and the `fake` test module, but no speech provider and no server. Install the provider you want as an extra, and add the `mcp` extra to run the MCP server — its stack (the MCP SDK and `uvicorn`) is never pulled in by a program that only imports `asr_engine`:
+Live capture uses `sounddevice`, which requires PortAudio. The macOS and Windows wheels bundle it; on Debian or Ubuntu:
 
 ```bash
-uv sync --no-default-groups --extra deepgram               # Deepgram modules
-uv sync --no-default-groups --extra deepgram --extra mcp   # + the MCP server (asr-engine-mcp)
-uv sync --no-default-groups --extra mistral                # Mistral Voxtral realtime
-uv sync --no-default-groups --extra openai-compatible     # OpenAI Realtime or /v1/audio/transcriptions (or a compatible server)
-uv sync --no-default-groups --extra openai-compatible --extra silero   # + the VAD gate the transcriptions module needs
-uv sync --no-default-groups --extra mlx-audio --extra silero   # local Parakeet / Qwen3-ASR / Whisper…, Apple Silicon
-uv sync --no-default-groups --extra kyutai-mlx             # local Kyutai STT, Apple Silicon (MLX) — not with mlx-audio
-uv sync --no-default-groups --extra kyutai-torch           # local Kyutai STT, elsewhere (PyTorch) — not with mlx-audio
-uv sync --no-default-groups --extra deepgram --extra silero   # + the optional Silero VAD gate
-uv sync --no-default-groups --extra all                    # every provider and the server
+sudo apt-get install libportaudio2
+```
+
+The base installation contains the engine, the tools and the `fake` module, but no speech provider and no server. Install the provider you want as an extra, and add the `mcp` extra to run the MCP server:
+
+```bash
+uv sync --no-default-groups --extra deepgram               # one provider (every extra: docs/modules/index.md)
+uv sync --no-default-groups --extra deepgram --extra mcp   # a provider and the MCP server
+uv sync --no-default-groups --extra deepgram --extra silero   # a provider and the optional VAD gate
+uv sync --no-default-groups --extra all                    # every extra that installs together
 
 # For an installed package:
 pip install 'asr-engine[deepgram]'
 pip install 'asr-engine[mcp,deepgram]'
-pip install 'asr-engine[mistral]'
-pip install 'asr-engine[openai-compatible]'
-pip install 'asr-engine[openai-compatible,silero]'   # openai-transcriptions-compatible needs the VAD gate
-pip install 'asr-engine[mlx-audio,silero]'   # Apple Silicon
-pip install 'asr-engine[kyutai-mlx]'     # or 'asr-engine[kyutai-torch]'; not in the same environment as mlx-audio or [all]
-pip install 'asr-engine[deepgram,silero]'   # a provider + the optional Silero VAD gate
 pip install 'asr-engine[all]'
 ```
 
-The examples in this README use Deepgram, the first available provider module.
+Selecting a module whose extra is not installed fails at engine construction with an `ImportError` naming the extra to install.
 
 ## Quick start
 
-Create an `ASREngineConfig`, attach the callbacks your application needs, and control the engine lifecycle asynchronously:
+This first program needs no extra, no API key and no microphone. It uses the `fake` module, which replays a scripted transcript, to show the API end to end:
 
 ```python
 import asyncio
 
-from asr_engine import ASREngine, ASREngineConfig, SpeechSegment
-
-
-async def on_segment(segment: SpeechSegment) -> None:
-    if segment.is_final:
-        print(segment.transcript)
+from asr_engine import ASREngine, ASREngineConfig, ScriptableAudioSource, SpeechSegment
 
 
 async def main() -> None:
     config = ASREngineConfig.from_dict(
         {
             "module": {
-                "type": "deepgram-v1",
-                "api_key_env": "DEEPGRAM_API_KEY",
-                "model": "nova-3",
-                "language": "multi",
+                "type": "fake",
+                "utterances": [
+                    {"text": "hello from the engine", "start_s": 0.5, "end_s": 1.5}
+                ],
             }
         }
     )
+    heard = asyncio.Event()
 
-    engine = ASREngine(config, on_speech_segment=on_segment)
+    async def on_segment(segment: SpeechSegment) -> None:
+        print(segment.transcript, "(final)" if segment.is_final else "")
+        if segment.is_final:
+            heard.set()
+
+    engine = ASREngine(
+        config,
+        on_speech_segment=on_segment,
+        audio_source=ScriptableAudioSource(),  # silence, standing in for a microphone
+    )
 
     await engine.start()
-    try:
-        await asyncio.Event().wait()
-    finally:
-        await engine.stop()
+    await heard.wait()
+    await engine.stop()
 
 
 asyncio.run(main())
 ```
 
-`start()` runs continuously and emits one segment per final utterance until `stop()` is called. Constructing an engine never starts asynchronous work by itself; direct callers always own its lifecycle.
+It prints the transcript growing word by word, then the final segment. `fake` recognizes nothing: it is a test double, there to show the API and to [test your own code](docs/testing-your-application.md).
 
-## Configuring the engine
+### With real speech
 
-### Creating the configuration
-
-`ASREngine` takes one `ASREngineConfig`. Most applications should build it from the ASR portion of their existing configuration:
+To transcribe your microphone, change the `module` block and drop `audio_source`. The rest of the program stays the same:
 
 ```python
-import json
-
-from asr_engine import ASREngine, ASREngineConfig
-
-with open("application.json") as file:
-    application_config = json.load(file)
-
-config = ASREngineConfig.from_dict(application_config["asr"])
-engine = ASREngine(config)
-```
-
-This works naturally when the same application file also contains TTS or other settings. The dictionary passed to `from_dict()` must have the engine-block shape shown below.
-
-Use the constructor matching the configuration source:
-
-```python
-# Already-parsed dictionary
-config = ASREngineConfig.from_dict(engine_data)
-
-# JSON string containing an engine block
-config = ASREngineConfig.from_json(engine_json)
-
-# JSON file whose root is an engine block
-config = ASREngineConfig.from_json_file("asr.json")
-```
-
-Configuration defined directly in Python can use the nested dataclasses:
-
-```python
-from asr_engine import ASREngineConfig, ModuleConfig
-
-config = ASREngineConfig(
-    module=ModuleConfig(
-        type="deepgram-v1",
-        extra={"api_key_env": "DEEPGRAM_API_KEY"},
-    )
+config = ASREngineConfig.from_dict(
+    {"module": {"type": "deepgram-v1", "api_key_env": "DEEPGRAM_API_KEY"}}
 )
+engine = ASREngine(config, on_speech_segment=on_segment)  # the default microphone
 ```
 
-Direct dataclass construction expects trusted values. The `from_*` constructors normalize and validate externally supplied configuration.
+- **Hosted:** the example above uses Deepgram (`uv sync --no-default-groups --extra deepgram`, and `DEEPGRAM_API_KEY` in the environment). Mistral and OpenAI work the same way with their own block.
+- **Local:** on an Apple Silicon Mac, `{"module": {"type": "mlx-audio"}, "vad": {"type": "silero"}}` runs a Parakeet model on the machine, with no key (`--extra mlx-audio --extra silero`).
 
-All three `from_*` methods above expect an engine block, without an MCP `server` wrapper. Complete `{server, engine}` files are handled by `MCPServerConfig` in the optional MCP section.
+[Choosing a module](docs/choosing-a-module.md) compares them.
 
-### Engine configuration shape
+## How the engine works
 
-A complete engine block looks like this:
+- **`ASREngine`** owns the audio source, the selected module and segmentation. Constructing one starts nothing; the caller owns its lifecycle.
+- An **`ASRModule`** connects the engine to one backend and turns its results into `SpeechUtterance` values, interim and final. Exactly one module is selected when the engine is constructed.
+- The engine groups utterances into **`SpeechSegment`** values according to a segmentation mode: one segment per utterance, until a trigger word, or until a silence. Segmentation is the engine's, so it behaves the same with every module.
+- An optional **VAD gate** in front of the module forwards only speech. It cuts the cost of a hosted backend and is required by batch models.
 
-```json
-{
-  "auto_start": true,
-  "auto_start_dictation": false,
-  "listen_default_segmentation_mode": "trigger_word",
-  "dictation_default_segmentation_mode": "trigger_word",
-  "segmentation": {
-    "trigger_words": ["send", "submit"],
-    "initial_silence_timeout_s": 10.0,
-    "end_of_speech_timeout_s": 5.0
-  },
-  "sound_feedback": {
-    "enabled": true,
-    "output_device": null
-  },
-  "audio": {
-    "device": null,
-    "audio_file": null,
-    "trailing_silence_s": 0.0,
-    "sample_rate": 16000,
-    "channels": 1,
-    "encoding": "linear16",
-    "on_unsupported_format": "error"
-  },
-  "module": {
-    "type": "deepgram-v1",
-    "api_key_env": "DEEPGRAM_API_KEY",
-    "model": "nova-3",
-    "language": "multi"
-  }
-}
-```
+An engine runs in three ways:
 
-| Block or field | Purpose |
+| Call | What it does |
 |---|---|
-| `module` | Selects an ASR backend and supplies its provider-specific settings; required |
-| `audio` | Selects live or file input and requests the end-to-end audio format |
-| `vad` | Optional speech gate in front of the module; omitted by default (see [Voice activity detection](#voice-activity-detection)) |
-| `segmentation` | Defines the trigger words and silence timeouts used by listen and dictation |
-| `sound_feedback` | Controls the start and stop cues played by `listen()` |
-| `listen_default_segmentation_mode` | Default mode for future `listen()` calls; defaults to `trigger_word` |
-| `dictation_default_segmentation_mode` | Default mode for future dictation sessions; defaults to `trigger_word` |
-| `auto_start` | Hosting policy used by the bundled MCP server; defaults to `true` |
-| `auto_start_dictation` | Hosting policy that makes the MCP server enter persistent dictation after auto-start; requires `auto_start=true` |
+| `await engine.start()` … `await engine.stop()` | Continuous recognition; results arrive through the callbacks |
+| `segment = await engine.listen()` | Starts, waits for one segment to close, stops, and returns it |
+| `await engine.start_dictation()` | On a running engine, aggregates speech into longer segments for a while |
 
-`auto_start` and `auto_start_dictation` are instructions for an application that hosts the engine. The bundled MCP server applies them during startup, but `ASREngine` does not act on them when constructed directly.
+[Running the engine](docs/running-the-engine.md) has the details, and [segmentation](docs/segmentation.md) the modes.
 
-Logging is also an application concern. Importing and constructing the engine does not configure handlers or log levels.
+## Modules
 
-For every field, default, and validation rule, see the [configuration specification](specs/configuration.md).
+A module is a swappable recognition backend, selected by the `type` of the `module` block. Hosted modules call a cloud API or a compatible server; local ones run a model in process. There is no default.
 
-## ASR modules
-
-An ASR module owns provider-specific authentication, connection management, audio streaming, reconnection, and conversion of provider responses into `SpeechUtterance` values. Audio capture, segmentation, engine operations, tools, and MCP resources remain provider-independent.
-
-```text
-ASREngine ──▶ resolve_module_class(config.module.type) ──▶ ASRModule ──▶ provider
-                                                        │
-                                                        └──▶ SpeechUtterance
-```
-
-### Available modules
-
-Provider modules are optional: each one ships in an extra, and none is a default. `engine.module.type` must always name the module you chose. Selecting a module whose extra is not installed fails at engine construction with an `ImportError` naming the extra to install.
-
-Module types are written with hyphens. The older underscore spellings (`deepgram_v1`, `mistral_realtime`, `mlx_audio`, `openai_realtime_compatible`, …) still work, and using one logs a deprecation warning naming the new type.
-
-| Module type | Extra | Provider API | Best for | Default model |
+| Module | Kind | Extra | Backend | Credentials |
 |---|---|---|---|---|
-| `deepgram-v1` | `deepgram` | Deepgram Listen v1 | General and multilingual transcription | `nova-3` |
-| `deepgram-v2` | `deepgram` | Deepgram Listen v2 | English conversational transcription with integrated turn detection | `flux-general-en` |
-| `mistral-realtime` | `mistral` | Mistral Voxtral 3 realtime | Multilingual transcription (45 languages, auto-detected) with turn detection and phrase boosting | `voxtral-mini-transcribe-realtime-3` |
-| `openai-realtime-compatible` | `openai-compatible` | OpenAI Realtime transcription, or any server speaking its protocol (LiteLLM, NVIDIA Dynamo, LocalAI, …) | OpenAI's transcription models; self-hosted or proxied models behind the same protocol | `gpt-4o-transcribe` |
-| `openai-transcriptions-compatible` | `openai-compatible` | OpenAI's `/v1/audio/transcriptions`, or any server implementing it (Groq, speaches, whisper.cpp server, vLLM, …) | Batch transcription over HTTP, hosted or self-hosted (Whisper, `gpt-4o-transcribe`, …); needs the VAD gate | `gpt-4o-transcribe` |
-| `kyutai` | `kyutai-mlx` or `kyutai-torch` | None — runs on-device | Local English + French transcription: no network, no API key, no per-minute cost | `kyutai/stt-1b-en_fr-candle` |
-| `mlx-audio` | `mlx-audio` | None — runs on-device (Apple Silicon) | Local multilingual transcription with any mlx-audio model (Parakeet, Qwen3-ASR, Whisper, …); needs the VAD gate | `mlx-community/parakeet-tdt-0.6b-v3` |
+| [`deepgram-v1`](docs/modules/deepgram.md) | hosted | `deepgram` | Deepgram Listen v1: general and multilingual | API key |
+| [`deepgram-v2`](docs/modules/deepgram.md) | hosted | `deepgram` | Deepgram Flux: English, with turn detection | API key |
+| [`mistral-realtime`](docs/modules/mistral.md) | hosted | `mistral` | Mistral Voxtral realtime: 45 languages | API key |
+| [`openai-realtime-compatible`](docs/modules/openai-realtime-compatible.md) | hosted | `openai-compatible` | OpenAI Realtime transcription, or a compatible server | API key |
+| [`openai-transcriptions-compatible`](docs/modules/openai-transcriptions-compatible.md) | hosted | `openai-compatible` | OpenAI's `/v1/audio/transcriptions`, or a compatible server (Groq, whisper.cpp, vLLM, …); needs the VAD gate | API key |
+| [`kyutai`](docs/modules/kyutai.md) | local | `kyutai-mlx` or `kyutai-torch` | Kyutai streaming STT: English and French | None |
+| [`mlx-audio`](docs/modules/mlx-audio.md) | local | `mlx-audio` | Any mlx-audio model on Apple Silicon (Parakeet, Qwen3-ASR, Whisper, …); needs the VAD gate | None |
+| [`fake`](docs/modules/fake.md) | test double | Base installation | A scripted transcript, no recognition | None |
 
-#### `fake` — test double, not an ASR backend
+Each module's page has its install line, every config field and its troubleshooting. [docs/modules/index.md](docs/modules/index.md) compares them and lists every extra.
 
-The core install also contains `fake`, a scripted module for **tests only**. It ignores the audio and replays configured utterances: word-by-word interims evenly spaced over each utterance's `[start_s, end_s]` window (measured in audio time), then the full text as a final at `end_s`. It needs no extra and no credentials, so it lets you test code built on `asr-engine` deterministically:
+## Documentation
 
-```json
-{
-  "type": "fake",
-  "utterances": [{"text": "the sky is blue", "start_s": 0.5, "end_s": 1.5}]
-}
-```
+Start at [docs/index.md](docs/index.md), the documentation by task. The pages used most:
 
-Do not use it for real speech recognition. See the [fake module specification](specs/modules/fake.md).
-
-#### Deepgram v1
-
-```json
-{
-  "type": "deepgram-v1",
-  "api_key_env": "DEEPGRAM_API_KEY",
-  "model": "nova-3",
-  "language": "multi",
-  "punctuate": true,
-  "interim_results": true
-}
-```
-
-| Field | Default | Description |
-|---|---|---|
-| `model` | `nova-3` | Deepgram v1-compatible model |
-| `language` | `multi` | BCP-47 language code or multilingual auto-detection |
-| `punctuate` | `true` | Enable automatic punctuation |
-| `interim_results` | `true` | Emit interim results while speech is in progress |
-
-#### Deepgram v2
-
-```json
-{
-  "type": "deepgram-v2",
-  "api_key_env": "DEEPGRAM_API_KEY",
-  "model": "flux-general-en",
-  "eot_threshold": 0.7,
-  "eot_timeout_ms": 2000
-}
-```
-
-| Field | Default | Description |
-|---|---|---|
-| `model` | `flux-general-en` | Deepgram Flux-family model |
-| `eot_threshold` | `0.7` | End-of-turn confidence threshold |
-| `eot_timeout_ms` | `2000` | Silence before a forced turn end, in milliseconds |
-
-#### Mistral Voxtral realtime
-
-```json
-{
-  "type": "mistral-realtime",
-  "api_key_env": "MISTRAL_API_KEY",
-  "language": "en",
-  "context_bias": ["validate"]
-}
-```
-
-| Field | Default | Description |
-|---|---|---|
-| `model` | `voxtral-mini-transcribe-realtime-3` | Voxtral realtime model |
-| `language` | `null` | Two-letter ISO 639-1 code; `null` auto-detects |
-| `streaming_delay_ms` | `480` | Text delay behind the audio: 80–1200, or 2400. Lower is faster, higher is more accurate |
-| `context_bias` | `[]` | Words and phrases to favour, such as your trigger words |
-| `turn_detection` | `true` | Close utterances on Voxtral's end-of-turn events; `false` relies on the silence timer. An object overrides the server's thresholds |
-| `finalize_after_silence_s` | `2.0` | Fallback: close an utterance after this long with no new text |
-
-Supported sample rates are 16, 24 and 44.1 kHz. Voxtral bills per audio minute ($0.008), silence included, so without a VAD gate the cost follows how long the engine runs, not how much is said (see [Voice activity detection](#voice-activity-detection)). A session left without audio for 20 s is closed and reopened on the next chunk. To check the live API's behaviour, run `zsh -ic 'uv run python scripts/probe_mistral_realtime.py'`. A complete server config is in [`examples/config/mistral_realtime.json`](examples/config/mistral_realtime.json).
-
-#### OpenAI Realtime (and compatible servers)
-
-```json
-{
-  "type": "openai-realtime-compatible",
-  "api_key_env": "OPENAI_API_KEY",
-  "model": "gpt-4o-transcribe",
-  "language": "en",
-  "prompt": "validate"
-}
-```
-
-| Field | Default | Description |
-|---|---|---|
-| `url` | `wss://api.openai.com/v1/realtime?intent=transcription` | WebSocket URL, query included, used as is. Point it at any server speaking the protocol |
-| `model` | `gpt-4o-transcribe` | Transcription model (`gpt-4o-mini-transcribe`, `whisper-1`, `gpt-realtime-whisper`, or the server's own) |
-| `language` | `null` | Two-letter ISO 639-1 code; `null` auto-detects |
-| `prompt` | `null` | Vocabulary and style hints, such as your trigger words |
-| `turn_detection` | `true` | The server's VAD closes utterances. `false` for models or servers without it (e.g. `gpt-realtime-whisper`); utterances then end on the VAD gate's markers, so set `engine.vad` |
-| `noise_reduction` | `null` | `"near_field"` or `"far_field"` |
-
-The key is required for hosted OpenAI and optional for other servers. **Set `engine.audio.sample_rate` to `24000`**: it is the only rate hosted OpenAI accepts. With `gpt-4o-transcribe` the text of an utterance arrives once the server has closed it, so interims come in a burst just before the final; `gpt-realtime-whisper` streams words as they are spoken. To check an endpoint's behaviour, run `zsh -ic 'uv run python scripts/probe_openai_realtime.py'` (`--url` for another server). A complete server config is in [`examples/config/openai_realtime_compatible.json`](examples/config/openai_realtime_compatible.json).
-
-#### OpenAI transcriptions endpoint (and compatible servers)
-
-```json
-{
-  "type": "openai-transcriptions-compatible",
-  "api_key_env": "OPENAI_API_KEY",
-  "model": "gpt-4o-transcribe",
-  "language": "en"
-}
-```
-
-| Field | Default | Description |
-|---|---|---|
-| `url` | `https://api.openai.com/v1/audio/transcriptions` | Endpoint URL, used as is. Point it at any server implementing it: Groq (`https://api.groq.com/openai/v1/audio/transcriptions`), or a local speaches, whisper.cpp or vLLM server |
-| `model` | `gpt-4o-transcribe` | The server's model name (`gpt-4o-mini-transcribe`, `whisper-1`, `whisper-large-v3-turbo`, …) |
-| `language` | `null` | Language code (ISO 639-1 on OpenAI); `null` lets the server detect it |
-| `prompt` | `null` | Vocabulary and style hints, such as your trigger words |
-| `extra_fields` | `{}` | More form fields for the server (e.g. `{"temperature": 0}`) |
-| `interim_interval_s` | `0` | Interims are off: each one re-uploads the growing utterance, which a hosted API bills. Set e.g. `0.5` against a free local server |
-
-These are **batch** requests: each utterance is uploaded as one WAV file once it ends, so **`engine.vad` is required**, and the final arrives one request later (0.5–1 s on hosted OpenAI, measured). The key is required for hosted OpenAI and optional for other servers. Audio is 16 kHz, the default. At start the module sends one short request to check the URL, key and model. A complete server config is in [`examples/config/openai_transcriptions_compatible.json`](examples/config/openai_transcriptions_compatible.json).
-
-#### Kyutai (local, on-device)
-
-[Kyutai's streaming STT](https://github.com/kyutai-labs/delayed-streams-modeling) runs inside the process: no network, no API key. One module type covers two interchangeable backends — MLX on Apple Silicon (`kyutai-mlx` extra) and PyTorch elsewhere (`kyutai-torch` extra); `"backend": "auto"` picks MLX when it is available, so the same config works on both. The PyTorch backend has not yet been verified on real hardware.
-
-The Kyutai extras cannot be installed together with `mlx-audio`, and so are not part of `all`: install them in an environment of their own.
-
-```json
-{
-  "engine": {
-    "audio": { "sample_rate": 24000 },
-    "module": {
-      "type": "kyutai",
-      "backend": "auto",
-      "hf_repo": "kyutai/stt-1b-en_fr-candle"
-    }
-  }
-}
-```
-
-**`engine.audio.sample_rate` must be `24000`** — the model's only rate; with the 16000 default, engine construction fails with the format-reconciliation error. A complete server config is in [`examples/config/kyutai.json`](examples/config/kyutai.json). Note the two `vad` fields there: `module.vad` switches the model's own end-of-turn head, while `engine.vad` is the optional speech gate (left `null` for Kyutai; see [Voice activity detection](#voice-activity-detection)).
-
-| Field | Default | Description |
-|---|---|---|
-| `backend` | `auto` | `auto`, `mlx`, or `torch` |
-| `hf_repo` | `kyutai/stt-1b-en_fr-candle` | Hugging Face repo to load. Only the `-candle` 1B repo carries the semantic VAD heads |
-| `vad` | `true` | Close utterances on the model's end-of-turn (semantic VAD) head |
-| `vad_threshold` | `0.5` | End-of-turn probability above which an utterance closes |
-| `finalize_after_silence_s` | `2.0` | Fallback: close an utterance after this long with no new text |
-| `max_steps` | `4096` | Model step budget (~5.5 min) before the session is recycled at an utterance boundary |
-| `device` | `auto` | PyTorch backend only: `auto`, `cuda`, `mps`, or `cpu` |
-| `lag_warn_s` / `lag_drop_s` | `2.0` / `10.0` | If the model falls behind real time: warn, then drop the oldest audio |
-
-The first `start()` downloads the weights (~2 GB for the 1B model) and loads them (to fetch them ahead of time: `python -m asr_engine.modules.kyutai.download`); `connected` turns true once the model is warm. The model then stays in memory across `stop()`/`start()` and `listen()` calls. To check that a machine keeps up with real time, run `uv run python scripts/benchmark_kyutai.py` (Apple M5 Pro: real-time factor ≈ 0.45). See the [Kyutai module specification](specs/modules/kyutai.md).
-
-#### mlx-audio (local, Apple Silicon)
-
-[mlx-audio](https://github.com/Blaizzy/mlx-audio) runs about thirty speech-to-text model families on Apple Silicon. The model is a config value:
-
-```json
-{
-  "type": "mlx-audio",
-  "model": "mlx-community/Qwen3-ASR-0.6B-8bit",
-  "generate_kwargs": {"language": "English"}
-}
-```
-
-| Field | Default | Description |
-|---|---|---|
-| `model` | `mlx-community/parakeet-tdt-0.6b-v3` | Any mlx-audio STT model on Hugging Face (or a local path). Measured: Parakeet v3, Qwen3-ASR 0.6B, `whisper-large-v3-turbo-asr-4bit` |
-| `generate_kwargs` | `{}` | Passed to the model's `generate()`; differs per family (Whisper `{"language": "en"}`, Qwen3-ASR `{"language": "English"}`) |
-| `interim_interval_s` | `0.5` | Re-decode the utterance for an interim after this much more speech; `0` disables interims |
-| `max_utterance_s` | `30` | Cut longer utterances into several finals |
-
-These are **batch** models: they transcribe a whole utterance at once, so **`engine.vad` is required**. The gate ends each utterance and the module decodes it (≈ 0.03 s for Parakeet once warm). Interims come from re-decoding the utterance as it grows. Audio is 16 kHz, the default. The model is downloaded on first use (or ahead of time with `python -m asr_engine.modules.mlx_audio.download [model]`) and stays loaded between `listen` calls.
-
-**`mlx-audio` cannot be installed with `kyutai-mlx` or `kyutai-torch`**: the Kyutai packages pin older `mlx`, `sounddevice` and `huggingface-hub` versions. `all` includes `mlx-audio` and leaves the Kyutai extras out; install Kyutai in an environment of its own. A complete server config is in [`examples/config/mlx_audio.json`](examples/config/mlx_audio.json).
-
-### Credentials
-
-Both Deepgram modules accept either a literal API key or the name of an environment variable containing it:
-
-```json
-{
-  "type": "deepgram-v1",
-  "api_key_env": "DEEPGRAM_API_KEY"
-}
-```
-
-`api_key_env` keeps secrets out of configuration files. If both `api_key` and `api_key_env` are present, the literal `api_key` takes precedence. Credentials are resolved when the engine constructs the selected module, not while `ASREngineConfig.from_dict()` parses the configuration.
-
-### Adding a module
-
-To integrate another cloud or local backend, implement the `ASRModule` interface, declare its supported and default audio formats, emit `SpeechUtterance` values, and register it under a new module key as a lazy entry naming the extra that provides its dependencies. `ASREngine`, `AsrTools`, and the MCP server can then use it without provider-specific changes. See the [ASR module interface specification](specs/asr-module-interface.md) for the complete contract.
-
-## Engine output
-
-The engine exposes two independent async callbacks. They can be passed to the constructor or assigned later as `engine.on_speech_utterance` and `engine.on_speech_segment`.
-
-### Utterances
-
-A `SpeechUtterance` is one atomic event emitted by the ASR module:
-
-```python
-@dataclass
-class SpeechUtterance:
-    transcript: str
-    is_final: bool
-    confidence: float | None
-```
-
-The utterance callback receives every non-empty provider result, including interim and final results.
-
-### Segments
-
-A `SpeechSegment` is the engine's aggregation of utterances according to the active segmentation mode:
-
-```python
-@dataclass
-class SpeechSegment:
-    transcript: str
-    is_final: bool
-    end_reason: str | None
-    utterances: list[SpeechUtterance]
-```
-
-The segment callback receives every change while a segment grows and one final value when it closes. `utterances` contains the final utterances committed to the segment; interim utterances contribute to the current transcript but are not stored in that list.
-
-You can consume either stream or both:
-
-```python
-from asr_engine import ASREngine, SpeechSegment, SpeechUtterance
-
-
-async def on_utterance(utterance: SpeechUtterance) -> None:
-    print("utterance", utterance.transcript, utterance.is_final)
-
-
-async def on_segment(segment: SpeechSegment) -> None:
-    print("segment", segment.transcript, segment.is_final, segment.end_reason)
-
-
-engine = ASREngine(
-    config,
-    on_speech_utterance=on_utterance,
-    on_speech_segment=on_segment,
-)
-```
-
-## Running the engine
-
-### Continuous recognition
-
-Call `start()` to run the pipeline continuously in `utterance` segmentation mode. Results are delivered through the callbacks until `stop()` is called:
-
-```python
-await engine.start()
-try:
-    await run_your_application()
-finally:
-    await engine.stop()
-```
-
-### Listen for one segment
-
-`listen()` starts a stopped engine in the requested segmentation mode, waits for one segment to close, stops the engine, and returns that segment:
-
-```python
-segment = await engine.listen(mode="timeout")
-print(segment.transcript, segment.end_reason)
-```
-
-Pass `mode=None` or omit it to use `listen_default_segmentation_mode`. An optional `on_update` callback can consume the segment's intermediate values:
-
-```python
-segment = await engine.listen(mode="trigger_word", on_update=on_segment)
-```
-
-`listen()` requires the engine to be stopped. If sound feedback is enabled, the engine plays its configured start and stop cues around the session.
-
-### Dictation on a running engine
-
-A dictation session temporarily changes how a running engine aggregates utterances. Starting dictation is non-blocking and does not replace the engine's callbacks:
-
-```python
-await engine.start()
-await engine.start_dictation(
-    segmentation_mode="trigger_word",
-    end_on_final_segment=False,
-)
-
-# Aggregated updates continue through on_speech_segment.
-
-await engine.stop_dictation()
-await engine.stop()
-```
-
-Pass `segmentation_mode=None` or omit it to use `dictation_default_segmentation_mode`. With `end_on_final_segment=True`, which is the default, the first closed segment ends the dictation automatically and the engine returns to `utterance` mode. Otherwise, call `stop_dictation()` explicitly. The engine keeps running in both cases.
-
-| Operation | Required initial state | Blocking | Stops the engine afterward |
-|---|---|---:|---:|
-| `start()` | Stopped | No | No |
-| `listen()` | Stopped | Yes | Yes |
-| `start_dictation()` | Running | No | No |
-
-### Other operations
-
-| API | Purpose |
+| | |
 |---|---|
-| `status()` | Return the engine's `running` and backend `connected` state, and the configured `vad` type (`None` when ungated) |
-| `vad_state` | With a VAD configured: whether speech is reaching the module right now (`None` without one) |
-| `dictating` | Report whether a dictation session is active |
-| `segmentation_mode` | Inspect the currently active mode |
-| `audio_format` | Inspect the audio format reconciled with the active module |
-| `await set_segmentation_params(...)` | Update trigger words or timeouts and rebuild the segmenter |
-| `set_listen_default_segmentation_mode(mode)` | Change the default for future listens |
-| `set_dictation_default_segmentation_mode(mode)` | Change the default for future dictations |
-
-## Segmentation
-
-Segmentation belongs to the engine, so direct consumers, tools, and MCP resources all observe the same speech boundaries.
-
-| Mode | Segment closes when | Final `end_reason` |
-|---|---|---|
-| `utterance` | Each final utterance arrives | `utterance` |
-| `trigger_word` | A final utterance contains a configured trigger word | `trigger_word` |
-| `timeout` | Initial silence or end-of-speech silence exceeds its configured timeout | `initial_silence_timeout` or `end_of_speech_timeout` |
-
-In `trigger_word` mode, matching is a case-insensitive substring check. The trigger-word utterance closes the segment but is not included in its transcript.
-
-In `timeout` mode, an initial-silence timer starts with the segment and an end-of-speech timer starts after the first event. Every interim or final event resets the end-of-speech timer.
-
-The normal continuous engine always starts in `utterance` mode. Aggregation is activated explicitly by `listen()`, by a dictation session, or by a hosting application applying `auto_start_dictation`. Listen and dictation select a mode but share the trigger words and timeout values from `config.segmentation`.
-
-## Audio input and format
-
-By default, the engine captures from `config.audio.device`. A `null` device selects the system default input.
-
-Set `config.audio.audio_file` to stream a decoded audio file at real-time pace instead of using an input device:
-
-```json
-{
-  "audio": {
-    "audio_file": "speech.mp3",
-    "trailing_silence_s": 2.0,
-    "sample_rate": 44100,
-    "channels": 1,
-    "encoding": "linear16"
-  },
-  "module": {
-    "type": "deepgram-v1",
-    "api_key_env": "DEEPGRAM_API_KEY"
-  }
-}
-```
-
-Files are decoded and validated against the resolved sample rate and channel count, but they are not resampled. `trailing_silence_s` can give a remote backend enough silence to finalize the last utterance.
-
-You can also inject an `AudioSource` when constructing the engine. An injected source takes precedence over `audio.audio_file` and the live input device, which makes custom capture systems and deterministic tests possible.
-
-### Audio-format negotiation
-
-`audio.sample_rate`, `audio.channels`, and `audio.encoding` describe the format the engine should deliver to the selected module. Every module declares its supported values and a default for each dimension.
-
-| `on_unsupported_format` | Behavior when a requested value is unsupported |
-|---|---|
-| `error` | Engine construction fails with the module's supported values; this is the default |
-| `fallback` | The unsupported dimension uses the module's declared default and a warning is logged |
-
-The resolved format is exposed as `engine.audio_format` and is given to both the audio source and the ASR module. The bundled Deepgram modules support sample rates of 8000, 16000, 24000, 44100, and 48000 Hz; mono audio; and `linear16` or `mulaw` encoding. The `kyutai` module supports exactly 24000 Hz mono `linear16`.
-
-## Voice activity detection
-
-By default the engine streams everything it captures to the ASR module, silence included. A hosted backend bills that silence, and a local model keeps computing on it. An optional `vad` block puts a speech gate in front of the module: only speech is forwarded (with a short pre-roll so the first word is not clipped), and when the speaker stops the module is told to emit its final.
-
-```bash
-uv sync --no-default-groups --extra deepgram --extra silero
-```
-
-```json
-{
-  "module": { "type": "deepgram-v1", "api_key_env": "DEEPGRAM_API_KEY" },
-  "vad": { "type": "silero" }
-}
-```
-
-The bundled VAD is [Silero](https://github.com/snakers4/silero-vad), run with `onnxruntime`, without PyTorch. Its model (2.3 MB) is downloaded on first use from a pinned upstream release, checked against a known hash, and kept in the user cache (`~/.cache/asr-engine`, or `$ASR_ENGINE_CACHE_DIR`). On a machine without network access, download the file yourself and set `"model_path"` in the `vad` block. It works with any audio format the ASR module accepts.
-
-| Field | Default | Purpose |
-|---|---|---|
-| `type` | — | VAD to load; `"silero"` is built in (the `silero` extra) |
-| `threshold` | `0.5` | Speech probability at or above which audio counts as speech |
-| `min_speech_duration_ms` | `250` | Speech needed before the gate opens (ignores clicks) |
-| `min_silence_duration_ms` | `500` | Silence needed before the gate closes and the final is requested |
-| `speech_pad_ms` | `300` | Audio kept from before the detected start of speech |
-| `model_path` | — | (`silero`) Path of a local copy of the model, used instead of the download |
-
-Every bundled module works behind the gate. Which setting suits it depends on whether the backend has its own turn detection:
-
-| Module | Recommended `vad` block | Why |
-|---|---|---|
-| `deepgram-v1`, `mistral-realtime`, `openai-realtime-compatible` | `{"type": "silero"}` | The gate ends each utterance; the bill follows speech time |
-| `deepgram-v2` (Flux) | `{"type": "silero", "min_silence_duration_ms": 1500}` | The longer window lets Flux hear enough silence to end the turn by its own contextual judgement; the gate then only removes the idle time between utterances |
-| `mlx-audio`, `openai-transcriptions-compatible` | `{"type": "silero"}` (required) | A batch model has no end-of-utterance signal of its own; the gate provides it |
-| `kyutai` | Usually none; else as for Flux | Local and free, with its own end-of-turn detection; gating only saves compute |
-
-With the gate on, the boundaries of final utterances follow `min_silence_duration_ms` unless the backend ends the turn first, so a larger value gives fewer, longer finals. Segmentation (`trigger_word`, `timeout`) is unchanged: it still works on the module's utterances.
-
-`onnxruntime` publishes no Intel macOS wheel, so the Silero VAD is unavailable on that platform. The design is in the [VAD specification](specs/vad.md).
-
-## Optional tools and MCP server
-
-The engine is the primary API. The tools layer and MCP server adapt an engine for agent frameworks and remote clients without changing its recognition or segmentation behavior.
-
-### Use `AsrTools` in process
-
-`AsrTools` provides agent-friendly arguments, return dictionaries, lifecycle checks, and progress translation over an existing engine:
-
-```python
-from asr_engine import AsrTools
-
-asr_tools = AsrTools(engine)
-```
-
-Frameworks that accept Python callables as tools can register the needed bound methods directly.
-
-| Tool method | Purpose |
-|---|---|
-| `start` | Start continuous capture and recognition |
-| `stop` | Stop capture and recognition |
-| `is_running` | Return running and connection state |
-| `listen` | Capture and return one closed segment |
-| `start_dictation` | Begin non-blocking aggregation on a running engine |
-| `stop_dictation` | End dictation without stopping the engine |
-| `is_dictation_running` | Return dictation state and segmentation mode |
-| `set_dictation_default_segmentation_mode` | Set the default for future dictations |
-| `set_listen_default_segmentation_mode` | Set the default for future listens |
-
-### Start the MCP server
-
-The MCP server adds a `server` block around the same engine configuration:
-
-```json
-{
-  "server": {
-    "host": "127.0.0.1",
-    "port": 8000
-  },
-  "engine": {
-    "auto_start": true,
-    "module": {
-      "type": "deepgram-v1",
-      "api_key_env": "DEEPGRAM_API_KEY",
-      "model": "nova-3"
-    }
-  }
-}
-```
-
-This complete `{server, engine}` document maps to `MCPServerConfig`, which delegates its `engine` block to `ASREngineConfig.from_dict()`. Direct engine users do not need `MCPServerConfig`.
-
-To load the complete shape from Python:
-
-```python
-from asr_engine.config import MCPServerConfig
-
-server_config = MCPServerConfig.from_json_file("config.json")
-engine_config = server_config.engine
-```
-
-Start the bundled server with one of the example configurations (requires the `mcp` extra; without it, `asr-engine-mcp` exits with the install hint):
-
-```bash
-uv sync --no-default-groups --extra deepgram --extra silero --extra mcp
-cp examples/config/deepgram_v2.json config.json
-uv run asr-engine-mcp --config config.json
-```
-
-[`examples/config/`](examples/config/) holds one complete server config per ASR module: `deepgram-v1.json`, `deepgram-v2.json`, `mistral-realtime.json`, `openai-realtime-compatible.json`, `openai-transcriptions-compatible.json`, `kyutai.json` and `mlx-audio.json`. The five cloud ones and `mlx-audio` enable the Silero VAD gate (the two batch modules, `openai-transcriptions-compatible` and `mlx-audio`, need it) with the setting recommended for that module (hence the `silero` extra above); remove their `vad` block to stream everything, as before.
-
-The default endpoint is `http://127.0.0.1:8000/mcp`. Logging is configured by the server command rather than the engine configuration:
-
-```bash
-uv run asr-engine-mcp --config config.json --log-level DEBUG
-```
-
-### MCP resources
-
-The server exposes the `AsrTools` operations as MCP tools and publishes two subscribable `application/json` resources:
-
-| Resource | Contents | Updated |
-|---|---|---|
-| `asr://utterance` | Latest atomic interim or final backend result | On every utterance event |
-| `asr://segment` | Latest growing or closed engine segment | On every segment change |
-
-These are rolling latest-value snapshots, not transcript histories or event logs. A notification tells a client that a URI changed, after which the client reads its current value. Fast consecutive updates can be coalesced.
-
-Point a StreamableHTTP-compatible client at the endpoint:
-
-```json
-{
-  "mcpServers": {
-    "asr-engine": {
-      "type": "http",
-      "url": "http://127.0.0.1:8000/mcp"
-    }
-  }
-}
-```
+| [docs/running-the-engine.md](docs/running-the-engine.md) | The callbacks, utterances and segments, `start`, `listen`, dictation |
+| [docs/configuration.md](docs/configuration.md) | The engine block, the loaders, credentials |
+| [docs/modules/index.md](docs/modules/index.md) | Every module, with one page each |
+| [docs/choosing-a-module.md](docs/choosing-a-module.md) | Hosted or local, streaming or batch, languages, cost |
+| [docs/segmentation.md](docs/segmentation.md) | Closing a segment on each utterance, a trigger word or a silence |
+| [docs/audio-input.md](docs/audio-input.md) | The microphone, file input, your own audio source, the audio format |
+| [docs/vad.md](docs/vad.md) | The optional speech gate, and the setting that suits each module |
+| [docs/agents-and-mcp.md](docs/agents-and-mcp.md) | `AsrTools` for an agent, and the MCP server with its two resources |
+| [docs/testing-your-application.md](docs/testing-your-application.md) | Deterministic tests with the `fake` module |
+| [docs/troubleshooting.md](docs/troubleshooting.md) | A missing extra, an unsupported sample rate, a missing VAD, no transcription |
 
 ## Examples
 
-The runnable consumers under [`examples/`](examples/) are not part of the wheel and are not installed as console scripts:
+The runnable consumers under [examples/](examples/README.md) are not part of the package:
 
 | Example | Integration | Demonstrates |
 |---|---|---|
-| [`gradio_demo`](examples/gradio_demo/) | Direct engine import | An in-process browser UI for devices, modules, lifecycle, listen, dictation, utterances, and segments |
-| [`mcp_client`](examples/mcp_client/) | MCP resources | Subscribing to rolling transcription resources |
-| [`asr_to_terminal`](examples/asr_to_terminal/) | MCP resources | Typing server-owned segments into the focused terminal |
+| [gradio_demo](examples/gradio_demo/) | Direct engine import | A browser UI over an in-process engine: devices, modules, start, listen, dictation, live utterances and segments |
+| [mcp_client](examples/mcp_client/) | MCP resources | Subscribing to the server's rolling transcription resources |
+| [asr_to_terminal](examples/asr_to_terminal/) | MCP resources | Typing what is said into the focused terminal |
 
-See the [examples guide](examples/README.md) for setup and links to each example's documentation.
+[examples/config/](examples/config/) holds one complete config per module, in the MCP server's format (a `server` block and an `engine` block). With the `mcp` extra and the module's extra installed, `uv run asr-engine-mcp --config examples/config/deepgram-v1.json` starts a server as is; the `engine` block is what a library config takes. They hold no secrets: a hosted module reads its key from the environment variable named in `api_key_env`.
 
-## Development and project documentation
+## Feedback and contributions
 
-The repository keeps its design specifications alongside the code. The [specification index](specs/_index.md) describes the intended design and implementation status, while the [implementation plan index](plans/_index.md) records how each feature was built.
+Bug reports, questions, reports from a platform or a provider account the author does not test on, and requests for a backend are welcome at [the issue tracker](https://github.com/funwithagents/asr-engine/issues). The project is maintained by one person and is not taking external pull requests for now; [CONTRIBUTING.md](CONTRIBUTING.md) says why and how to help anyway.
 
-Install the development environment and run all default checks:
+## How it is developed
+
+`asr-engine` is a spec-driven project: every feature is designed before it is coded, pinned by tests at two levels, and checked by CI on every change.
+
+- **Specs first.** Each concept has one spec under [specs/](specs/_index.md), the normative design with its rationale and open questions; each module has its own under [specs/modules/](specs/modules/). An implementation plan under [plans/](plans/_index.md) turns a settled spec into code. Each spec names the code and tests it governs, and tests keep that map, the documentation's links, its module tables and its examples honest.
+- **Two test tiers.** `tests/` is fast and deterministic: no network, no credentials, no audio hardware. `tests-e2e/` runs the pipeline in real time and calls the real providers, skipping one whose key or weights are missing ([specs/testing.md](specs/testing.md), [specs/e2e-testing.md](specs/e2e-testing.md)).
+- **CI on every change.** The static gate, the fast tier on Linux (x86_64 and arm64), macOS and Windows, and the live tier on Linux ([specs/ci.md](specs/ci.md)).
+- **[AGENTS.md](AGENTS.md) is the operating manual** for anyone, or any coding agent, working in the repository: the project map, the commands, how the specs and statuses are kept in step with the code.
+
+The same checks, locally:
 
 ```bash
-uv sync
+uv sync                      # the dev and demo groups: every extra but the Kyutai ones, and Gradio
 uv run ruff check .
 uv run ruff format --check .
 uv run pyright
-uv run pytest tests/
+uv run pytest tests/         # the fast tier
+uv run pytest tests-e2e/     # the live tier: real providers where a key is set
 ```
-
-A bare `uv sync` syncs the default groups: `dev`, which installs every provider extra except the Kyutai ones (they cannot share an environment with `mlx-audio`, see [the project spec](specs/project.md)) plus the `mcp` extra, and `demo`, which adds Gradio for the example UI. The fast suite then runs with nothing skipped for a missing extra. Fast deterministic tests live in `tests/`; opt-in real-time pipeline tests live in `tests-e2e/` (live provider conformance, plus keyless scenarios on the `fake` module) and must be invoked explicitly.
 
 ## License
 
-`asr-engine` is available under the [Apache License 2.0](LICENSE); see also [NOTICE](NOTICE).
+Apache-2.0, see [LICENSE](LICENSE) and [NOTICE](NOTICE).
