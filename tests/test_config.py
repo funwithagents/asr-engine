@@ -16,6 +16,9 @@ from asr_engine.config import (
     validate_asr_type,
 )
 
+# The audio source every test config uses unless the source is what it tests.
+_SRC = {"audio_source": {"type": "microphone"}}
+
 
 def write_config(tmp_path: Path, data: dict) -> str:
     p = tmp_path / "config.json"
@@ -25,7 +28,7 @@ def write_config(tmp_path: Path, data: dict) -> str:
 
 def _min(engine_overrides: dict | None = None, **top) -> dict:
     """Minimal valid config dict with a module.type, plus overrides."""
-    engine = {"module": {"type": "deepgram"}}
+    engine = {**_SRC, "module": {"type": "deepgram"}}
     if engine_overrides:
         engine.update(engine_overrides)
     return {"engine": engine, **top}
@@ -51,7 +54,7 @@ def test_load_config_full(tmp_path: Path) -> None:
                     "end_of_speech_timeout_s": 2.0,
                 },
                 "sound_feedback": {"enabled": False, "output_device": "speakers"},
-                "audio": {"device": "hw:0"},
+                "audio_source": {"type": "microphone", "device": "hw:0"},
                 "module": {"type": "deepgram", "api_key": "secret", "language": "fr"},
             },
         },
@@ -69,7 +72,7 @@ def test_load_config_full(tmp_path: Path) -> None:
     assert cfg.engine.segmentation.end_of_speech_timeout_s == 2.0
     assert cfg.engine.sound_feedback.enabled is False
     assert cfg.engine.sound_feedback.output_device == "speakers"
-    assert cfg.engine.audio.device == "hw:0"
+    assert cfg.engine.audio_source.device == "hw:0"
     assert cfg.engine.module.type == "deepgram"
     assert cfg.engine.module.extra == {"api_key": "secret", "language": "fr"}
 
@@ -101,9 +104,10 @@ def test_load_config_defaults(tmp_path: Path) -> None:
     assert "submit" in cfg.engine.segmentation.trigger_words
     assert cfg.engine.sound_feedback.enabled is True
     assert cfg.engine.sound_feedback.output_device is None
-    assert cfg.engine.audio.device is None
+    assert cfg.engine.audio_source.type == "microphone"
+    assert cfg.engine.audio_source.device is None
     # Nothing set on either format: the engine resolves both.
-    assert cfg.engine.audio.audio_format == AudioFormatConfig()
+    assert cfg.engine.audio_source.audio_format == AudioFormatConfig()
     assert cfg.engine.module.audio_format == AudioFormatConfig()
     assert cfg.engine.module.extra == {}
 
@@ -114,48 +118,46 @@ def test_load_config_audio_format_fields(tmp_path: Path) -> None:
             tmp_path,
             _min(
                 {
-                    "audio": {
+                    "audio_source": {
+                        "type": "microphone",
                         "audio_format": {
                             "sample_rate": 48000,
                             "channels": 2,
                             "encoding": "mulaw",
-                        }
+                        },
                     }
                 }
             ),
         )
     )
-    assert cfg.engine.audio.audio_format == AudioFormatConfig(48000, 2, "mulaw")
+    assert cfg.engine.audio_source.audio_format == AudioFormatConfig(48000, 2, "mulaw")
 
 
 def test_load_config_rejects_unknown_encoding(tmp_path: Path) -> None:
     path = write_config(
-        tmp_path, _min({"audio": {"audio_format": {"encoding": "opus"}}})
+        tmp_path,
+        _min(
+            {
+                "audio_source": {
+                    "type": "microphone",
+                    "audio_format": {"encoding": "opus"},
+                }
+            }
+        ),
     )
     with pytest.raises(ValueError, match="encoding"):
         MCPServerConfig.from_json_file(path)
 
 
-def test_the_removed_unsupported_format_policy_is_ignored_with_a_warning(
-    tmp_path: Path, caplog: pytest.LogCaptureFixture
-) -> None:
-    path = write_config(
-        tmp_path, _min({"audio": {"on_unsupported_format": "fallback"}})
-    )
-    with caplog.at_level("WARNING", logger="asr_engine.config"):
-        cfg = MCPServerConfig.from_json_file(path)  # an old config still loads
-    assert "on_unsupported_format is no longer used" in caplog.text
-    assert not hasattr(cfg.engine.audio, "on_unsupported_format")
-
-
 def test_the_module_audio_format_is_the_engines_not_the_modules() -> None:
     cfg = ASREngineConfig.from_dict(
         {
+            **_SRC,
             "module": {
                 "type": "deepgram-v1",
                 "audio_format": {"sample_rate": 8000, "encoding": "mulaw"},
                 "model": "nova-3",
-            }
+            },
         }
     )
     assert cfg.module.audio_format == AudioFormatConfig(8000, None, "mulaw")
@@ -163,7 +165,7 @@ def test_the_module_audio_format_is_the_engines_not_the_modules() -> None:
     assert cfg.module.extra == {"model": "nova-3"}
 
 
-@pytest.mark.parametrize("block", ["audio", "module"])
+@pytest.mark.parametrize("block", ["audio_source", "module"])
 @pytest.mark.parametrize(
     "audio_format, message",
     [
@@ -180,8 +182,11 @@ def test_the_module_audio_format_is_the_engines_not_the_modules() -> None:
 def test_an_invalid_audio_format_is_rejected_in_either_block(
     block: str, audio_format: object, message: str
 ) -> None:
-    engine_block: dict = {"module": {"type": "fake"}}
-    engine_block.setdefault(block, {})["audio_format"] = audio_format
+    engine_block: dict = {
+        "audio_source": {"type": "microphone"},
+        "module": {"type": "fake"},
+    }
+    engine_block[block]["audio_format"] = audio_format
     with pytest.raises(ValueError, match=f"engine.{block}.audio_format.*{message}"):
         ASREngineConfig.from_dict(engine_block)
 
@@ -189,35 +194,84 @@ def test_an_invalid_audio_format_is_rejected_in_either_block(
 def test_a_null_audio_format_or_field_means_not_set() -> None:
     cfg = ASREngineConfig.from_dict(
         {
-            "audio": {"audio_format": {"sample_rate": None, "encoding": None}},
+            "audio_source": {
+                "type": "microphone",
+                "audio_format": {"sample_rate": None, "encoding": None},
+            },
             "module": {"type": "fake", "audio_format": None},
         }
     )
-    assert cfg.audio.audio_format == AudioFormatConfig()
+    assert cfg.audio_source.audio_format == AudioFormatConfig()
     assert cfg.module.audio_format == AudioFormatConfig()
 
 
-def test_the_older_flat_audio_fields_still_load_with_a_warning(
-    caplog: pytest.LogCaptureFixture,
+def test_a_file_source_carries_its_file_and_trailing_silence() -> None:
+    cfg = ASREngineConfig.from_dict(
+        {
+            "audio_source": {
+                "type": "file",
+                "audio_file": "speech.mp3",
+                "trailing_silence_s": 2.0,
+            },
+            "module": {"type": "fake"},
+        }
+    )
+    source = cfg.audio_source
+    assert (source.type, source.audio_file, source.trailing_silence_s) == (
+        "file",
+        "speech.mp3",
+        2.0,
+    )
+
+
+def test_a_custom_source_takes_no_other_field() -> None:
+    cfg = ASREngineConfig.from_dict(
+        {"audio_source": {"type": "custom"}, "module": {"type": "fake"}}
+    )
+    assert cfg.audio_source.type == "custom"
+
+
+@pytest.mark.parametrize(
+    "audio_source, message",
+    [
+        (None, "missing required field: engine.audio_source.type"),
+        ({}, "missing required field: engine.audio_source.type"),
+        ({"device": "hw:0"}, "missing required field: engine.audio_source.type"),
+        ({"type": "webcam"}, "Invalid engine.audio_source.type: 'webcam'"),
+        # Each type takes its own fields only.
+        (
+            {"type": "microphone", "audio_file": "a.wav"},
+            "audio_file does not apply to type 'microphone'",
+        ),
+        (
+            {"type": "file", "audio_file": "a.wav", "device": "hw:0"},
+            "device does not apply to type 'file'",
+        ),
+        (
+            {"type": "file", "audio_file": "a.wav", "audio_format": {}},
+            "audio_format does not apply to type 'file'",
+        ),
+        (
+            {"type": "custom", "audio_format": {"sample_rate": 16000}},
+            "audio_format does not apply to type 'custom', which takes no other field",
+        ),
+        ({"type": "file"}, "missing required field: engine.audio_source.audio_file"),
+    ],
+)
+def test_an_invalid_audio_source_block_is_rejected(
+    audio_source: dict | None, message: str
 ) -> None:
-    with caplog.at_level("WARNING", logger="asr_engine.config"):
-        cfg = ASREngineConfig.from_dict(
-            {
-                "audio": {"sample_rate": 24000, "encoding": "mulaw"},
-                "module": {"type": "fake"},
-            }
-        )
-    assert cfg.audio.audio_format == AudioFormatConfig(24000, None, "mulaw")
-    assert "now belong in engine.audio.audio_format" in caplog.text
+    block: dict = {"module": {"type": "fake"}}
+    if audio_source is not None:
+        block["audio_source"] = audio_source
+    with pytest.raises(ValueError, match=message):
+        ASREngineConfig.from_dict(block)
 
 
-def test_flat_audio_fields_next_to_an_audio_format_are_an_error() -> None:
-    with pytest.raises(ValueError, match="both audio_format and the older"):
+def test_the_old_audio_block_is_rejected_with_its_new_name() -> None:
+    with pytest.raises(ValueError, match="engine.audio is now engine.audio_source"):
         ASREngineConfig.from_dict(
-            {
-                "audio": {"sample_rate": 24000, "audio_format": {"channels": 1}},
-                "module": {"type": "fake"},
-            }
+            {"audio": {"device": "hw:0"}, "module": {"type": "fake"}}
         )
 
 
@@ -329,7 +383,8 @@ def test_from_dict_full_block() -> None:
                 "end_of_speech_timeout_s": 2.0,
             },
             "sound_feedback": {"enabled": False, "output_device": "speakers"},
-            "audio": {
+            "audio_source": {
+                "type": "microphone",
                 "device": "hw:0",
                 "audio_format": {"sample_rate": 48000, "encoding": "mulaw"},
             },
@@ -345,15 +400,15 @@ def test_from_dict_full_block() -> None:
     assert cfg.segmentation.end_of_speech_timeout_s == 2.0
     assert cfg.sound_feedback.enabled is False
     assert cfg.sound_feedback.output_device == "speakers"
-    assert cfg.audio.device == "hw:0"
-    assert cfg.audio.audio_format == AudioFormatConfig(48000, None, "mulaw")
+    assert cfg.audio_source.device == "hw:0"
+    assert cfg.audio_source.audio_format == AudioFormatConfig(48000, None, "mulaw")
     assert cfg.module.type == "deepgram"
     assert cfg.module.extra == {"api_key": "secret", "language": "fr"}
 
 
 def test_from_dict_defaults_for_omitted_blocks() -> None:
     """Only module.type is required; every omitted block gets its documented default."""
-    cfg = ASREngineConfig.from_dict({"module": {"type": "deepgram"}})
+    cfg = ASREngineConfig.from_dict({**_SRC, "module": {"type": "deepgram"}})
 
     assert cfg.auto_start is True
     assert cfg.auto_start_dictation is False
@@ -364,14 +419,14 @@ def test_from_dict_defaults_for_omitted_blocks() -> None:
     assert "submit" in cfg.segmentation.trigger_words
     assert cfg.sound_feedback.enabled is True
     assert cfg.sound_feedback.output_device is None
-    assert cfg.audio.device is None
-    assert cfg.audio.audio_format == AudioFormatConfig()
+    assert cfg.audio_source.device is None
+    assert cfg.audio_source.audio_format == AudioFormatConfig()
     assert cfg.module.extra == {}
 
 
 def test_from_dict_builds_without_credentials() -> None:
     """A module block with no api_key still builds — keys resolve later."""
-    cfg = ASREngineConfig.from_dict({"module": {"type": "deepgram"}})
+    cfg = ASREngineConfig.from_dict({**_SRC, "module": {"type": "deepgram"}})
     assert cfg.module.type == "deepgram"
     assert "api_key" not in cfg.module.extra
 
@@ -389,7 +444,11 @@ def test_from_dict_empty_module_type() -> None:
 def test_from_dict_invalid_listen_default_mode() -> None:
     with pytest.raises(ValueError, match="engine.listen_default_segmentation_mode"):
         ASREngineConfig.from_dict(
-            {"listen_default_segmentation_mode": "bad", "module": {"type": "deepgram"}}
+            {
+                "listen_default_segmentation_mode": "bad",
+                **_SRC,
+                "module": {"type": "deepgram"},
+            }
         )
 
 
@@ -398,6 +457,7 @@ def test_from_dict_invalid_dictation_default_mode() -> None:
         ASREngineConfig.from_dict(
             {
                 "dictation_default_segmentation_mode": "bad",
+                **_SRC,
                 "module": {"type": "deepgram"},
             }
         )
@@ -407,7 +467,10 @@ def test_from_dict_invalid_encoding() -> None:
     with pytest.raises(ValueError, match="encoding"):
         ASREngineConfig.from_dict(
             {
-                "audio": {"audio_format": {"encoding": "opus"}},
+                "audio_source": {
+                    "type": "microphone",
+                    "audio_format": {"encoding": "opus"},
+                },
                 "module": {"type": "deepgram"},
             }
         )
@@ -419,6 +482,7 @@ def test_from_dict_auto_start_dictation_requires_auto_start() -> None:
             {
                 "auto_start": False,
                 "auto_start_dictation": True,
+                **_SRC,
                 "module": {"type": "deepgram"},
             }
         )
@@ -430,7 +494,7 @@ def test_from_dict_matches_from_json_file(tmp_path: Path) -> None:
         "auto_start": False,
         "listen_default_segmentation_mode": "timeout",
         "segmentation": {"trigger_words": ["stop"], "end_of_speech_timeout_s": 2.0},
-        "audio": {"device": "hw:0", "encoding": "mulaw"},
+        "audio_source": {"type": "microphone", "device": "hw:0"},
         "module": {"type": "deepgram", "api_key": "secret", "language": "fr"},
     }
     path = write_config(tmp_path, {"server": {"port": 9000}, "engine": engine_block})
@@ -451,6 +515,7 @@ def test_engine_from_json_parses_engine_block() -> None:
         json.dumps(
             {
                 "listen_default_segmentation_mode": "timeout",
+                **_SRC,
                 "module": {"type": "deepgram", "language": "fr"},
             }
         )
@@ -461,7 +526,10 @@ def test_engine_from_json_parses_engine_block() -> None:
 
 
 def test_engine_from_json_matches_from_dict() -> None:
-    block = {"audio": {"encoding": "mulaw"}, "module": {"type": "deepgram"}}
+    block = {
+        "audio_source": {"type": "microphone", "device": "hw:0"},
+        "module": {"type": "deepgram"},
+    }
     assert ASREngineConfig.from_json(json.dumps(block)) == ASREngineConfig.from_dict(
         block
     )
@@ -475,7 +543,9 @@ def test_engine_from_json_rejects_malformed_json() -> None:
 def test_engine_from_json_file_reads_engine_block(tmp_path: Path) -> None:
     """from_json_file on the engine config reads a file that *is* the engine block."""
     p = tmp_path / "engine.json"
-    p.write_text(json.dumps({"module": {"type": "deepgram", "model": "nova-3"}}))
+    p.write_text(
+        json.dumps({**_SRC, "module": {"type": "deepgram", "model": "nova-3"}})
+    )
     cfg = ASREngineConfig.from_json_file(str(p))
     assert cfg.module.type == "deepgram"
     assert cfg.module.extra == {"model": "nova-3"}
@@ -541,8 +611,10 @@ def test_validate_asr_type_accepts_an_old_module_name() -> None:
 
 def test_an_old_module_name_is_stored_as_its_new_name(caplog) -> None:
     with caplog.at_level(logging.WARNING, logger="asr_engine.modules"):
-        old = ASREngineConfig.from_dict({"module": {"type": "mistral_realtime"}})
-    new = ASREngineConfig.from_dict({"module": {"type": "mistral-realtime"}})
+        old = ASREngineConfig.from_dict(
+            {**_SRC, "module": {"type": "mistral_realtime"}}
+        )
+    new = ASREngineConfig.from_dict({**_SRC, "module": {"type": "mistral-realtime"}})
     assert old.module.type == new.module.type == "mistral-realtime"
     assert "use 'mistral-realtime' instead" in caplog.text
 
@@ -558,11 +630,11 @@ def test_validate_asr_type_empty_registry() -> None:
 
 
 def _engine_with_vad(vad: object) -> dict:
-    return {"module": {"type": "fake"}, "vad": vad}
+    return {**_SRC, "module": {"type": "fake"}, "vad": vad}
 
 
 def test_vad_is_off_when_the_block_is_omitted_or_null() -> None:
-    assert ASREngineConfig.from_dict({"module": {"type": "fake"}}).vad is None
+    assert ASREngineConfig.from_dict({**_SRC, "module": {"type": "fake"}}).vad is None
     assert ASREngineConfig.from_dict(_engine_with_vad(None)).vad is None
 
 

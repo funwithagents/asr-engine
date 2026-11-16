@@ -20,8 +20,8 @@ from asr_engine.audio import (
 )
 from asr_engine.config import (
     ASREngineConfig,
-    AudioConfig,
     AudioFormatConfig,
+    AudioSourceConfig,
     ModuleConfig,
     SegmentationConfig,
     SoundFeedbackConfig,
@@ -45,8 +45,8 @@ __all__ = [
     "AsrTools",
     # Config
     "ASREngineConfig",
-    "AudioConfig",
     "AudioFormatConfig",
+    "AudioSourceConfig",
     "ModuleConfig",
     "SegmentationConfig",
     "SoundFeedbackConfig",

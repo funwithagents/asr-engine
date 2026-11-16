@@ -10,6 +10,7 @@ import pytest
 
 from asr_engine.config import (
     ASREngineConfig,
+    AudioSourceConfig,
     MCPServerConfig,
     ModuleConfig,
     ServerConfig,
@@ -28,6 +29,7 @@ from asr_engine.server import create_mcp_server, run_server
 def _engine_config(module_type: str = "mock", **kwargs) -> ASREngineConfig:
     return ASREngineConfig(
         sound_feedback=SoundFeedbackConfig(enabled=False),
+        audio_source=AudioSourceConfig(type="microphone"),
         module=ModuleConfig(type=module_type),
         **kwargs,
     )

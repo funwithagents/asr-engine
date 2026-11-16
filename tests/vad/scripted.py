@@ -60,12 +60,17 @@ class Scripted16kVAD(ScriptedVAD):
 
 
 class HandFedSource:
-    """An ``AudioSource`` whose queue the test fills by hand."""
+    """An ``AudioSource`` whose queue the test fills by hand. Pass *audio_format*
+    to make it declare the format of what it is fed."""
 
-    def __init__(self) -> None:
+    def __init__(self, audio_format: AudioFormat | None = None) -> None:
         self.queue: asyncio.Queue[bytes] = asyncio.Queue()
         self.starts = 0
         self.stops = 0
+        if audio_format is not None:
+            # Declared only when given: without the attribute, a source produces
+            # the format the engine resolved (specs/audio-source.md).
+            self.audio_format = audio_format
 
     def start(self) -> asyncio.Queue[bytes]:
         self.starts += 1

@@ -25,10 +25,14 @@ This spec blesses that seam as public API and pins the contract a custom source 
 class AudioSource(Protocol):
     def start(self) -> asyncio.Queue[bytes]: ...
     def stop(self) -> None: ...
+
+    # Optional: the format of the chunks the source produces.
+    audio_format: AudioFormat
 ```
 
-- **Injection:** `ASREngine(config, *, audio_source: AudioSource | None = None)`. When an `audio_source` is given it is used **instead of** constructing a source from config — it overrides both `audio.device` and `audio.audio_file` (see [configuration.md](configuration.md)). When `None`, the engine builds a `FileAudioSource` if `audio.audio_file` is set, else a live `AudioCapture` on `audio.device`.
-- **Stability:** this is the blessed extension point. The Protocol surface (`start()` returning the queue, `stop()`) is kept **stable**; a breaking change to it is a versioned change, not a silent one. Callers may depend on it long-term.
+- **Injection:** `ASREngine(config, *, audio_source: AudioSource | None = None)`, with `engine.audio_source.type` set to `"custom"` in the config ([configuration.md](configuration.md)). The two must agree: a source passed with another type, or `"custom"` with no source, is a `ValueError` at construction. So a passed source never silently replaces a configured device or file, and a missing one never silently becomes the microphone. With `"microphone"` or `"file"`, the engine builds an `AudioCapture` or a `FileAudioSource` itself.
+- **`audio_format` (optional attribute).** A source that knows the format of its stream declares it as an `AudioFormat`, readable before `start()`. The engine takes it as `engine.audio_format` and converts it for the module when the module is fed another format ([format-conversion.md](format-conversion.md)). A source without the attribute produces the format the engine resolved (see the [chunk contract](#chunk-contract)). The bundled sources all declare theirs. Because it is optional, it is not part of the `typing.Protocol` class in the code: the engine reads it with `getattr`, and anything other than an `AudioFormat` is a `TypeError` at construction.
+- **Stability:** this is the blessed extension point. The Protocol surface (`start()` returning the queue, `stop()`, the optional `audio_format`) is kept **stable**; a breaking change to it is a versioned change, not a silent one. Callers may depend on it long-term.
 - **`start()`** opens/arms the source, spawns whatever background work feeds audio, and **returns the `asyncio.Queue[bytes]` it owns and will feed**. The engine reads this queue (via the ASR module) — it does not create or wrap it.
 - **`stop()`** halts feeding and releases the source's resources.
 - **VAD does not change this contract.** When `engine.vad` is configured the engine wraps the source — injected or not — in its internal speech gate ([vad.md](vad.md)), which reads the source's queue (or the format converter's, when the engine converts) and feeds the ASR module from a queue of its own. The source still puts only `bytes` on an `asyncio.Queue[bytes]`; the gate's end-of-speech marker never appears on a source's queue, and a source cannot emit one.
@@ -41,11 +45,15 @@ Each queue element is **one chunk of raw PCM bytes** in the engine's source form
 - **Channels** match `engine.audio_format.channels` — **mono** unless `channels > 1`, in which case samples are interleaved.
 - **Sample rate** matches `engine.audio_format.sample_rate`.
 - **Chunk size:** **any reasonable size the backend can drain is accepted.** The `~CHUNK_MS` / `AudioFormat.frames_per_chunk` figure is the *target* the bundled mic/file sources chunk to (it sets `AudioCapture`'s `blocksize` and the file block size), **not** a requirement imposed on a custom source. The ASR module forwards whatever bytes arrive on the queue straight to the backend.
-- **The source must produce chunks in `engine.audio_format`.** With no `engine.audio.audio_format`, that is the module's format, which depends on the module (16 kHz for most, 24 kHz for `kyutai` and `openai-realtime-compatible`): read `engine.audio_format` rather than assume it. When the upstream stream has a fixed format of its own, state it in `engine.audio.audio_format` (`sample_rate`, `channels`, `encoding`) instead: `engine.audio_format` is then that format, and the engine converts it to the module's ([format-conversion.md](format-conversion.md)). The source never converts for the module. Each `start()` logs the formats in use.
+- **The source must produce chunks in `engine.audio_format`.** There are two ways to honour that:
+  - **Declare the format** (the `audio_format` attribute). `engine.audio_format` is then exactly what the source declared, whatever module is selected, and the engine converts. This is the way for a stream with a fixed format (a robot's 48 kHz microphone array, 8 kHz telephony audio).
+  - **Declare nothing, and read `engine.audio_format`.** It is then the module's format, which depends on the module (16 kHz for most, 24 kHz for `kyutai` and `openai-realtime-compatible`), so the source must read it rather than assume a rate. Nothing is converted.
+
+  The source never converts for the module. Each `start()` logs the formats in use.
 
 ## `engine.audio_format` is authoritative and available pre-`start()`
 
-The engine resolves the source format in `__init__` ([format-conversion.md](format-conversion.md) "The source format") and exposes it as the read-only `audio_format` property. It is therefore **valid immediately after construction, before `start()`** — a custom source reads `engine.audio_format` up front to know exactly what to produce (rate/channels/encoding). `engine.module_audio_format` is what the module is fed; a source does not need it.
+The engine resolves the source format in `__init__` ([format-conversion.md](format-conversion.md) "The source format"), from the source's declaration when there is one, and exposes it as the read-only `audio_format` property. It is therefore **valid immediately after construction, before `start()`** — a custom source reads `engine.audio_format` up front to know exactly what to produce (rate/channels/encoding). `engine.module_audio_format` is what the module is fed; a source does not need it.
 
 ## Lifecycle
 

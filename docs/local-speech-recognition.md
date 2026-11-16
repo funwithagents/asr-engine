@@ -198,7 +198,6 @@ uv run --with 'mlx-audio[stt,server]>=0.6' python -m mlx_audio.server --port 876
 
 ```json
 {
-  "audio": { "sample_rate": 24000 },
   "module": {
     "type": "openai-realtime-compatible",
     "url": "ws://localhost:8765/v1/realtime?model=mlx-community/Voxtral-Mini-4B-Realtime-2602-4bit",

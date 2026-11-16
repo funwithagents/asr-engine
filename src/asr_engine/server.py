@@ -185,8 +185,8 @@ async def run_server(config: MCPServerConfig, log_level: str = "INFO") -> None:
     already configured the root/``asr_engine`` handlers via ``setup_logging``.
     """
     engine_config = config.engine
-    # The engine selects its own audio source from config (live device or, when
-    # engine.audio.audio_file is set, a format-matched FileAudioSource).
+    # The engine builds its audio source from engine.audio_source (the input
+    # device or a file). A 'custom' source cannot be given here, and is refused.
     engine = ASREngine(engine_config)
 
     mcp = create_mcp_server(engine)

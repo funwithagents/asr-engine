@@ -12,6 +12,8 @@ import pytest
 from asr_engine import mcp_server_cli
 from asr_engine.modules import REGISTRY, LazyModule
 
+_SOURCE = {"audio_source": {"type": "microphone"}}
+
 
 def write_config(tmp_path: Path, data: dict) -> str:
     p = tmp_path / "config.json"
@@ -21,7 +23,7 @@ def write_config(tmp_path: Path, data: dict) -> str:
 
 def test_cli_runs_server(tmp_path: Path) -> None:
     """mcp_server_cli.main() calls asyncio.run(run_server(config)) with the loaded config."""
-    path = write_config(tmp_path, {"engine": {"module": {"type": "fake"}}})
+    path = write_config(tmp_path, {"engine": {**_SOURCE, "module": {"type": "fake"}}})
     sys.argv = ["asr-engine-mcp", "--config", path]
 
     mock_run_server = AsyncMock()
@@ -37,7 +39,7 @@ def test_cli_runs_server(tmp_path: Path) -> None:
 
 def test_cli_passes_log_level(tmp_path: Path) -> None:
     """--log-level is configured and forwarded to run_server."""
-    path = write_config(tmp_path, {"engine": {"module": {"type": "fake"}}})
+    path = write_config(tmp_path, {"engine": {**_SOURCE, "module": {"type": "fake"}}})
     sys.argv = ["asr-engine-mcp", "--config", path, "--log-level", "DEBUG"]
 
     mock_run_server = AsyncMock()
@@ -53,7 +55,7 @@ def test_cli_passes_log_level(tmp_path: Path) -> None:
 
 def test_cli_rejects_invalid_log_level(tmp_path: Path) -> None:
     """An unknown --log-level is rejected by argparse (exit code 2)."""
-    path = write_config(tmp_path, {"engine": {"module": {"type": "fake"}}})
+    path = write_config(tmp_path, {"engine": {**_SOURCE, "module": {"type": "fake"}}})
     sys.argv = ["asr-engine-mcp", "--config", path, "--log-level", "LOUD"]
     with pytest.raises(SystemExit) as exc_info:
         mcp_server_cli.main()
@@ -79,7 +81,7 @@ def test_cli_exits_on_invalid_json(tmp_path: Path, capsys) -> None:
 
 def test_cli_exits_on_unknown_asr_type(tmp_path: Path, capsys) -> None:
     """validate_asr_type now runs inside run_server; ValueError propagates to cli."""
-    path = write_config(tmp_path, {"engine": {"module": {"type": "bogus"}}})
+    path = write_config(tmp_path, {"engine": {**_SOURCE, "module": {"type": "bogus"}}})
     sys.argv = ["asr-engine-mcp", "--config", path]
     # run_server raises ValueError; asyncio.run re-raises it; cli catches it.
     # Patch run_server itself (not asyncio.run) so the real asyncio.run awaits
@@ -104,7 +106,9 @@ def test_cli_exits_with_install_hint_when_module_extra_missing(
         "import asr_engine_test_missing_sdk_xyz\n\nclass Module: ...\n"
     )
     monkeypatch.syspath_prepend(str(tmp_path))
-    path = write_config(tmp_path, {"engine": {"module": {"type": "acme_v1"}}})
+    path = write_config(
+        tmp_path, {"engine": {**_SOURCE, "module": {"type": "acme_v1"}}}
+    )
     sys.argv = ["asr-engine-mcp", "--config", path]
     entry = LazyModule("needs_missing_sdk:Module", extra="acme")
     with patch.dict(REGISTRY, {"acme_v1": entry}):
@@ -128,7 +132,7 @@ def test_cli_reraises_import_errors_that_are_not_the_mcp_extra(
 ) -> None:
     """Only a missing top-level mcp/uvicorn becomes the install hint; anything
     else surfaces as the real ModuleNotFoundError."""
-    path = write_config(tmp_path, {"engine": {"module": {"type": "fake"}}})
+    path = write_config(tmp_path, {"engine": {**_SOURCE, "module": {"type": "fake"}}})
     sys.argv = ["asr-engine-mcp", "--config", path]
     with patch.dict(sys.modules):
         # Force a fresh import of the server so the poisoned module is reached.

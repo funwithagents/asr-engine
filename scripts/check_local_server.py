@@ -100,7 +100,8 @@ def engine_config(args: argparse.Namespace) -> dict[str, Any]:
         module["turn_detection"] = json.loads(args.turn_detection)
         gated = args.vad
     config: dict[str, Any] = {
-        "audio": {"audio_format": {"sample_rate": RATES[args.protocol]}},
+        # The scripted source below says what it produces.
+        "audio_source": {"type": "custom"},
         "sound_feedback": {"enabled": False},
         "module": module,
     }

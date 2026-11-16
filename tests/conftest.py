@@ -28,6 +28,7 @@ def fake_engine_factory():
     from asr_engine import (
         ASREngine,
         ASREngineConfig,
+        AudioSourceConfig,
         ModuleConfig,
         ScriptableAudioSource,
         SegmentationConfig,
@@ -51,6 +52,7 @@ def fake_engine_factory():
             dictation_default_segmentation_mode=dictation_default_segmentation_mode,
             segmentation=segmentation,
             sound_feedback=SoundFeedbackConfig(enabled=False),
+            audio_source=AudioSourceConfig(type="custom"),
             module=ModuleConfig(type="fake", extra={"utterances": utterances}),
         )
         return ASREngine(

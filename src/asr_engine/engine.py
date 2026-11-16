@@ -11,7 +11,11 @@ from asr_engine.audio import (
     FileAudioSource,
     read_file_format,
 )
-from asr_engine.config import ASREngineConfig
+from asr_engine.config import (
+    AUDIO_SOURCE_TYPES,
+    ASREngineConfig,
+    AudioFormatConfig,
+)
 from asr_engine.format_converter import ConvertedAudioSource, check_convertible
 from asr_engine.modules import resolve_module_class
 from asr_engine.modules.base import (
@@ -71,7 +75,7 @@ class ASREngine:
         audio_source: AudioSource | None = None,
     ) -> None:
         self._config = config
-        self._audio_config = config.audio
+        self._audio_config = config.audio_source
         # Raises ValueError (unknown type) or ImportError (provider extra missing).
         self._module_cls = resolve_module_class(config.module.type)
         self._asr_module = self._module_cls(config=config.module.extra)
@@ -124,13 +128,19 @@ class ASREngine:
         """Resolve the source's format and the module's (specs/format-conversion.md).
 
         The module's format comes first and never depends on the source: the
-        module's defaults, unless ``engine.module.audio_format`` sets a field. The
-        source's format is ``engine.audio.audio_format``; a field left unset there
-        follows the module's (or the file's own rate and channel count).
+        module's defaults, unless ``engine.module.audio_format`` sets a field.
 
-        Raises ``ValueError`` on a module field the module does not support, a file
-        that contradicts ``engine.audio.audio_format``, or a channel layout that
-        cannot be converted.
+        The source's format depends on ``engine.audio_source.type``:
+
+        - ``microphone``: ``engine.audio_source.audio_format``, each unset field
+          following the module's format.
+        - ``file``: the file's own rate and channel count, in the module's encoding.
+        - ``custom``: what the injected source declares (its ``audio_format``
+          attribute), else the module's format.
+
+        Raises ``ValueError`` on a source type that does not match how the engine
+        was built, a module field the module does not support, or a channel layout
+        that cannot be converted.
         """
         requested = self._config.module.audio_format
         module_format = resolve_module_audio_format(
@@ -140,31 +150,56 @@ class ASREngine:
             encoding=requested.encoding,
         )
 
-        audio = self._config.audio
-        source = audio.audio_format
-        rate, channels = source.sample_rate, source.channels
-        if self._audio_source is None and audio.audio_file:
-            # A file's rate and channel count are facts, read from its header. A
-            # value set in engine.audio.audio_format is then a check, not a request.
-            file_rate, file_channels = read_file_format(audio.audio_file)
-            if rate is not None and rate != file_rate:
+        source = self._config.audio_source
+        injected = self._audio_source
+        if source.type not in AUDIO_SOURCE_TYPES:
+            raise ValueError(
+                f"engine.audio_source.type is required: one of "
+                f"{', '.join(AUDIO_SOURCE_TYPES)} (got {source.type!r})."
+            )
+        if source.type == "custom" and injected is None:
+            raise ValueError(
+                "engine.audio_source.type is 'custom', but no source was given: "
+                "pass one as ASREngine(config, audio_source=...). The MCP server "
+                "cannot use a custom source; set the type to 'microphone' or 'file'."
+            )
+        if source.type != "custom" and injected is not None:
+            raise ValueError(
+                f"An audio source was passed to ASREngine, but "
+                f"engine.audio_source.type is '{source.type}': set it to 'custom'."
+            )
+        if source.type != "microphone" and source.audio_format != AudioFormatConfig():
+            raise ValueError(
+                f"engine.audio_source.audio_format applies to type 'microphone' "
+                f"only, not '{source.type}': a file has its own format, and a "
+                f"custom source declares its own."
+            )
+
+        if source.type == "microphone":
+            wanted = source.audio_format
+            source_format = AudioFormat(
+                sample_rate=wanted.sample_rate or module_format.sample_rate,
+                channels=wanted.channels or module_format.channels,
+                encoding=wanted.encoding or module_format.encoding,
+            )
+        elif source.type == "file":
+            if not source.audio_file:
                 raise ValueError(
-                    f"{audio.audio_file}: expected sample rate {rate} "
-                    f"(engine.audio.audio_format.sample_rate), got {file_rate}. "
-                    f"Remove the field to use the file's own rate."
+                    "engine.audio_source.audio_file is required with type 'file'."
                 )
-            if channels is not None and channels != file_channels:
-                raise ValueError(
-                    f"{audio.audio_file}: expected {channels} channel(s) "
-                    f"(engine.audio.audio_format.channels), got {file_channels}. "
-                    f"Remove the field to use the file's own channel count."
+            # A file's rate and channel count are facts, read from its header.
+            rate, channels = read_file_format(source.audio_file)
+            source_format = AudioFormat(
+                sample_rate=rate, channels=channels, encoding=module_format.encoding
+            )
+        else:
+            declared = getattr(injected, "audio_format", None)
+            if declared is not None and not isinstance(declared, AudioFormat):
+                raise TypeError(
+                    f"{type(injected).__name__}.audio_format must be an "
+                    f"AudioFormat (or absent), got {type(declared).__name__}."
                 )
-            rate, channels = file_rate, file_channels
-        source_format = AudioFormat(
-            sample_rate=rate if rate is not None else module_format.sample_rate,
-            channels=channels if channels is not None else module_format.channels,
-            encoding=source.encoding or module_format.encoding,
-        )
+            source_format = declared if declared is not None else module_format
         check_convertible(source_format, module_format)
         return source_format, module_format
 
@@ -279,7 +314,8 @@ class ASREngine:
         source: AudioSource
         if self._audio_source is not None:
             source = self._audio_source
-        elif self._audio_config.audio_file:
+        elif self._audio_config.type == "file":
+            assert self._audio_config.audio_file is not None  # checked at init
             source = FileAudioSource(
                 self._audio_config.audio_file,
                 audio_format=self._audio_format,
@@ -291,8 +327,8 @@ class ASREngine:
                 self._audio_config.device, loop, audio_format=self._audio_format
             )
 
-        # Logged at every start: what the source must produce is otherwise
-        # implicit when engine.audio.audio_format leaves it to the module.
+        # Logged at every start, so the format a source is expected to produce
+        # is never implicit.
         if self._audio_format == self._module_audio_format:
             log.info(
                 "Audio format: %s, for the source and the '%s' module",
@@ -451,9 +487,9 @@ class ASREngine:
     def audio_format(self) -> AudioFormat:
         """The format the audio source produces.
 
-        What an injected ``AudioSource`` must put on its queue. Valid right after
-        construction. Equal to ``module_audio_format`` unless
-        ``engine.audio.audio_format`` (or a file) says otherwise.
+        Valid right after construction. For a custom source it is what the source
+        declared, or — when it declares nothing — the module's format, which the
+        source must then produce.
         """
         return self._audio_format
 

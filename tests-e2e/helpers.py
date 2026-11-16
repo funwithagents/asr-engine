@@ -377,16 +377,15 @@ def build_engine(
     Sound feedback is disabled. ``audio_source`` is any object matching the
     ``AudioSource`` protocol — e.g. a ``FileAudioSource`` (see
     ``build_file_engine``) or a ``ScriptableAudioSource`` for hand-sequenced audio.
-    ``audio_format`` is what the source produces, set as
-    ``engine.audio.audio_format``. ``module_sample_rate`` is the rate in
-    ``engine.module.audio_format``; left out, the module
+    ``audio_format`` is the format *audio_source* produces (and declares).
+    ``module_sample_rate`` is the rate in ``engine.module.audio_format``; left out, the module
     is fed the source's rate, so the audio reaches it unconverted. Pass another
     rate to put the format converter in between.
     """
     from asr_engine.config import (
         ASREngineConfig,
-        AudioConfig,
         AudioFormatConfig,
+        AudioSourceConfig,
         ModuleConfig,
         SegmentationConfig,
         SoundFeedbackConfig,
@@ -405,13 +404,8 @@ def build_engine(
         dictation_default_segmentation_mode=dictation_default_segmentation_mode,
         segmentation=seg,
         sound_feedback=SoundFeedbackConfig(enabled=False),
-        audio=AudioConfig(
-            audio_format=AudioFormatConfig(
-                sample_rate=audio_format.sample_rate,
-                channels=audio_format.channels,
-                encoding=audio_format.encoding,
-            )
-        ),
+        # The source is always passed in, and says itself what it produces.
+        audio_source=AudioSourceConfig(type="custom"),
         module=ModuleConfig(
             type=module_type,
             audio_format=AudioFormatConfig(
@@ -423,7 +417,11 @@ def build_engine(
     if vad is not None:
         # Through from_dict so the block is validated as a config file's would be.
         config.vad = ASREngineConfig.from_dict(
-            {"module": {"type": module_type}, "vad": vad}
+            {
+                "audio_source": {"type": "custom"},
+                "module": {"type": module_type},
+                "vad": vad,
+            }
         ).vad
     return ASREngine(
         config,
@@ -490,7 +488,8 @@ async def start_mcp_server(
     ``segmentation``, ``listen_default_segmentation_mode``, ``sound_feedback``).
     """
     engine: dict = {
-        "audio": {
+        "audio_source": {
+            "type": "file",
             "audio_file": str(audio_file),
             "trailing_silence_s": trailing_silence_s,
         },

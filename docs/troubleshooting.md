@@ -18,6 +18,14 @@ The MCP server needs the `mcp` extra: `uv sync --no-default-groups --extra <modu
 
 `Unknown ASR type '...'. Available: ...` means `module.type` is not a registered module. Types are written with hyphens (`deepgram-v1`); the message lists the valid ones.
 
+## The audio source block is refused
+
+- `engine.audio is now engine.audio_source`: the block was renamed and needs a `type`. Write `"audio_source": {"type": "microphone"}`, with `device` next to it if you set one.
+- `missing required field: engine.audio_source.type`: say where the audio comes from, `"microphone"`, `"file"` or `"custom"`.
+- `... does not apply to type '...'`: the block holds a field of another type, such as `audio_file` with `"microphone"`.
+- `engine.audio_source.type is 'custom', but no source was given`: a `custom` source is passed in code, as `ASREngine(config, audio_source=...)`. The MCP server cannot take one; use `"microphone"` or `"file"` there.
+- `An audio source was passed to ASREngine, but engine.audio_source.type is '...'`: set the type to `"custom"`.
+
 ## The module does not support the sample rate
 
 ```text
@@ -45,8 +53,8 @@ ASR module 'mlx-audio' needs a VAD to know when an utterance ends: add an engine
 
 ## A file input is rejected
 
-- `expected sample rate 16000 (engine.audio.audio_format.sample_rate), got 44100` (or the same for channels): `audio.audio_format` states a rate or channel count the file does not have. Remove the field; the file's own values are used, and converted for the module when needed.
-- `Audio file not found` or `not a readable audio file`: the path in `audio.audio_file` is wrong, or the file is not something `libsndfile` decodes.
+- `audio_format does not apply to type 'file'`: a file is read at its own sample rate and channel count, and converted for the module when needed. Remove the field.
+- `Audio file not found` or `not a readable audio file`: the path in `audio_source.audio_file` is wrong, or the file is not something `libsndfile` decodes.
 
 ## The engine runs but nothing is transcribed
 
@@ -57,7 +65,7 @@ ASR module 'mlx-audio' needs a VAD to know when an utterance ends: add an engine
 
 ## The last words of a file are missing
 
-A streaming backend finalizes an utterance on the silence that follows it, and a file ends abruptly. Set `audio.trailing_silence_s` to a couple of seconds.
+A streaming backend finalizes an utterance on the silence that follows it, and a file ends abruptly. Set `audio_source.trailing_silence_s` to a couple of seconds.
 
 ## `listen` or dictation is refused
 

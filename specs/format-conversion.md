@@ -35,77 +35,77 @@ AudioSource ──► FormatConverter (only when the formats differ) ──► V
    source format                          module format                    module format
 ```
 
-This replaces `engine.audio.on_unsupported_format`: an unsupported format is no longer an error to handle, it is converted.
+This replaces the former `on_unsupported_format` setting: an unsupported format is no longer an error to handle, it is converted.
 
 ## Configuration
 
-Each format is set by an **`audio_format` object** with the same three optional fields, one in each block ([configuration.md](configuration.md) holds the field tables):
+Formats are set with an **`audio_format` object**: three optional fields, `sample_rate`, `channels` and `encoding`. It appears in two places ([configuration.md](configuration.md) holds the field tables):
 
 ```json
 {
-  "audio":  { "audio_format": { "sample_rate": 48000, "channels": 1, "encoding": "linear16" } },
-  "module": { "type": "deepgram-v1", "audio_format": { "sample_rate": 16000 } }
+  "audio_source": { "type": "microphone", "audio_format": { "sample_rate": 48000 } },
+  "module":       { "type": "deepgram-v1", "audio_format": { "sample_rate": 16000 } }
 }
 ```
 
-| Object | Describes | A field left unset (`null` or absent) |
-|---|---|---|
-| `engine.module.audio_format` | What the module is fed | The module's own default (`DEFAULT_SAMPLE_RATE`, `DEFAULT_CHANNELS`, `DEFAULT_ENCODING`) |
-| `engine.audio.audio_format` | What the source produces | The module format's value. For a file, the rate and channel count are the file's own |
+In Python it is an `AudioFormatConfig(sample_rate=None, channels=None, encoding=None)`, on `ModuleConfig.audio_format` and `AudioSourceConfig.audio_format`. The resolved formats are `AudioFormat` values.
 
-In Python both are an `AudioFormatConfig(sample_rate=None, channels=None, encoding=None)`, on `AudioConfig.audio_format` and `ModuleConfig.audio_format`. The resolved formats are `AudioFormat` values.
-
-The dependency runs **one way**: the module format never looks at the source, and the source falls back on the module format.
+The dependency runs **one way**: the module format never looks at the source, and a source with nothing to say falls back on the module format.
 
 ### The module format
 
 Resolved first, by `resolve_module_audio_format(module, sample_rate=, channels=, encoding=)` in `modules/base.py`:
 
-- each field of `engine.module.audio_format` that is set replaces the module's default;
+- each field of `engine.module.audio_format` that is set replaces the module's default (`DEFAULT_SAMPLE_RATE`, `DEFAULT_CHANNELS`, `DEFAULT_ENCODING`);
 - a set value must be one the module supports, otherwise `ValueError` at construction listing the supported values.
 
 With no `engine.module.audio_format`, a module is fed its defaults whatever the source is.
 
 ### The source format
 
-Each field of `engine.audio.audio_format` that is set is what the source produces. A field left unset takes the module format's value, so by default the source produces exactly what the module is fed and nothing is converted.
+Whoever produces the audio says what its format is. That depends on `engine.audio_source.type`:
 
-| Source | A set field | An unset field |
+| `type` | The source format is | Fallback |
 |---|---|---|
-| Microphone (`AudioCapture`) | The device is opened at that rate and channel count; the captured s16 is encoded to that encoding | The module format's |
-| Injected `AudioSource` | A statement about the stream the application feeds | The module format's: the source must produce it |
-| File (`audio.audio_file`) | `sample_rate` / `channels` are a check: a file that differs is a `ValueError` at construction. `encoding` is what the decoded file is encoded to | `sample_rate` / `channels`: the file's own, read from its header at construction. `encoding`: the module format's |
+| `"microphone"` | `engine.audio_source.audio_format`: the rate and channel count the device is opened at, and the encoding the captured s16 is encoded to | A field left unset takes the module format's value |
+| `"file"` | The file's own rate and channel count, read from its header at construction; the decoded s16 is encoded to the module format's encoding | — |
+| `"custom"` | What the source passed to `ASREngine(config, audio_source=...)` declares, through its optional `audio_format` attribute ([audio-source.md](audio-source.md)) | A source that declares nothing must produce the module format |
 
-- A file's rate and channel count are facts that a setting cannot change, so a set value only verifies the file is the one expected.
+- `engine.audio_source.audio_format` exists for the microphone only, because a device can be opened at any format. Set with `"file"` or `"custom"` it is an error, so it is never written where it has no effect.
 - A missing or unreadable `audio_file` fails at construction (`FileNotFoundError` / `ValueError`), not at the first `start()`.
+- A custom source's `audio_format` must be an `AudioFormat`, else `TypeError` at construction.
 
-Why the source follows the module, instead of a fixed default such as 16 kHz: a microphone can be opened at any rate, so opening it at the module's avoids a conversion and, for a 24 kHz module, avoids capturing less than the model can use.
+Why the microphone follows the module by default, instead of a fixed rate such as 16 kHz: opening the device at the module's format avoids a conversion and, for a 24 kHz module, avoids capturing less than the model can use.
+
+### The source type is explicit
+
+`engine.audio_source.type` is required, and the engine checks it against how it is built:
+
+- `"custom"` with no source passed is an error. The engine does not fall back on a microphone, which on a robot would be the wrong one. The MCP server cannot be given a source, so it refuses this type.
+- `"microphone"` or `"file"` with a source passed is an error. The passed source is not silently preferred.
 
 ### Examples
 
-| `audio.audio_format` | Module, `module.audio_format` | Source format | Module format | Converted? |
+| `audio_source` | Module, `module.audio_format` | Source format | Module format | Converted? |
 |---|---|---|---|---|
-| unset | `deepgram-v1`, unset | 16 kHz | 16 kHz | No |
-| unset | `kyutai` (24 kHz only), unset | 24 kHz | 24 kHz | No: the device is opened at 24 kHz |
-| unset, a 44.1 kHz file | `deepgram-v1`, unset | 44.1 kHz | 16 kHz | Yes |
-| unset, a 44.1 kHz file | `deepgram-v1`, `{"sample_rate": 44100}` | 44.1 kHz | 44.1 kHz | No |
-| unset, a 44.1 kHz stereo file | `mlx-audio`, unset | 44.1 kHz stereo | 16 kHz mono | Yes: downmix and resample |
-| `{"sample_rate": 48000}` | `deepgram-v1`, unset | 48 kHz | 16 kHz | Yes |
-| unset | `deepgram-v1`, `{"sample_rate": 8000, "encoding": "mulaw"}` | 8 kHz `mulaw` | 8 kHz `mulaw` | No: the source follows |
-| `{"sample_rate": 8000, "encoding": "mulaw"}` (injected telephony stream) | `mistral-realtime`, unset | 8 kHz `mulaw` | 16 kHz `linear16` | Yes: decode and resample |
+| microphone | `deepgram-v1`, unset | 16 kHz | 16 kHz | No |
+| microphone | `kyutai` (24 kHz only), unset | 24 kHz | 24 kHz | No: the device is opened at 24 kHz |
+| microphone, `{"sample_rate": 48000}` | `deepgram-v1`, unset | 48 kHz | 16 kHz | Yes |
+| microphone | `deepgram-v1`, `{"sample_rate": 8000, "encoding": "mulaw"}` | 8 kHz `mulaw` | 8 kHz `mulaw` | No: the microphone follows |
+| a 44.1 kHz file | `deepgram-v1`, unset | 44.1 kHz | 16 kHz | Yes |
+| a 44.1 kHz file | `deepgram-v1`, `{"sample_rate": 44100}` | 44.1 kHz | 44.1 kHz | No |
+| a 44.1 kHz stereo file | `mlx-audio`, unset | 44.1 kHz stereo | 16 kHz mono | Yes: downmix and resample |
+| custom, declaring 8 kHz `mulaw` (a telephony stream) | `mistral-realtime`, unset | 8 kHz `mulaw` | 16 kHz `linear16` | Yes: decode and resample |
+| custom, declaring nothing | `kyutai`, unset | 24 kHz: the source must produce it | 24 kHz | No |
 
-### An injected source and the implicit format
+### A custom source that declares nothing
 
-With nothing set, an injected source must produce the module's format, which differs from one module to the next (16 kHz for most, 24 kHz for `kyutai` and `openai-realtime-compatible`). Two things keep that from going wrong silently:
+Such a source must produce the module's format, which differs from one module to the next (16 kHz for most, 24 kHz for `kyutai` and `openai-realtime-compatible`). Two things keep that from going wrong silently:
 
-- `engine.audio_format` is valid right after construction, so a source can read what it must produce instead of assuming it;
+- `engine.audio_format` is valid right after construction, so the source can read what it must produce instead of assuming it;
 - every `start()` logs the formats in use at INFO, converted or not.
 
-A source with a fixed format of its own should state it in `engine.audio.audio_format`. The engine then converts for whatever module is selected.
-
-### The older flat fields
-
-`engine.audio.sample_rate`, `channels` and `encoding` used to sit directly in the `audio` block. They are still read, with a warning naming `engine.audio.audio_format`; setting both forms is an error. `engine.audio.on_unsupported_format` is no longer read: a config that still carries it loads, with a warning.
+A source with a fixed format should declare it. The engine then converts for whatever module is selected. The bundled `FileAudioSource`, `ScriptableAudioSource` and `AudioCapture` all declare theirs.
 
 ### Per-instance rates
 
@@ -149,8 +149,8 @@ Output chunk sizes vary slightly from one chunk to the next. The module contract
 
 ## Engine integration
 
-- **Construction.** After building the module, the engine resolves both formats (`ASREngine._resolve_formats`): the module's first, then the source's, by the rules above. It then checks the pair is convertible. Every error surfaces here.
-- **Properties.** `audio_format` is the source format, and stays what an injected source must produce. `module_audio_format` is new. Both are valid right after construction.
+- **Construction.** After building the module, the engine checks the source type and resolves both formats (`ASREngine._resolve_formats`): the module's first, then the source's, by the rules above. It then checks the pair is convertible. Every error surfaces here.
+- **Properties.** `audio_format` is the source format: what a custom source declared, or must produce when it declared nothing. `module_audio_format` is new. Both are valid right after construction.
 - **Start.** One line is logged at INFO naming the format, or both when they differ. When they differ, the selected source (microphone, file or injected) is wrapped in a `ConvertedAudioSource`. The VAD gate, when configured, wraps the converter.
 - **The module** receives `audio_format=module_audio_format` in `start()`, as before.
 - **Stop** stops the outermost wrapper, which stops what it wraps, down to the source.
@@ -165,11 +165,13 @@ The cost: silence is converted too (negligible), and when the gate must itself r
 
 ### What does not change
 
-- **The `AudioSource` protocol.** A source still puts `bytes` in `engine.audio_format` on a queue it owns.
+- **The `AudioSource` protocol's methods.** A source still puts `bytes` in `engine.audio_format` on a queue it owns. The `audio_format` attribute is an optional addition: a source without it works as before.
 - **The `ASRModule` interface.** Modules still read `bytes` (and the marker) in the format `start()` names.
 - **What does change for an existing config:**
-  - The module is fed its own default format, not `engine.audio`'s when it happened to support it. A config that set 44.1 kHz in `engine.audio` with Deepgram now sends 16 kHz, unless `engine.module.audio_format` says `{"sample_rate": 44100}`.
-  - With nothing set, the source's rate is the module's default, not a fixed 16 kHz. It only differs for the 24 kHz modules, which a 16 kHz default made fail before.
+  - The `engine.audio` block is now `engine.audio_source`, with a required `type`. The old block is refused with a message naming the new one. `sample_rate`, `channels` and `encoding` move into `audio_format` (microphone only), and `on_unsupported_format` is gone.
+  - The module is fed its own default format, not the source's when it happened to support it. A 44.1 kHz file with Deepgram now sends 16 kHz, unless `engine.module.audio_format` says `{"sample_rate": 44100}`.
+  - With nothing set, the microphone is opened at the module's default rate, not a fixed 16 kHz. It only differs for the 24 kHz modules, which a 16 kHz default made fail before.
+  - A source passed to the engine needs `"type": "custom"`. It no longer overrides a device or a file silently.
 
 ## Dependency
 
@@ -181,8 +183,8 @@ Fast tier:
 
 - **The converter** (`tests/test_format_converter.py`): a tone resampled between several rate pairs keeps its duration, pitch and level; the output does not depend on the chunking; a frame split across chunks is reassembled; exact downmix and duplication; `mulaw` both ways; all three dimensions at once; the frame counters; a refused channel layout; the wrapper's order, restart and failure behaviour.
 - **Resolution** (`tests/modules/test_base.py`): the module's defaults, a requested rate and encoding, the refusal of an unsupported one, and each row of the per-instance rates table.
-- **The engine** (`tests/test_engine.py`): the module format independent of the source; the source following the module, field by field; a file's header read and checked; errors at construction; the formats logged at each start; a hand-fed 44.1 kHz source reaching a recording module as 16 kHz audio of the same duration and pitch; equal formats reaching the module untouched; the gate analysing the converted audio.
-- **Config** (`tests/test_config.py`): the `audio_format` object in both blocks and its validation, the older flat fields, and the warning on the removed one.
+- **The engine** (`tests/test_engine.py`): the module format independent of the source; the microphone following the module, field by field; a file's header read; a custom source that declares its format, and one that does not; the source type checked against how the engine is built; errors at construction; the formats logged at each start; a hand-fed 44.1 kHz source reaching a recording module as 16 kHz audio of the same duration and pitch; equal formats reaching the module untouched; the gate analysing the converted audio.
+- **Config** (`tests/test_config.py`): the `audio_source` block (required type, the fields each type takes, the old `audio` block refused) and the `audio_format` object and its validation.
 
 Live tier ([e2e-testing.md](e2e-testing.md)):
 

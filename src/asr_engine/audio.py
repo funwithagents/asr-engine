@@ -101,10 +101,13 @@ class AudioSource(Protocol):
       ``mulaw`` is G.711; mono unless ``channels > 1`` (then interleaved). Any
       reasonable chunk size is accepted — the module forwards bytes as-is; the
       ``~CHUNK_MS`` target is what the bundled sources use, not a requirement.
-    - A source produces ``engine.audio_format`` (valid immediately after
-      construction, before ``start()``). By default that is the module's format;
-      a source with a format of its own states it in ``engine.audio`` and the
-      engine converts it for the module (specs/format-conversion.md).
+    - **The source says what it produces** through an optional ``audio_format``
+      attribute (an ``AudioFormat``, readable before ``start()``). The engine
+      takes it as ``engine.audio_format`` and converts it for the module when the
+      module is fed another format. A source without the attribute produces
+      ``engine.audio_format`` as the engine resolved it — the module's format —
+      which is valid immediately after construction
+      (specs/format-conversion.md).
     - ``stop()`` halts feeding and releases resources. The engine calls it on
       ``engine.stop()`` and in ``listen()`` teardown (always, even on error), and
       may call ``start()`` again afterwards — the source must be restartable.
@@ -247,6 +250,11 @@ class FileAudioSource:
         self._queue: asyncio.Queue[bytes] | None = None
         self._task: asyncio.Task | None = None
 
+    @property
+    def audio_format(self) -> AudioFormat:
+        """The format of the chunks this source produces."""
+        return self._format
+
     def start(self) -> asyncio.Queue[bytes]:
         self._queue = asyncio.Queue()
         self._task = asyncio.create_task(self._feed())
@@ -328,6 +336,11 @@ class ScriptableAudioSource:
         self._requests: asyncio.Queue[_PlayRequest] | None = None
         self._task: asyncio.Task | None = None
 
+    @property
+    def audio_format(self) -> AudioFormat:
+        """The format of the chunks this source produces."""
+        return self._format
+
     def start(self) -> asyncio.Queue[bytes]:
         """Start feeding silence and return the queue that receives PCM chunks."""
         self._queue = asyncio.Queue(maxsize=self._maxsize)
@@ -405,6 +418,11 @@ class AudioCapture:
         self._format = audio_format
         self._stream: sd.InputStream | None = None
         self._queue: asyncio.Queue[bytes] | None = None
+
+    @property
+    def audio_format(self) -> AudioFormat:
+        """The format of the chunks this source produces."""
+        return self._format
 
     def start(self) -> asyncio.Queue[bytes]:
         """Open and start the audio stream. Returns the queue for consumers."""

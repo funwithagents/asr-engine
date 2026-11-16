@@ -20,6 +20,7 @@ from asr_engine import ASREngine, ASREngineConfig, ScriptableAudioSource
 def build_engine() -> ASREngine:
     config = ASREngineConfig.from_dict(
         {
+            "audio_source": {"type": "custom"},
             "sound_feedback": {"enabled": False},
             "segmentation": {"trigger_words": ["send"]},
             "module": {
@@ -55,7 +56,7 @@ The `timeout` segmentation mode runs on wall-clock timers. To test it, keep the 
 
 ## Testing with recorded audio
 
-To exercise a real module against a recording, use file input (`audio.audio_file`, [audio-input.md](audio-input.md#a-file)) or `ScriptableAudioSource.play()`, which feeds a WAV file on demand and then resumes silence:
+To exercise a real module against a recording, use file input (an `audio_source` of type `file`, [audio-input.md](audio-input.md#a-file)) or `ScriptableAudioSource.play()`, which feeds a WAV file on demand and then resumes silence:
 
 ```python
 source = ScriptableAudioSource()

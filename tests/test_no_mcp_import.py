@@ -31,6 +31,7 @@ _SCRIPT = textwrap.dedent(
     cfg = MCPServerConfig.from_dict(
         {
             "engine": {
+                "audio_source": {"type": "custom"},
                 "module": {"type": "fake", "utterances": []},
                 "sound_feedback": {"enabled": False},
             }

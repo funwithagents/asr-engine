@@ -749,7 +749,10 @@ def _engine(module: dict[str, Any], source_rate: int | None = None):
         ASREngineConfig.from_dict(
             {
                 "sound_feedback": {"enabled": False},
-                "audio": {"audio_format": {"sample_rate": source_rate}},
+                "audio_source": {
+                    "type": "microphone",
+                    "audio_format": {"sample_rate": source_rate},
+                },
                 "module": {
                     "type": "openai-realtime-compatible",
                     "url": "ws://localhost:4000/v1/realtime",
