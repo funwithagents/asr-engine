@@ -4,6 +4,7 @@ code:
   - src/asr_engine/modules/openai_transcriptions_compatible/module.py
   - src/asr_engine/modules/__init__.py
   - pyproject.toml
+  - scripts/check_local_server.py
 tests:
   - tests/modules/test_openai_transcriptions_compatible.py
   - tests-e2e/test_engine_modules.py
@@ -37,6 +38,21 @@ It is a **batch** module, a [`BatchASRModule`](../batch-asr-module.md) like `mlx
 - **The first request pays the connection setup** (TLS): 1.6 s against 0.5 to 1 s afterwards. A warm-up in `load()` moves that cost before `connected`.
 - **Audio under 0.1 s is rejected** with a 400. The module does not send it.
 - **Errors carry a JSON `error.message`**, which the module puts in its log.
+
+### Measured against local servers (2026-11-16)
+
+`scripts/check_local_server.py transcriptions` runs the engine with this module against a server on the same machine (Apple M5 Pro), with `interim_interval_s: 0.5` and the same fixture. No module change was needed for any of them.
+
+| Server | Model | Result |
+|---|---|---|
+| mlx-audio 0.6.5 server | `mlx-community/parakeet-tdt-0.6b-v3`, `mlx-community/whisper-large-v3-turbo-asr-4bit` | An interim per half second, final ≈ 0.5 s after speech end. A model's first request loads it: 4 s for Parakeet, 1.8 s for Whisper (cached weights). |
+| whisper.cpp 1.9.5 server (Metal), `--inference-path /v1/audio/transcriptions` | `ggml-base.en`, `ggml-large-v3-turbo` | An interim per half second, final 0.5 to 0.7 s after speech end. The model is loaded at launch; `model` is ignored; `language` is honoured. |
+| speaches (faster-whisper, CPU) | `Systran/faster-whisper-small` | 0.8 to 1 s per request, so about one interim in two is skipped (one in flight); final ≈ 1.5 s after speech end. Its JSON carries extra keys (`logprobs`, `usage`), which the module ignores. |
+
+- **Speech during the warm-up is lost**, as [batch-asr-module.md](../batch-asr-module.md) specifies for audio captured while loading. With a server that loads its model on the first request, that window is seconds long on the first start.
+- **On 0.5 s of silence, Whisper servers return a hallucinated sentence** (whisper.cpp: "Sous-titrage Société Radio-Canada" with `language: fr`), as hosted OpenAI does. The warm-up discards its text, so it is harmless.
+
+The user-facing recipes are in [docs/local-speech-recognition.md](../../docs/local-speech-recognition.md).
 
 ## Decisions
 
@@ -129,6 +145,7 @@ A `MODULES` row: type `openai-transcriptions-compatible`, `gpt-4o-transcribe` on
 - `src/asr_engine/modules/__init__.py`: the registry entry, `extra="openai-compatible"`
 - `pyproject.toml` / `uv.lock`: the extra, in `all` and `dev`
 - `examples/config/openai-transcriptions-compatible.json`, `tests/examples/test_configs.py`
+- `scripts/check_local_server.py`: runs the engine with this module against a local server ([Measured against local servers](#measured-against-local-servers-2026-11-16))
 - `tests/modules/test_openai_transcriptions_compatible.py`, `tests-e2e/helpers.py`
 - Doc touch-ups: [asr-module-interface.md](../asr-module-interface.md) (registry, extras table), [batch-asr-module.md](../batch-asr-module.md) (the interim default), [vad.md](../vad.md) (module tables), [e2e-testing.md](../e2e-testing.md) (rows), [configuration.md](../configuration.md), [ci.md](../ci.md) (expected skips), `README.md`, `examples/README.md`, `AGENTS.md`
 

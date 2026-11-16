@@ -108,7 +108,7 @@ engine = ASREngine(config, on_speech_segment=on_segment)  # the default micropho
 ```
 
 - **Hosted:** the example above uses Deepgram (`uv sync --no-default-groups --extra deepgram`, and `DEEPGRAM_API_KEY` in the environment). Mistral and OpenAI work the same way with their own block.
-- **Local:** on an Apple Silicon Mac, `{"module": {"type": "mlx-audio"}, "vad": {"type": "silero"}}` runs a Parakeet model on the machine, with no key (`--extra mlx-audio --extra silero`).
+- **Local:** on an Apple Silicon Mac, `{"module": {"type": "mlx-audio"}, "vad": {"type": "silero"}}` runs a Parakeet model on the machine, with no key (`--extra mlx-audio --extra silero`). On other machines, see [running locally](#running-locally).
 
 [Choosing a module](docs/choosing-a-module.md) compares them.
 
@@ -146,6 +146,18 @@ A module is a swappable recognition backend, selected by the `type` of the `modu
 
 Each module's page has its install line, every config field and its troubleshooting. [docs/modules/index.md](docs/modules/index.md) compares them and lists every extra.
 
+## Running locally
+
+Nothing has to leave the machine. A model can run locally in three ways:
+
+| Way | Module | Solutions |
+|---|---|---|
+| In process | [`mlx-audio`](docs/modules/mlx-audio.md), [`kyutai`](docs/modules/kyutai.md) | The module loads the model inside your program |
+| A local batch server | [`openai-transcriptions-compatible`](docs/modules/openai-transcriptions-compatible.md) | Any server implementing `/v1/audio/transcriptions`; run with whisper.cpp, speaches (faster-whisper) and the mlx-audio server |
+| A local streaming server | [`openai-realtime-compatible`](docs/modules/openai-realtime-compatible.md) | Any server speaking OpenAI's Realtime protocol; run with the mlx-audio server |
+
+[docs/local-speech-recognition.md](docs/local-speech-recognition.md) lists each solution with the platforms it runs on, what it is best used for, the command that starts it and the matching config.
+
 ## Documentation
 
 Start at [docs/index.md](docs/index.md), the documentation by task. The pages used most:
@@ -156,6 +168,7 @@ Start at [docs/index.md](docs/index.md), the documentation by task. The pages us
 | [docs/configuration.md](docs/configuration.md) | The engine block, the loaders, credentials |
 | [docs/modules/index.md](docs/modules/index.md) | Every module, with one page each |
 | [docs/choosing-a-module.md](docs/choosing-a-module.md) | Hosted or local, streaming or batch, languages, cost |
+| [docs/local-speech-recognition.md](docs/local-speech-recognition.md) | In process, a local batch server or a local streaming server: each solution and where it runs |
 | [docs/segmentation.md](docs/segmentation.md) | Closing a segment on each utterance, a trigger word or a silence |
 | [docs/audio-input.md](docs/audio-input.md) | The microphone, file input, your own audio source, the audio format |
 | [docs/vad.md](docs/vad.md) | The optional speech gate, and the setting that suits each module |

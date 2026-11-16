@@ -7,7 +7,7 @@ Every module plugs into the same engine, so the choice is about the backend: whe
 | If you need… | Use | Why |
 |---|---|---|
 | nothing to leave the machine, on an Apple Silicon Mac | [`mlx-audio`](modules/mlx-audio.md) | Local, multilingual with the default Parakeet model, very fast decodes |
-| nothing to leave the machine, on Linux or Windows | [`kyutai`](modules/kyutai.md), or [`openai-transcriptions-compatible`](modules/openai-transcriptions-compatible.md) pointed at a local server | Kyutai runs in process (English and French; its PyTorch backend is not yet verified). A local whisper.cpp, speaches or vLLM server covers more languages |
+| nothing to leave the machine, on Linux or Windows | [`kyutai`](modules/kyutai.md), or [`openai-transcriptions-compatible`](modules/openai-transcriptions-compatible.md) pointed at a local server | Kyutai runs in process (English and French; its PyTorch backend is not yet verified). A local server covers more languages and models: [local-speech-recognition.md](local-speech-recognition.md) lists the solutions |
 | a quick start with a hosted API, many languages | [`deepgram-v1`](modules/deepgram.md) or [`mistral-realtime`](modules/mistral.md) | Streaming, multilingual with automatic detection, one API key |
 | an English voice agent that knows when the speaker has finished | [`deepgram-v2`](modules/deepgram.md) | Flux decides the end of a turn from context, not only from silence |
 | OpenAI's transcription models | [`openai-realtime-compatible`](modules/openai-realtime-compatible.md) for streaming, [`openai-transcriptions-compatible`](modules/openai-transcriptions-compatible.md) for one request per utterance | Same models, two protocols |
