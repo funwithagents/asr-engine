@@ -304,9 +304,22 @@ def test_the_source_type_must_match_how_the_engine_is_built():
         _engine_with_audio(
             cls, source_type="input-device", audio_source=HandFedSource()
         )
-    # The type is required.
-    with pytest.raises(ValueError, match="audio_source.type is required"):
-        _engine_with_audio(cls, source_type="")
+    with pytest.raises(ValueError, match="Invalid engine.audio_source.type: 'webcam'"):
+        _engine_with_audio(cls, source_type="webcam")
+
+
+def test_a_source_passed_to_a_config_with_no_source_block_is_refused():
+    # The type defaults to the input device, so the passed source would be
+    # ignored: the engine says so instead.
+    config = ASREngineConfig(
+        sound_feedback=SoundFeedbackConfig(enabled=False),
+        module=ModuleConfig(type="mock"),
+    )
+    cls = _restricted_module_class(MagicMock(), rates=None)
+    with patch.dict("asr_engine.modules.REGISTRY", {"mock": cls}):
+        assert ASREngine(config).audio_format == AudioFormat(sample_rate=16000)
+        with pytest.raises(ValueError, match="is 'input-device': set it to 'custom'"):
+            ASREngine(config, audio_source=HandFedSource())
 
 
 def test_audio_format_applies_to_a_microphone_only(tmp_path):

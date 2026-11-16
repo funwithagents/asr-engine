@@ -154,8 +154,8 @@ class ASREngine:
         injected = self._audio_source
         if source.type not in AUDIO_SOURCE_TYPES:
             raise ValueError(
-                f"engine.audio_source.type is required: one of "
-                f"{', '.join(AUDIO_SOURCE_TYPES)} (got {source.type!r})."
+                f"Invalid engine.audio_source.type: {source.type!r}. Must be "
+                f"one of {', '.join(AUDIO_SOURCE_TYPES)}."
             )
         if source.type == "custom" and injected is None:
             raise ValueError(

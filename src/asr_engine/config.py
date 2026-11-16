@@ -117,13 +117,14 @@ AUDIO_SOURCE_TYPES: dict[str, tuple[str, ...]] = {
     "file": ("audio_file", "trailing_silence_s"),
     "custom": (),
 }
+DEFAULT_AUDIO_SOURCE_TYPE = "input-device"
 
 
 @dataclass
 class AudioSourceConfig:
     """The ``engine.audio_source`` block: where the audio comes from.
 
-    ``type`` is required and selects the fields that apply:
+    ``type`` selects the fields that apply, and defaults to ``"input-device"``:
 
     - ``"input-device"``: ``device``, and ``audio_format`` (what the device is opened
       at; a field left unset follows the module's format).
@@ -134,7 +135,7 @@ class AudioSourceConfig:
       produces (specs/audio-source.md).
     """
 
-    type: str = ""
+    type: str = DEFAULT_AUDIO_SOURCE_TYPE
     device: str | None = None
     audio_file: str | None = None
     trailing_silence_s: float = 0.0
@@ -144,17 +145,16 @@ class AudioSourceConfig:
 def _parse_audio_source(engine_block: dict[str, Any]) -> AudioSourceConfig:
     if "audio" in engine_block:
         raise ValueError(
-            "engine.audio is now engine.audio_source, with a required 'type' "
+            "engine.audio is now engine.audio_source, with a 'type' "
             '("input-device", "file" or "custom"), e.g. '
-            '"audio_source": {"type": "input-device"}.'
+            '"audio_source": {"type": "input-device", "device": null}.'
         )
     data = engine_block.get("audio_source")
-    if not isinstance(data, dict) or not data.get("type"):
-        raise ValueError(
-            "Config is missing required field: engine.audio_source.type "
-            f"(one of {', '.join(AUDIO_SOURCE_TYPES)})"
-        )
-    source_type = data["type"]
+    if data is None:
+        return AudioSourceConfig()
+    if not isinstance(data, dict):
+        raise ValueError("Invalid engine.audio_source: must be an object or null.")
+    source_type = data.get("type", DEFAULT_AUDIO_SOURCE_TYPE)
     if source_type not in AUDIO_SOURCE_TYPES:
         raise ValueError(
             f"Invalid engine.audio_source.type: '{source_type}'. "
@@ -295,7 +295,7 @@ class ASREngineConfig:
         — segmentation modes in {utterance, trigger_word, timeout}, encoding in
         the two ``audio_format`` objects (positive rates and channel counts,
         encoding in {linear16, mulaw}),
-        ``auto_start_dictation`` requires ``auto_start``, ``audio_source.type`` and ``module.type`` are
+        ``auto_start_dictation`` requires ``auto_start``, ``module.type`` is
         required, and the optional ``vad`` block's ``type`` and gate parameters. ``from_json``/``from_json_file`` layer JSON string/file loading
         over it, and ``MCPServerConfig.from_dict`` delegates its ``engine`` block
         here, so every entry point validates identically.

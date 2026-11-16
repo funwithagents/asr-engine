@@ -1,6 +1,6 @@
 # Audio input and format
 
-The engine reads audio from one of three places, chosen by the required `audio_source.type`:
+The engine reads audio from one of three places, chosen by `audio_source.type`. Without the block, or without a `type`, it reads the default input device:
 
 | `type` | Source | Other fields |
 |---|---|---|

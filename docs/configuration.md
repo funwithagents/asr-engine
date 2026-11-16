@@ -89,7 +89,7 @@ A complete engine block looks like this. Only `module` is required:
 | Block or field | Purpose | Details |
 |---|---|---|
 | `module` | Selects an ASR module by its `type` and carries that module's own settings. Required | [modules/](modules/index.md) |
-| `audio_source` | Where the audio comes from: an input device, a file, or a source your code passes in. Its `type` is required | [audio-input.md](audio-input.md) |
+| `audio_source` | Where the audio comes from: an input device, a file, or a source your code passes in. Its `type` defaults to `"input-device"` | [audio-input.md](audio-input.md) |
 | `vad` | Optional speech gate in front of the module. Absent or `null` by default | [vad.md](vad.md) |
 | `segmentation` | The trigger words and silence timeouts used by listen and dictation | [segmentation.md](segmentation.md) |
 | `sound_feedback` | The start and stop cues played by `listen()`, and the device they play on | [the sound-feedback spec](../specs/sound-feedback.md) |

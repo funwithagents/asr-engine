@@ -99,16 +99,13 @@ It prints the transcript growing word by word, then the final segment. `fake` re
 
 ### With real speech
 
-To transcribe your microphone, change the two blocks and drop the `audio_source` argument. The rest of the program stays the same:
+To transcribe your microphone, change the `module` block, and drop the `audio_source` block and argument: the engine then reads the default input device. The rest of the program stays the same:
 
 ```python
 config = ASREngineConfig.from_dict(
-    {
-        "audio_source": {"type": "input-device"},  # the default input device
-        "module": {"type": "deepgram-v1", "api_key_env": "DEEPGRAM_API_KEY"},
-    }
+    {"module": {"type": "deepgram-v1", "api_key_env": "DEEPGRAM_API_KEY"}}
 )
-engine = ASREngine(config, on_speech_segment=on_segment)
+engine = ASREngine(config, on_speech_segment=on_segment)  # the default input device
 ```
 
 - **Hosted:** the example above uses Deepgram (`uv sync --no-default-groups --extra deepgram`, and `DEEPGRAM_API_KEY` in the environment). Mistral and OpenAI work the same way with their own block.

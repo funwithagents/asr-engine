@@ -119,7 +119,7 @@ The single source of segmentation parameters. The always-on segmenter, `listen`,
 
 #### `engine.audio_source` sub-block
 
-Where the audio comes from. **`type` is required**, and selects the other fields the block takes; a field of another type is an error.
+Where the audio comes from. `type` selects the other fields the block takes; a field of another type is an error. The block is optional: without it, or without a `type`, the source is the default input device.
 
 | `type` | Source | Other fields |
 |---|---|---|
@@ -129,7 +129,7 @@ Where the audio comes from. **`type` is required**, and selects the other fields
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `type` | string | — (required) | `"input-device"`, `"file"` or `"custom"`. |
+| `type` | string | `"input-device"` | `"input-device"`, `"file"` or `"custom"`. |
 | `device` | string / null | `null` | (`input-device`) Audio input device name or index. `null` = system default. |
 | `audio_format` | object / null | `null` | (`input-device`) The format the device is opened at: an [`audio_format` object](#the-audio_format-object). A field left unset follows the module's format. |
 | `audio_file` | string | — (required for `file`) | (`file`) Path to an audio file (WAV, MP3, … — anything `libsndfile`/`soundfile` decodes). Its own rate and channel count are used; the engine converts them to the module's when they differ ([format-conversion.md](format-conversion.md)). |
@@ -369,7 +369,7 @@ For tests only — a keyless, deterministic scripted module (see [modules/fake.m
 
 - The server must fail fast at startup with a clear error message if:
   - The config file is missing or not valid JSON
-  - The required field `engine.module.type` or `engine.audio_source.type` is absent
+  - The required field `engine.module.type` is absent
   - `engine.audio_source.type` is not one of `input-device` / `file` / `custom`, the block holds a field its type does not take, or `audio_file` is missing with type `file`
   - The old `engine.audio` block is present
   - The specified `engine.module.type` is unknown

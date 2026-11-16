@@ -234,9 +234,7 @@ def test_a_custom_source_takes_no_other_field() -> None:
 @pytest.mark.parametrize(
     "audio_source, message",
     [
-        (None, "missing required field: engine.audio_source.type"),
-        ({}, "missing required field: engine.audio_source.type"),
-        ({"device": "hw:0"}, "missing required field: engine.audio_source.type"),
+        ("hw:0", "engine.audio_source: must be an object or null"),
         ({"type": "webcam"}, "Invalid engine.audio_source.type: 'webcam'"),
         # Each type takes its own fields only.
         (
@@ -259,13 +257,25 @@ def test_a_custom_source_takes_no_other_field() -> None:
     ],
 )
 def test_an_invalid_audio_source_block_is_rejected(
-    audio_source: dict | None, message: str
+    audio_source: object, message: str
+) -> None:
+    block = {"audio_source": audio_source, "module": {"type": "fake"}}
+    with pytest.raises(ValueError, match=message):
+        ASREngineConfig.from_dict(block)
+
+
+@pytest.mark.parametrize("audio_source", [None, {}, {"device": "hw:0"}])
+def test_the_source_type_defaults_to_the_input_device(
+    audio_source: dict | None,
 ) -> None:
     block: dict = {"module": {"type": "fake"}}
     if audio_source is not None:
         block["audio_source"] = audio_source
-    with pytest.raises(ValueError, match=message):
-        ASREngineConfig.from_dict(block)
+    source = ASREngineConfig.from_dict(block).audio_source
+    assert source.type == "input-device"
+    assert source.device == (audio_source or {}).get("device")
+    # The dataclass built by hand has the same default.
+    assert ASREngineConfig().audio_source.type == "input-device"
 
 
 def test_the_old_audio_block_is_rejected_with_its_new_name() -> None:
