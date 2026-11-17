@@ -62,7 +62,7 @@ RTF < 1 with margin, so the design below holds as specced; the quantized variant
 | Registry shape | **One key, `kyutai`**, with `backend: "auto" \| "mlx" \| "torch"` | One `config.json` works unchanged on an Apple Silicon Mac and on a collaborator's Linux box. The backend is a deployment detail, not a different ASR. |
 | Finalization | **Semantic VAD head, silence timer as fallback** | The VAD head is the direct analogue of Flux's `EndOfTurn`. The timer covers the 2.6B model and `vad: false`. |
 | Sample rate | **Strict 24 kHz** (`SUPPORTED_SAMPLE_RATES = {24000}`) | The model's only rate. The module never resamples: the engine feeds it 24 kHz, converting a source at another rate ([format-conversion.md](../format-conversion.md)). |
-| Extras | Both in `all`; only `kyutai-mlx` in the `dev` group | `all` is the public "everything" target and must stay complete. `moshi` drags in torch (~2.5 GB), which no contributor should pay for on a plain `uv sync` — so the split happens in `dev`, not in `all`. |
+| Extras | One per backend (`kyutai-mlx`, `kyutai-torch`), neither in `all` nor in the `dev` group | Both are exclusive with `mlx-audio`, which keeps the main environment, so Kyutai is installed in an environment of its own (see [Installation](#installation) and [project.md](../project.md) "Exclusive extras"). |
 
 ## Architecture: the backend seam
 

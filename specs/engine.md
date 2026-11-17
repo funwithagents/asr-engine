@@ -15,7 +15,7 @@ tests:
 
 ## Purpose
 
-`ASREngine` owns the live speech pipeline and all *segmentation* logic. It wires `AudioCapture` to the active ASR module, then exposes two independent streams to its consumers:
+`ASREngine` owns the live speech pipeline and all *segmentation* logic. It wires the audio source — through the format converter and the VAD gate, when they are needed — to the active ASR module, then exposes two independent streams to its consumers:
 
 - **Utterances** — one `SpeechUtterance` per ASR event (interim or final), passed through unchanged from the module.
 - **Segments** — a `SpeechSegment` produced by aggregating utterances according to the current *segment mode*.
@@ -84,7 +84,7 @@ The two fire independently; a consumer may use either or both.
 
 ## Segment modes
 
-The current mode is set with `set_segmentation_mode` (below) and defaults to `"utterance"`. In every mode the engine emits an interim `SpeechSegment` (`is_final=False`, `end_reason=None`) whose `transcript` is **the committed final utterances joined by a space, followed by the current interim utterance** — so subscribers always see the latest final plus the in-progress text.
+The mode is `"utterance"` at rest. Only a `listen` call or a dictation session runs in another mode, and each reverts to `"utterance"` when it ends; there is no public mode setter (see `_start_with_segmentation_mode` and `_set_segmentation_mode` below). In every mode the engine emits an interim `SpeechSegment` (`is_final=False`, `end_reason=None`) whose `transcript` is **the committed final utterances joined by a space, followed by the current interim utterance** — so subscribers always see the latest final plus the in-progress text.
 
 ### `utterance` mode
 
@@ -233,7 +233,7 @@ Updates the segmentation params (omitted params keep their current values) and r
 def segmentation_mode(self) -> str: ...
 ```
 
-Read-only accessor for the **current** segment mode (`"utterance"` / `"trigger_word"` / `"timeout"`). It reads `utterance` at rest and reflects the active mode while a dictation session or a `listen` is in progress (both revert to `utterance` when they end). Complements `status()` (which reports only `running`/`connected`) so a direct consumer can display the active mode without shadowing engine state.
+Read-only accessor for the **current** segment mode (`"utterance"` / `"trigger_word"` / `"timeout"`). It reads `utterance` at rest and reflects the active mode while a dictation session or a `listen` is in progress (both revert to `utterance` when they end). Complements `status()` (which reports `running`, `connected` and the configured `vad`, not the mode) so a direct consumer can display the active mode without shadowing engine state.
 
 ### `dictating`
 

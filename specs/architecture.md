@@ -15,60 +15,59 @@ tests:
 
 ## System Diagram
 
+`ASREngine` owns the pipeline: it builds each stage, starts and stops them, and receives the module's utterances. The audio flows left to right; the two stages in brackets exist only when they are needed.
+
 ```
-┌─────────────────────────────────────────────────────────┐
-│                      MCP Server Process                  │
-│                                                         │
-│  ┌─────────────┐     ┌──────────────┐                   │
-│  │ Audio       │────▶│ ASR Module   │                   │
-│  │ Capture     │     │ (e.g.        │                   │
-│  │ (PyAudio /  │     │  Deepgram)   │                   │
-│  │  sounddevice│     │              │                   │
-│  └─────────────┘     └──────┬───────┘                   │
-│                             │ utterances                │
-│                             ▼                           │
-│                      ┌──────────────┐                   │
-│                      │ ASR Engine   │  (background task) │
-│                      │ + Segmenter  │                   │
-│                      └──────┬───────┘                   │
-│                utterances / │ segments (notify)         │
-│                             ▼                           │
-│                      ┌──────────────┐                   │
-│                      │ Resource     │                   │
-│                      │ Manager      │                   │
-│                      │ asr://utter. │                   │
-│                      │ asr://segment│                   │
-│                      └──────┬───────┘                   │
-│                             │                           │
-│                      ┌──────┴───────┐                   │
-│                      │  Tools layer │  (AsrTools)        │
-│                      │  start/stop  │                   │
-│                      │  listen      │                   │
-│                      └──────┬───────┘                   │
-│                             │                           │
-│                      ┌──────┴───────┐                   │
-│                      │  MCP Layer   │                   │
-│                      │  Resources   │                   │
-│                      │  Tools       │                   │
-│                      └──────┬───────┘                   │
-│                             │ StreamableHTTP            │
-└─────────────────────────────┼───────────────────────────┘
-                              │
-              ┌───────────────┴────────────────┐
-              │                                │
-     ┌────────▼────────┐             ┌─────────▼───────┐
-     │  Demo Client    │             │  Any MCP Client  │
-     │  (logs results) │             │  (Claude, etc.)  │
-     └─────────────────┘             └──────────────────┘
+                              ASREngine  (builds, starts and stops every stage)
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                                                                              │
+│  AudioSource ──▶ [format converter] ──▶ [VAD gate] ──▶ ASR module ──▶ backend│
+│  input device,   source format →        speech only,   Deepgram, Mistral,    │
+│  file or custom  module format          + END_OF_SPEECH a local model, …     │
+│                                                             │                │
+│                                                 SpeechUtterance (each result)│
+│                                                             ▼                │
+│                                                         Segmenter            │
+│                                                             │                │
+└───────────────────────────┬─────────────────────────────────┼────────────────┘
+                            │ on_speech_utterance             │ on_speech_segment
+                            ▼                                 ▼
+                 a Python application's callbacks, or the MCP server below
+```
+
+- **Format converter**: present when the source's format is not the module's ([format-conversion.md](format-conversion.md)).
+- **VAD gate**: present when `engine.vad` is configured ([vad.md](vad.md)).
+
+The engine is usable on its own (`import asr_engine`). `AsrTools` and the MCP server are optional layers over it, in the same process and on the same event loop:
+
+```
+┌──────────────────────────────────────────────┐
+│ ASREngine                                    │
+└───────┬──────────────────────────▲───────────┘
+        │ utterances, segments     │ start / stop / listen / dictation
+        ▼                          │
+┌───────────────────┐      ┌───────┴───────────┐
+│ MCP resources     │      │ AsrTools          │  (also registerable directly
+│ asr://utterance   │      │ (tools layer)     │   by an in-process agent)
+│ asr://segment     │      └───────▲───────────┘
+└───────┬───────────┘              │
+        │ notify            ┌──────┴───────────┐
+        │                   │ MCP tools        │
+        ▼                   └──────▲───────────┘
+┌──────────────────────────────────┴───────────┐
+│ MCP server (StreamableHTTP)                  │
+└──────────────────────┬───────────────────────┘
+                       │
+        any MCP client (the demo client, Claude, …)
 ```
 
 ## Concurrency Model
 
-The server runs as a single Python process with an `asyncio` event loop:
+The engine runs in a single Python process, on one `asyncio` event loop it shares with the tools layer and the MCP server when they are used:
 
 - **Audio capture** runs in a separate thread (audio I/O is blocking) and pushes raw PCM chunks into an `asyncio.Queue`
-- **ASR module** is an `async` component that reads from the queue and maintains a WebSocket connection to the ASR backend
-- **MCP server** runs on the same event loop, serving HTTP requests and pushing resource update notifications to subscribed clients
+- **ASR module** is an `async` component that reads from the queue and talks to its backend: a WebSocket connection for the streaming providers, HTTP requests or a model on a worker thread for the others
+- **MCP server**, when used, runs on the same event loop, serving HTTP requests and pushing resource update notifications to subscribed clients
 
 ## Data Flow
 
