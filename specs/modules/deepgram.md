@@ -23,7 +23,7 @@ Two Deepgram modules are provided, targeting different API versions and use case
 
 ## Installation
 
-Both modules ship in the `deepgram` extra (see [asr-module-interface.md](../asr-module-interface.md) "Optional dependencies (extras)"), which pulls `deepgram-sdk`:
+Both modules ship in the `deepgram` extra (see [asr-module-interface.md](../asr-module-interface.md) "Optional dependencies (extras)"), which pulls `deepgram-sdk>=6,<7` (the upper bound is explained under [KeepAlive](#keepalive-1)):
 
 ```bash
 pip install 'asr-engine[deepgram]'
@@ -175,7 +175,10 @@ msg.event                  → dispatch key
 
 ### KeepAlive
 
-The v2 SDK has no public `send_keep_alive()`. KeepAlive is sent via the internal `conn._send({"type": "KeepAlive"})` when no audio arrives within 5 seconds.
+When no audio arrives within 5 seconds, the module sends `{"type": "KeepAlive"}`. The v2 SDK has no public `send_keep_alive()`, as v1 has, so the message goes through the socket client's private `_send(dict)`. That call is confined to one function, `send_keep_alive(conn)` in `v2.py`, to be switched to a public method when the SDK adds one. Two guards keep the private call from breaking silently:
+
+- The `deepgram` extra is pinned to `deepgram-sdk>=6,<7`.
+- A fast-tier test sends the keepalive through the SDK's real `AsyncV2SocketClient` over a recording websocket and checks the JSON that reaches it. An SDK release that removes or changes `_send` fails that test.
 
 ### VAD gating
 
