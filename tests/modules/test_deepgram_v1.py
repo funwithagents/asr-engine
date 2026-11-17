@@ -117,6 +117,27 @@ def test_init_custom_values() -> None:
     assert m._interim_results is False
 
 
+@pytest.mark.parametrize(
+    ("fields", "named"),
+    [
+        ({"model": 3}, "model"),
+        ({"model": ""}, "model"),
+        ({"language": None}, "language"),
+        ({"language": ["en"]}, "language"),
+        ({"punctuate": "false"}, "punctuate"),
+        ({"punctuate": 1}, "punctuate"),
+        ({"interim_results": "true"}, "interim_results"),
+    ],
+)
+def test_init_a_field_of_the_wrong_type_or_range_fails_at_construction(
+    fields: dict, named: str
+) -> None:
+    # Before reaching the SDK, where it would surface as an unrelated TypeError
+    # or a rejected connection once the engine has started.
+    with pytest.raises(ValueError, match=f"deepgram-v1.*'{named}'"):
+        DeepgramV1Module(config={"api_key": "sk-test", **fields})
+
+
 # ---------------------------------------------------------------------------
 # _drain_queue_for
 # ---------------------------------------------------------------------------

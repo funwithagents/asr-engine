@@ -70,6 +70,7 @@ pip install 'asr-engine[deepgram]'
 
 - `environment variable 'DEEPGRAM_API_KEY' (api_key_env) is not set or is empty`: the variable must be set in the process that runs the engine, not only in your interactive shell.
 - `requires 'api_key' or 'api_key_env' in config`: the module block has neither field.
+- `deepgram-v1 module: 'punctuate' must be true or false` (or another field): a field has the wrong type or is out of range. Booleans are `true`/`false`, not strings; `eot_threshold` is from 0.5 to 0.9; `eot_timeout_ms` is a positive integer.
 - The engine starts but `connected` stays `false`: the key is rejected or the network is unreachable; the log names the cause at each retry.
 
 ## See also

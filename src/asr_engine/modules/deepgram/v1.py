@@ -16,6 +16,7 @@ from asr_engine.modules.base import (
     UtteranceCallback,
     resolve_api_key,
 )
+from asr_engine.modules.deepgram import _config
 
 log = logging.getLogger(__name__)
 
@@ -44,11 +45,12 @@ class DeepgramV1Module(ASRModule):
 
     def __init__(self, config: dict) -> None:
         super().__init__(config)
-        self._api_key: str = resolve_api_key(config, "deepgram-v1")
-        self._model: str = config.get("model", "nova-3")
-        self._language: str = config.get("language", "multi")
-        self._punctuate: bool = config.get("punctuate", True)
-        self._interim_results: bool = config.get("interim_results", True)
+        label = "deepgram-v1"
+        self._api_key: str = resolve_api_key(config, label)
+        self._model = _config.non_empty_str(config, "model", "nova-3", label)
+        self._language = _config.non_empty_str(config, "language", "multi", label)
+        self._punctuate = _config.boolean(config, "punctuate", True, label)
+        self._interim_results = _config.boolean(config, "interim_results", True, label)
 
         self._stop_event = asyncio.Event()
         self._conn: object | None = None  # the open connection, for finalize()
