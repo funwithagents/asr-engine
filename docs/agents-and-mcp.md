@@ -73,7 +73,11 @@ uv run asr-engine-mcp --config config.json
 
 There is one complete config per module. All but `kyutai.json` enable the Silero VAD gate with the setting recommended for that module, hence the `silero` extra above; remove their `vad` block to stream everything (the two batch modules need it, see [vad.md](vad.md)).
 
-The default endpoint is `http://127.0.0.1:8000/mcp`. Log verbosity comes from the command line, not from the configuration file:
+With no `server` block the server listens on `127.0.0.1:8000`, so the endpoint is `http://127.0.0.1:8000/mcp` and only programs on the same machine can reach it.
+
+> **The server has no authentication and no TLS.** Anyone who can reach its port can start and stop the microphone and read what is said. The example configs set `"host": "0.0.0.0"`, which accepts connections from every network the machine is on, so that a client on another machine can connect. Keep that only on a network you trust. Otherwise set `"host": "127.0.0.1"`, or put the server behind a reverse proxy that authenticates clients and terminates TLS.
+
+Log verbosity comes from the command line, not from the configuration file:
 
 ```bash
 uv run asr-engine-mcp --config config.json --log-level DEBUG
