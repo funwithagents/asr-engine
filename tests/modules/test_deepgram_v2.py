@@ -100,6 +100,29 @@ def test_init_custom_values() -> None:
     assert m._eot_timeout_ms == 3000
 
 
+@pytest.mark.parametrize(
+    ("fields", "named"),
+    [
+        ({"model": 3}, "model"),
+        ({"eot_threshold": 0.95}, "eot_threshold"),
+        ({"eot_threshold": 0.4}, "eot_threshold"),
+        ({"eot_threshold": "0.7"}, "eot_threshold"),
+        ({"eot_threshold": True}, "eot_threshold"),
+        ({"eot_threshold": float("nan")}, "eot_threshold"),
+        ({"eot_timeout_ms": "2000"}, "eot_timeout_ms"),
+        ({"eot_timeout_ms": 0}, "eot_timeout_ms"),
+        ({"eot_timeout_ms": 1500.5}, "eot_timeout_ms"),
+    ],
+)
+def test_init_a_field_of_the_wrong_type_or_range_fails_at_construction(
+    fields: dict, named: str
+) -> None:
+    # Before reaching the SDK, where it would surface as an unrelated TypeError
+    # or a rejected connection once the engine has started.
+    with pytest.raises(ValueError, match=f"deepgram-v2.*'{named}'"):
+        DeepgramV2Module(config={"api_key": "sk-test", **fields})
+
+
 # ---------------------------------------------------------------------------
 # _drain_queue_for
 # ---------------------------------------------------------------------------

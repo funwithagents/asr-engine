@@ -21,6 +21,7 @@ from asr_engine.modules.base import (
     UtteranceCallback,
     resolve_api_key,
 )
+from asr_engine.modules.deepgram import _config
 
 log = logging.getLogger(__name__)
 
@@ -51,10 +52,15 @@ class DeepgramV2Module(ASRModule):
 
     def __init__(self, config: dict) -> None:
         super().__init__(config)
-        self._api_key: str = resolve_api_key(config, "deepgram-v2")
-        self._model: str = config.get("model", "flux-general-en")
-        self._eot_threshold: float = config.get("eot_threshold", 0.7)
-        self._eot_timeout_ms: int = config.get("eot_timeout_ms", 2000)
+        label = "deepgram-v2"
+        self._api_key: str = resolve_api_key(config, label)
+        self._model = _config.non_empty_str(config, "model", "flux-general-en", label)
+        self._eot_threshold = _config.number_in(
+            config, "eot_threshold", 0.7, 0.5, 0.9, label
+        )
+        self._eot_timeout_ms = _config.positive_int(
+            config, "eot_timeout_ms", 2000, label
+        )
 
         self._stop_event = asyncio.Event()
 

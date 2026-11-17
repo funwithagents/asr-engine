@@ -3,6 +3,7 @@ code:
   - src/asr_engine/modules/deepgram/__init__.py
   - src/asr_engine/modules/deepgram/v1.py
   - src/asr_engine/modules/deepgram/v2.py
+  - src/asr_engine/modules/deepgram/_config.py
   - scripts/probe_deepgram_flux_silence.py
 tests:
   - tests/modules/test_deepgram_v1.py
@@ -61,6 +62,8 @@ Uses the Deepgram Listen v1 WebSocket API with any v1-compatible model. `SpeechU
 | `interim_results` | boolean | no | `true` | Enable interim results |
 
 ¹ Provide at least one of `api_key` / `api_key_env`; `api_key` takes precedence when both are set (see [API key resolution](#api-key-resolution)).
+
+Validated in `__init__`: `model` and `language` are non-empty strings, `punctuate` and `interim_results` are booleans. A wrong type raises `ValueError` naming the field (`deepgram-v1 module: 'punctuate' must be true or false`) at engine construction, not at the first connection.
 
 ### Example Config
 
@@ -129,6 +132,8 @@ Supports only Flux-family models (`flux-general-en`, etc.). Not suitable for non
 | `eot_timeout_ms` | int | no | `2000` | Silence timeout before forced turn-end (ms) |
 
 ¹ Provide at least one of `api_key` / `api_key_env`; `api_key` takes precedence when both are set (see [API key resolution](#api-key-resolution)).
+
+Validated in `__init__`: `model` is a non-empty string, `eot_threshold` a number from 0.5 to 0.9, `eot_timeout_ms` a positive integer. An invalid value raises `ValueError` naming the field at engine construction, not at the first connection. The two modules share these checks (`modules/deepgram/_config.py`).
 
 ### Example Config
 
