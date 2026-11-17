@@ -19,6 +19,7 @@ import pytest
 from asr_engine.audio import AudioFormat
 from asr_engine.modules import resolve_module_class
 from asr_engine.modules.base import AudioQueue, SpeechUtterance
+from asr_engine.modules.mistral import realtime
 from asr_engine.modules.mistral.realtime import MistralRealtimeModule
 
 # --------------------------------------------------------------------------- fakes
@@ -575,8 +576,21 @@ async def _noop_utterance(_: SpeechUtterance) -> None:
 # ---------------------------------------------------------------------- VAD gating
 
 
+@pytest.fixture
+def round_trip(monkeypatch):
+    """Set the gated flush's round-trip allowance (500 ms in production) so the
+    floor stays short and known: floor = delay + 0.2 s burst margin + final
+    margin + this."""
+
+    def set_round_trip(seconds: float) -> None:
+        monkeypatch.setattr(realtime, "_FLUSH_ROUND_TRIP_S", seconds)
+
+    set_round_trip(0.0)
+    return set_round_trip
+
+
 async def test_end_of_speech_flushes_with_silence_then_finalizes_locally(
-    harnesses,
+    harnesses, round_trip
 ) -> None:
     from asr_engine.audio import END_OF_SPEECH
 
@@ -612,7 +626,9 @@ async def test_end_of_speech_flushes_with_silence_then_finalizes_locally(
     assert len(h.connector.connections) == 1
 
 
-async def test_text_still_arriving_after_the_marker_holds_the_final(harnesses) -> None:
+async def test_text_still_arriving_after_the_marker_holds_the_final(
+    harnesses, round_trip
+) -> None:
     from asr_engine.audio import END_OF_SPEECH
 
     h = harnesses({"streaming_delay_ms": 80, "final_margin_ms": 20})  # 0.1 s wait
@@ -629,7 +645,35 @@ async def test_text_still_arriving_after_the_marker_holds_the_final(harnesses) -
     assert h.finals() == ["One two three four"]
 
 
-async def test_end_of_speech_with_nothing_transcribed_emits_nothing(harnesses) -> None:
+async def test_tail_text_slower_than_the_quiet_window_joins_the_final(
+    harnesses, round_trip
+) -> None:
+    """The server releases the tail only as it hears the flush burst, so the
+    first delta after the marker can come later than the quiet window: the final
+    waits for the floor and the phrase is not split."""
+    from asr_engine.audio import END_OF_SPEECH
+
+    round_trip(0.1)
+    # Quiet window 0.1 s (delay 80 ms + margin 20 ms); floor 0.08 + 0.2 + 0.02 +
+    # 0.1 = 0.4 s after the marker.
+    h = harnesses({"streaming_delay_ms": 80, "final_margin_ms": 20})
+    await h.start()
+    h.queue.put_nowait(b"\x00" * 3200)
+    h.conn.push(_delta("The sky is"))
+    await _until(lambda: h.interims() == ["The sky is"])
+    h.queue.put_nowait(END_OF_SPEECH)
+    await _until(lambda: len(h.conn.audio()) == 2)
+
+    await asyncio.sleep(0.25)  # well past the quiet window, before the floor
+    assert h.finals() == []
+    h.conn.push(_delta(" blue."))
+    await _until(lambda: h.finals() != [])
+    assert h.finals() == ["The sky is blue."]
+
+
+async def test_end_of_speech_with_nothing_transcribed_emits_nothing(
+    harnesses, round_trip
+) -> None:
     from asr_engine.audio import END_OF_SPEECH
 
     h = harnesses({"streaming_delay_ms": 80, "final_margin_ms": 0})

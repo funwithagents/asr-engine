@@ -166,7 +166,7 @@ The same file runs each row a second time with `engine.vad` set to the Silero VA
 Each case, on the row's existing fixtures (the 44.1 kHz MP3s and 24 kHz WAVs also exercise the gate's resampling path, since Silero analyses at 16 kHz):
 
 1. Start, wait for `connected=true`, and check `status()["vad"] == "silero"`. The source feeds continuous silence around the fixtures, as a microphone would; the gate drops it.
-2. Play the first fixture followed by `silence_s`; require a final containing the whole phrase "the sky is blue" — its first word shows the pre-roll kept the onset, its last that the flush brought the tail out — and require that the utterance produced exactly **one** final.
+2. Play the first fixture followed by `silence_s`; require finals that together contain the whole phrase "the sky is blue" — its first word shows the pre-roll kept the onset, its last that the flush brought the tail out. The utterance may come out as **several** finals (a backend can commit it in pieces, see [vad.md](vad.md) "Live tier"); only their joined text is checked.
 3. Play the second fixture; require finals after the first that together contain "the sky is blue" and `validate` (the module survived a gap with no audio at all and finalized again).
 4. Stop and require `running=false`, `connected=false`.
 
