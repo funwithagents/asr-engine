@@ -198,11 +198,9 @@ During the gaps nothing new is needed: [idle parking](#lifecycle) ends the sessi
 ```toml
 [project.optional-dependencies]
 mistral = ["websockets>=14"]  # >=14: websockets.connect(..., additional_headers=…) is the asyncio client
-all = ["asr-engine[deepgram,mcp,kyutai-mlx,kyutai-torch,mistral]"]
-
-[dependency-groups]
-dev = ["asr-engine[deepgram,mcp,kyutai-mlx,mistral]", ...]  # light: joins dev
 ```
+
+The extra is light, so it is in both `all` and the `dev` group ([project.md](../project.md) holds what each one names).
 
 `websockets` is already present transitively, but the extra names it so the module never depends on another extra's dependency tree. The module file imports `websockets` at top level, so without the extra the registry's `ImportError` names `mistral`.
 

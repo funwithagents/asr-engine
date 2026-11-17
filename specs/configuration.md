@@ -91,12 +91,12 @@ The whole `engine` block maps to one `ASREngineConfig` dataclass, the single arg
 | `listen_default_segmentation_mode` | string | `"trigger_word"` | The segmentation mode `listen()` uses when its caller passes no explicit mode. One of `"utterance"`, `"trigger_word"`, or `"timeout"`. |
 | `dictation_default_segmentation_mode` | string | `"trigger_word"` | The segmentation mode `start_dictation()` uses when its caller passes no explicit mode. One of `"utterance"`, `"trigger_word"`, or `"timeout"`. |
 | `segmentation` | object | see below | Segmentation parameters (trigger words + timeouts) shared by the always-on stream, `listen`, **and** dictation. |
-
-> **No always-on `segmentation_mode`.** The always-on `asr://segment` stream is `utterance` mode (one segment per final utterance) unless a *dictation* session is active. To aggregate utterances (trigger-word or timeout), either set `auto_start_dictation=true` so the server begins in a persistent dictation at startup, or have a consumer call the `start_dictation` tool / use `listen` — all of which switch the engine's segmentation mode and revert to `utterance` when they end. This is what `asr-to-terminal` relies on for continuous aggregation (see [asr-to-terminal.md](asr-to-terminal.md)). See [engine.md](engine.md).
 | `sound_feedback` | object | see below | Start/stop audio cues, owned and played by the engine during `listen`. |
-| `audio` | object | see below | Audio input / file-source settings. |
+| `audio_source` | object | see below | Where the audio comes from: an input device, a file or a custom source. |
 | `module` | object | — | ASR backend selection and its module-specific fields. **Required.** |
 | `vad` | object / null | `null` | Optional voice-activity gate in front of the ASR module. Omitted or `null`: no VAD, and the pipeline is unchanged. |
+
+> **No always-on `segmentation_mode`.** The always-on `asr://segment` stream is `utterance` mode (one segment per final utterance) unless a *dictation* session is active. To aggregate utterances (trigger-word or timeout), either set `auto_start_dictation=true` so the server begins in a persistent dictation at startup, or have a consumer call the `start_dictation` tool / use `listen` — all of which switch the engine's segmentation mode and revert to `utterance` when they end. This is what `asr-to-terminal` relies on for continuous aggregation (see [asr-to-terminal.md](asr-to-terminal.md)). See [engine.md](engine.md).
 
 #### `engine.segmentation` sub-block
 
