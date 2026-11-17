@@ -9,13 +9,14 @@ import logging
 import os
 import re
 import tempfile
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
 import pytest
 
-from asr_engine import AudioFormat
+from asr_engine import AudioFormat, SpeechUtterance
 
 log = logging.getLogger(__name__)
 
@@ -141,15 +142,47 @@ async def wait_until(
     *,
     timeout: float = 30.0,
     interval: float = 0.1,
+    describe: Callable[[], object] | None = None,
 ) -> None:
-    """Wait until a synchronous predicate is true or raise ``TimeoutError``."""
+    """Wait until a synchronous predicate is true or raise ``TimeoutError``.
+
+    ``describe`` (if given) is called on timeout and its result added to the
+    error, so a live failure shows what the backend actually sent.
+    """
     loop = asyncio.get_running_loop()
     deadline = loop.time() + timeout
     while loop.time() < deadline:
         if predicate():
             return
         await asyncio.sleep(interval)
-    raise TimeoutError("condition not met within timeout")
+    detail = f": {describe()!r}" if describe is not None else ""
+    raise TimeoutError(f"condition not met within {timeout} s{detail}")
+
+
+class UtteranceRecorder:
+    """An ``on_speech_utterance`` callback that keeps every utterance and when it
+    arrived, so a live test's timeout can show what the backend sent and when
+    (pass ``describe=recorder.describe`` to ``wait_until``).
+
+    Times are seconds since the recorder was created; a split final shows up as
+    two finals, with the gap between them.
+    """
+
+    def __init__(self) -> None:
+        self.utterances: list[SpeechUtterance] = []
+        self._arrived: list[float] = []
+        self._t0 = time.monotonic()
+
+    async def __call__(self, utterance: SpeechUtterance) -> None:
+        self.utterances.append(utterance)
+        self._arrived.append(time.monotonic() - self._t0)
+
+    def describe(self) -> list[tuple[str, str, bool]]:
+        """``(arrival, transcript, is_final)`` for every utterance so far."""
+        return [
+            (f"+{t:.2f}s", u.transcript, u.is_final)
+            for t, u in zip(self._arrived, self.utterances)
+        ]
 
 
 # Scripts for the ``fake`` module (specs/modules/fake.md), one per fixture. The fake
