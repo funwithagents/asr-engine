@@ -353,11 +353,14 @@ class ScriptableAudioSource:
 
         Resolves once every chunk has been put on the queue (not when the backend
         has transcribed it). Raises ValueError if the file's rate/channels don't
-        match this source's ``AudioFormat``, and RuntimeError if called before
-        ``start()``.
+        match this source's ``AudioFormat``, and RuntimeError if the source is
+        not running (before ``start()`` or after ``stop()``). A ``play`` still
+        pending when ``stop()`` is called resolves then, with its audio cut short.
         """
         if self._requests is None:
-            raise RuntimeError("ScriptableAudioSource.play() called before start()")
+            raise RuntimeError(
+                "ScriptableAudioSource.play() called before start() or after stop()"
+            )
         # list(...) validates the format now, so a bad file raises here at the call
         # site rather than later inside the background task.
         chunks = list(_iter_audio_chunks(path, self._format))
@@ -393,11 +396,14 @@ class ScriptableAudioSource:
         if self._task is not None:
             self._task.cancel()
             self._task = None
-        # Unblock any queued play() awaiters so they don't hang after stop().
-        if self._requests is not None:
+        # Unblock any queued play() awaiters so they don't hang after stop(),
+        # and mark the source stopped: a later play() raises instead of queuing
+        # a request no worker will ever take.
+        requests, self._requests = self._requests, None
+        if requests is not None:
             while True:
                 try:
-                    request = self._requests.get_nowait()
+                    request = requests.get_nowait()
                 except asyncio.QueueEmpty:
                     break
                 if not request.done.done():

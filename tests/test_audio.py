@@ -412,6 +412,53 @@ class TestScriptableAudioSource:
             await source.play(wav)
 
     @pytest.mark.asyncio
+    async def test_play_after_stop_raises_instead_of_hanging(
+        self, tmp_path: Path
+    ) -> None:
+        wav = _write_wav(tmp_path / "x.wav", [bytes([1]) * (CHUNK_SAMPLES * 2)])
+        source = ScriptableAudioSource(real_time=False)
+        source.start()
+        source.stop()
+        with pytest.raises(RuntimeError, match="after stop"):
+            await asyncio.wait_for(source.play(wav), 1)
+
+    @pytest.mark.asyncio
+    async def test_a_play_pending_when_stop_is_called_resolves(
+        self, tmp_path: Path
+    ) -> None:
+        # Nothing drains the queue, so the first play blocks on a full queue and
+        # the second waits behind it: stop() must release both.
+        chunks = [bytes([n]) * (CHUNK_SAMPLES * 2) for n in range(1, 6)]
+        wav = _write_wav(tmp_path / "x.wav", chunks)
+        source = ScriptableAudioSource(real_time=False, maxsize=1)
+        source.start()
+        playing = [asyncio.create_task(source.play(wav)) for _ in range(2)]
+        await asyncio.sleep(0.01)
+        assert not any(task.done() for task in playing)
+
+        source.stop()
+        await asyncio.wait_for(asyncio.gather(*playing), 1)
+
+    @pytest.mark.asyncio
+    async def test_a_stopped_source_can_be_started_again(self, tmp_path: Path) -> None:
+        file_chunks = [bytes([7]) * (CHUNK_SAMPLES * 2)]
+        wav = _write_wav(tmp_path / "x.wav", file_chunks)
+        source = ScriptableAudioSource(real_time=False)
+        source.start()
+        source.stop()
+
+        q = source.start()
+        collected: list[bytes] = []
+        drain_task = asyncio.create_task(_drain(q, collected))
+        try:
+            await source.play(wav)
+            await asyncio.sleep(0)
+        finally:
+            source.stop()
+            drain_task.cancel()
+        assert [c for c in collected if c != _SILENCE] == file_chunks
+
+    @pytest.mark.asyncio
     async def test_play_rejects_wrong_format_file(self, tmp_path: Path) -> None:
         """A WAV that violates the 16 kHz mono s16 contract raises ValueError."""
         wrong = tmp_path / "8k.wav"
