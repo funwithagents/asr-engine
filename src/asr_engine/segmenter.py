@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 
@@ -57,6 +58,21 @@ class Segmenter:
             raise ValueError(
                 f"Invalid segment mode '{mode}'. Must be one of {VALID_MODES}."
             )
+        for name, value in (
+            ("initial_silence_timeout_s", initial_silence_timeout_s),
+            ("end_of_speech_timeout_s", end_of_speech_timeout_s),
+        ):
+            # A zero or negative sleep returns at once: the timer would close
+            # empty segments in a tight loop.
+            if (
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not math.isfinite(value)
+                or value <= 0
+            ):
+                raise ValueError(
+                    f"Invalid {name}: {value!r}. Must be a positive number."
+                )
         self._mode = mode
         self._trigger_words = trigger_words
         self._initial_silence_timeout_s = initial_silence_timeout_s
@@ -65,6 +81,13 @@ class Segmenter:
         self._committed: list[SpeechUtterance] = []
         self._received_any_in_segment = False
         self._started = False
+        # One utterance or one timeout is handled at a time, emission included:
+        # an utterance that arrives while a timeout is closing the segment waits
+        # for the close to be delivered, then opens the next segment.
+        self._lock = asyncio.Lock()
+        # A timer's task is held here only while it can still be cancelled, that
+        # is until it fires. A timer that has started closing its segment runs
+        # to the end.
         self._eos_timer_task: asyncio.Task | None = None
         self._initial_silence_task: asyncio.Task | None = None
 
@@ -77,7 +100,11 @@ class Segmenter:
             self._start_initial_silence_timer()
 
     async def stop(self) -> None:
-        """Cancel any running timers."""
+        """Cancel the pending timers.
+
+        A segment that a timer is already closing is still delivered in full: a
+        consumer never receives half of a final segment.
+        """
         self._started = False
         self._cancel_eos_timer()
         self._cancel_initial_silence_timer()
@@ -86,17 +113,18 @@ class Segmenter:
 
     async def on_utterance(self, utterance: SpeechUtterance) -> None:
         """Feed one utterance; may emit an interim and/or a final segment."""
-        if self._mode == "timeout":
-            self._cancel_initial_silence_timer()
-            self._reset_eos_timer()
-        self._received_any_in_segment = True
+        async with self._lock:
+            if self._mode == "timeout":
+                self._cancel_initial_silence_timer()
+                self._reset_eos_timer()
+            self._received_any_in_segment = True
 
-        if self._mode == "utterance":
-            await self._on_utterance_mode(utterance)
-        elif self._mode == "trigger_word":
-            await self._on_trigger_word_mode(utterance)
-        else:
-            await self._on_timeout_mode(utterance)
+            if self._mode == "utterance":
+                await self._on_utterance_mode(utterance)
+            elif self._mode == "trigger_word":
+                await self._on_trigger_word_mode(utterance)
+            else:
+                await self._on_timeout_mode(utterance)
 
     async def _on_utterance_mode(self, utterance: SpeechUtterance) -> None:
         if utterance.is_final:
@@ -157,8 +185,8 @@ class Segmenter:
             end_reason=end_reason,
             utterances=list(self._committed),
         )
-        # Emit before resetting so no timer (possibly this very task) is cancelled
-        # mid-await; the reset then clears state for the next segment.
+        # Called with the lock held, so no utterance is taken in while the final
+        # is being delivered; the reset then clears state for the next segment.
         await self._emit(segment)
         self._reset_segment()
         if self._mode == "timeout" and self._started:
@@ -194,14 +222,22 @@ class Segmenter:
     async def _initial_silence_timer(self) -> None:
         try:
             await asyncio.sleep(self._initial_silence_timeout_s)
-            if not self._received_any_in_segment:
-                await self._close_segment("initial_silence_timeout")
+            async with self._lock:
+                if self._initial_silence_task is not asyncio.current_task():
+                    return  # cancelled or replaced while waiting for the lock
+                self._initial_silence_task = None  # firing: runs to the end
+                if not self._received_any_in_segment:
+                    await self._close_segment("initial_silence_timeout")
         except asyncio.CancelledError:
             pass
 
     async def _eos_timer(self) -> None:
         try:
             await asyncio.sleep(self._end_of_speech_timeout_s)
-            await self._close_segment("end_of_speech_timeout")
+            async with self._lock:
+                if self._eos_timer_task is not asyncio.current_task():
+                    return  # cancelled or replaced while waiting for the lock
+                self._eos_timer_task = None  # firing: runs to the end
+                await self._close_segment("end_of_speech_timeout")
         except asyncio.CancelledError:
             pass

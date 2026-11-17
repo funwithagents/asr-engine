@@ -118,8 +118,13 @@ class ASREngine:
         self._end_of_speech_timeout_s = config.segmentation.end_of_speech_timeout_s
         self._segmenter = self._build_segmenter()
 
-        # Dictation state, serialized with mode changes by one lock.
-        self._segmentation_lock = asyncio.Lock()
+        # The engine lock: start, stop, dictation transitions and segmentation
+        # param changes each run under it, so none of them interleaves with
+        # another. listen() is exclusive through _listening instead: it spans a
+        # whole capture, during which stop() must stay callable.
+        self._lock = asyncio.Lock()
+        self._listening = False
+        self._listen_future: asyncio.Future[SpeechSegment] | None = None
         self._dictating = False
         self._dictation_end_on_final = False
         self._dictation_ending = False
@@ -286,15 +291,34 @@ class ASREngine:
     ) -> None:
         """Update segmentation params (omitted params keep current values) and
         rebuild the ``Segmenter`` under the current mode, stopping the old one
-        before swapping. Safe to call while running."""
-        async with self._segmentation_lock:
-            if trigger_words is not None:
-                self._trigger_words = list(trigger_words)
-            if initial_silence_timeout_s is not None:
-                self._initial_silence_timeout_s = initial_silence_timeout_s
-            if end_of_speech_timeout_s is not None:
-                self._end_of_speech_timeout_s = end_of_speech_timeout_s
-            candidate = self._build_segmenter()
+        before swapping. Safe to call while running. Raises ``ValueError`` on a
+        timeout that is not a positive number, leaving the params unchanged."""
+        async with self._lock:
+            # Build the candidate from the new values before storing any of
+            # them, so an invalid value leaves the engine untouched.
+            words = (
+                self._trigger_words if trigger_words is None else list(trigger_words)
+            )
+            initial = (
+                self._initial_silence_timeout_s
+                if initial_silence_timeout_s is None
+                else initial_silence_timeout_s
+            )
+            end = (
+                self._end_of_speech_timeout_s
+                if end_of_speech_timeout_s is None
+                else end_of_speech_timeout_s
+            )
+            candidate = Segmenter(
+                mode=self._segment_mode,
+                trigger_words=words,
+                initial_silence_timeout_s=initial,
+                end_of_speech_timeout_s=end,
+                emit=self._emit_segment,
+            )
+            self._trigger_words = words
+            self._initial_silence_timeout_s = initial
+            self._end_of_speech_timeout_s = end
             await self._segmenter.stop()
             self._segmenter = candidate
             if self._running:
@@ -306,8 +330,17 @@ class ASREngine:
         The internal start primitive: ``start()`` passes ``"utterance"`` and
         ``listen`` passes its resolved mode, so the mode is set as part of
         starting rather than as a separate step. Raises ``ValueError`` on an
-        unknown mode before any capture starts.
+        unknown mode before any capture starts, and if the engine is already
+        running: a second pipeline would replace the references needed to stop
+        the first one.
         """
+        async with self._lock:
+            if self._running:
+                raise ValueError("ASR is already running.")
+            await self._start_pipeline(segmentation_mode)
+
+    async def _start_pipeline(self, segmentation_mode: str) -> None:
+        """Build and start every stage. Called with the engine lock held."""
         self._segmenter = self._build_segmenter(segmentation_mode)  # raises on bad mode
         self._segment_mode = segmentation_mode
 
@@ -388,11 +421,33 @@ class ASREngine:
         self._running = True
 
     async def start(self) -> None:
-        """Start the always-on pipeline in ``utterance`` mode."""
+        """Start the always-on pipeline in ``utterance`` mode.
+
+        Raises ``ValueError`` if the engine is already running or a ``listen``
+        is in progress.
+        """
+        if self._listening:
+            raise ValueError("A listen is in progress. Wait for it or stop it first.")
         await self._start_with_segmentation_mode("utterance")
 
     async def stop(self) -> None:
-        """Stop the ASR module, audio capture, and the segmenter."""
+        """Stop the ASR module, audio capture, and the segmenter.
+
+        Safe to call on a stopped engine. Waits for a start in progress to
+        finish, then stops what it started. A ``listen`` in progress ends: it
+        raises ``RuntimeError`` to its caller instead of waiting for a segment
+        that can no longer come.
+        """
+        pending = self._listen_future
+        if pending is not None and not pending.done():
+            pending.set_exception(
+                RuntimeError("ASR was stopped before the listen segment closed.")
+            )
+        async with self._lock:
+            await self._stop_pipeline()
+
+    async def _stop_pipeline(self) -> None:
+        """Stop every stage. Called with the engine lock held."""
         await self._asr_module.stop()
         await self._segmenter.stop()
         if self._audio_capture is not None:
@@ -423,7 +478,7 @@ class ASREngine:
         dictation and reverts to ``utterance``. Raises ``ValueError`` if the
         engine is not running, if already dictating, or on an unknown mode.
         """
-        async with self._segmentation_lock:
+        async with self._lock:
             if not self._running:
                 raise ValueError(
                     "ASR is not running. Start it before calling start_dictation."
@@ -444,7 +499,7 @@ class ASREngine:
 
         Raises ``ValueError`` if no dictation is in progress.
         """
-        async with self._segmentation_lock:
+        async with self._lock:
             if not self._dictating:
                 raise ValueError("No dictation in progress.")
             self._dictating = False
@@ -453,7 +508,7 @@ class ASREngine:
 
     async def _auto_end_dictation(self) -> None:
         """End an end-on-final dictation after its first final segment."""
-        async with self._segmentation_lock:
+        async with self._lock:
             if not self._dictating:
                 self._dictation_ending = False
                 return
@@ -556,8 +611,11 @@ class ASREngine:
         when ``None``; ``"utterance"`` is allowed); the segmentation params are
         never changed. Plays the start/stop sound cues. ``on_update`` (if given)
         receives every segment update, including interim ones. Raises
-        ``ValueError`` if the engine is already running or on an unknown mode.
+        ``ValueError`` if the engine is already running, if another ``listen``
+        is in progress, or on an unknown mode.
         """
+        if self._listening:
+            raise ValueError("A listen is already in progress.")
         if self._running:
             raise ValueError("ASR is already running. Stop it before calling listen.")
 
@@ -568,6 +626,9 @@ class ASREngine:
                 f"Invalid segment mode '{mode}'. Must be one of {VALID_MODES}."
             )
 
+        # Claimed before the first await, so a second listen() or a start()
+        # cannot slip in while the start cue plays.
+        self._listening = True
         prev_on_segment = self.on_speech_segment
 
         loop = asyncio.get_running_loop()
@@ -580,13 +641,19 @@ class ASREngine:
                 future.set_result(segment)
 
         self.on_speech_segment = _on_segment
-        await self._sound_feedback.play_start()
+        self._listen_future = future
         try:
+            await self._sound_feedback.play_start()
             # _start_with_segmentation_mode sets the mode as it starts — no
             # separate mode step; params stay as configured.
             await self._start_with_segmentation_mode(mode)
             return await future
         finally:
-            await self.stop()  # resets the stored mode to "utterance"
-            await self._sound_feedback.play_stop()
-            self.on_speech_segment = prev_on_segment
+            # Cleared first: this stop() is the listen's own, not an interruption.
+            self._listen_future = None
+            try:
+                await self.stop()  # resets the stored mode to "utterance"
+                await self._sound_feedback.play_stop()
+            finally:
+                self.on_speech_segment = prev_on_segment
+                self._listening = False

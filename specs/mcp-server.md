@@ -148,6 +148,7 @@ Starts audio capture and ASR streaming.
 
 - **Input:** none
 - **Output:** `{ "status": "running" }`
+- **Errors:** `"ASR is already running."` if the engine is running (for instance because `auto_start` is `true`), and an error naming the listen if a `listen` is in progress. A second pipeline is never started.
 
 ### `stop`
 
@@ -155,6 +156,8 @@ Stops audio capture and ASR streaming.
 
 - **Input:** none
 - **Output:** `{ "status": "stopped" }`
+
+Succeeds on a stopped engine. Called during a `listen`, it ends it: the `listen` tool call returns an error.
 
 ### `is_running`
 

@@ -105,8 +105,8 @@ The single source of segmentation parameters. The always-on segmenter, `listen`,
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `trigger_words` | list of strings | see below | Words that close a segment in `trigger_word` mode. Replaces the built-in default list entirely when specified. |
-| `initial_silence_timeout_s` | float | `10.0` | (`timeout` mode only) Seconds of silence from segment start before closing. |
-| `end_of_speech_timeout_s` | float | `5.0` | (`timeout` mode only) Seconds of silence after the last event before closing a segment. |
+| `initial_silence_timeout_s` | float | `10.0` | (`timeout` mode only) Seconds of silence from segment start before closing. A positive number. |
+| `end_of_speech_timeout_s` | float | `5.0` | (`timeout` mode only) Seconds of silence after the last event before closing a segment. A positive number. |
 
 #### `engine.sound_feedback` sub-block
 
@@ -130,7 +130,7 @@ Where the audio comes from. `type` selects the other fields the block takes; a f
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `type` | string | `"input-device"` | `"input-device"`, `"file"` or `"custom"`. |
-| `device` | string / null | `null` | (`input-device`) Audio input device name or index. `null` = system default. |
+| `device` | string / null | `null` | (`input-device`) Audio input device name. `null` = system default. |
 | `audio_format` | object / null | `null` | (`input-device`) The format the device is opened at: an [`audio_format` object](#the-audio_format-object). A field left unset follows the module's format. |
 | `audio_file` | string | — (required for `file`) | (`file`) Path to an audio file (WAV, MP3, … — anything `libsndfile`/`soundfile` decodes). Its own rate and channel count are used; the engine converts them to the module's when they differ ([format-conversion.md](format-conversion.md)). |
 | `trailing_silence_s` | float | `0.0` | (`file`) Seconds of silence appended after the file ends, so the ASR backend receives the tail-silence it needs to emit a final result. |
@@ -370,6 +370,13 @@ For tests only — a keyless, deterministic scripted module (see [modules/fake.m
 - The server must fail fast at startup with a clear error message if:
   - The config file is missing or not valid JSON
   - The required field `engine.module.type` is absent
+  - A block is not an object: the file itself, `server`, `engine`, `engine.module`, or (object or `null`, where `null` means the defaults) `engine.segmentation`, `engine.sound_feedback`, `engine.audio_source`
+  - A block holds a field it does not define, so a misspelled field is refused rather than ignored: the file (`server`, `engine`), `server`, `engine`, `engine.segmentation`, `engine.sound_feedback`. `engine.module` and `engine.vad` are the exceptions: their other fields belong to the module, which validates them itself
+  - A boolean field (`engine.auto_start`, `engine.auto_start_dictation`, `engine.sound_feedback.enabled`) is not `true` or `false`. A string such as `"false"` is refused, not read as true
+  - `engine.segmentation.trigger_words` is not a list of non-empty strings, or one of the two timeouts is not a finite, positive number
+  - `engine.sound_feedback.output_device` is not a string, an integer or `null`; `engine.audio_source.device` is not a string or `null`; `engine.audio_source.audio_file` is not a string; `engine.audio_source.trailing_silence_s` is not a finite, non-negative number
+  - `server.host` is not a non-empty string, or `server.port` is not an integer from 0 to 65535
+  - Each of these errors is a `ValueError` naming the field by its path (`engine.segmentation.end_of_speech_timeout_s`)
   - `engine.audio_source.type` is not one of `input-device` / `file` / `custom`, the block holds a field its type does not take, or `audio_file` is missing with type `file`
   - The old `engine.audio` block is present
   - The specified `engine.module.type` is unknown

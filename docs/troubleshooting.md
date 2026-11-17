@@ -70,6 +70,8 @@ A streaming backend finalizes an utterance on the silence that follows it, and a
 
 - `ASR is already running. Stop it before calling listen.`: `listen()` starts and stops the engine itself, so it needs a stopped engine. On a running engine, use a dictation session.
 - `ASR is not running. Start it before calling start_dictation.`: a dictation runs on top of a started engine.
+- `ASR is already running.`: `start()` was called on a running engine. With the MCP server, `auto_start: true` already started it.
+- `A listen is already in progress.`: one `listen()` runs at a time.
 
 See [running-the-engine.md](running-the-engine.md#the-three-ways-compared).
 

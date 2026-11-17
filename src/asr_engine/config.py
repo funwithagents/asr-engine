@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -52,6 +53,50 @@ def _parse_config_json(text: str, source: str | None = None) -> Any:
     except json.JSONDecodeError as exc:
         where = f" ({source})" if source else ""
         raise ValueError(f"Config is not valid JSON{where}: {exc}") from exc
+
+
+def _as_object(data: Any, where: str, fields: tuple[str, ...]) -> dict[str, Any]:
+    """Return *data* as a config object holding only *fields* (``None`` = empty).
+
+    *where* is the object's dotted path, used in the error messages. An unknown
+    key is an error, so a misspelled field is not silently ignored.
+    """
+    if data is None:
+        return {}
+    if not isinstance(data, dict):
+        raise ValueError(f"Invalid {where}: must be an object or null.")
+    unknown = sorted(str(key) for key in set(data) - set(fields))
+    if unknown:
+        raise ValueError(
+            f"Invalid {where}: unknown field(s) {', '.join(unknown)}. "
+            f"Fields: {', '.join(fields)}."
+        )
+    return data
+
+
+def _as_bool(data: dict[str, Any], key: str, default: bool, where: str) -> bool:
+    """A real boolean: ``"false"`` is a non-empty string, and so would be true."""
+    value = data.get(key, default)
+    if not isinstance(value, bool):
+        raise ValueError(f"Invalid {where}.{key}: {value!r}. Must be true or false.")
+    return value
+
+
+def _as_seconds(
+    data: dict[str, Any], key: str, default: float, where: str, *, allow_zero: bool
+) -> float:
+    """A finite duration in seconds, positive (or non-negative with *allow_zero*)."""
+    value = data.get(key, default)
+    valid = (
+        not isinstance(value, bool)
+        and isinstance(value, (int, float))
+        and math.isfinite(value)
+        and (value >= 0 if allow_zero else value > 0)
+    )
+    if not valid:
+        bound = "a non-negative number" if allow_zero else "a positive number"
+        raise ValueError(f"Invalid {where}.{key}: {value!r}. Must be {bound}.")
+    return float(value)
 
 
 @dataclass
@@ -173,11 +218,25 @@ def _parse_audio_source(engine_block: dict[str, Any]) -> AudioSourceConfig:
             "Config is missing required field: engine.audio_source.audio_file "
             "(type 'file')"
         )
+    device = data.get("device")
+    if device is not None and not isinstance(device, str):
+        raise ValueError(
+            f"Invalid engine.audio_source.device: {device!r}. "
+            f"Must be a device name or null."
+        )
+    audio_file = data.get("audio_file")
+    if audio_file is not None and not isinstance(audio_file, str):
+        raise ValueError(
+            f"Invalid engine.audio_source.audio_file: {audio_file!r}. "
+            f"Must be a path, as a string."
+        )
     return AudioSourceConfig(
         type=source_type,
-        device=data.get("device"),
-        audio_file=data.get("audio_file"),
-        trailing_silence_s=data.get("trailing_silence_s", 0.0),
+        device=device,
+        audio_file=audio_file,
+        trailing_silence_s=_as_seconds(
+            data, "trailing_silence_s", 0.0, "engine.audio_source", allow_zero=True
+        ),
         audio_format=_parse_audio_format(
             data.get("audio_format"), "engine.audio_source.audio_format"
         ),
@@ -271,6 +330,81 @@ def _parse_vad(data: object) -> VadConfig | None:
     )
 
 
+_ENGINE_FIELDS = (
+    "auto_start",
+    "auto_start_dictation",
+    "listen_default_segmentation_mode",
+    "dictation_default_segmentation_mode",
+    "segmentation",
+    "sound_feedback",
+    "audio_source",
+    "module",
+    "vad",
+)
+_SEGMENTATION_FIELDS = (
+    "trigger_words",
+    "initial_silence_timeout_s",
+    "end_of_speech_timeout_s",
+)
+_SOUND_FEEDBACK_FIELDS = ("enabled", "output_device")
+_SERVER_FIELDS = ("host", "port")
+
+
+def _parse_segmentation(data: Any) -> SegmentationConfig:
+    """Parse and validate ``engine.segmentation`` (absent or null = the defaults)."""
+    where = "engine.segmentation"
+    block = _as_object(data, where, _SEGMENTATION_FIELDS)
+    words = block.get("trigger_words", list(_DEFAULT_TRIGGER_WORDS))
+    if not isinstance(words, list) or not all(
+        isinstance(word, str) and word.strip() for word in words
+    ):
+        raise ValueError(
+            f"Invalid {where}.trigger_words: {words!r}. "
+            f"Must be a list of non-empty strings."
+        )
+    return SegmentationConfig(
+        trigger_words=list(words),
+        initial_silence_timeout_s=_as_seconds(
+            block, "initial_silence_timeout_s", 10.0, where, allow_zero=False
+        ),
+        end_of_speech_timeout_s=_as_seconds(
+            block, "end_of_speech_timeout_s", 5.0, where, allow_zero=False
+        ),
+    )
+
+
+def _parse_sound_feedback(data: Any) -> SoundFeedbackConfig:
+    """Parse and validate ``engine.sound_feedback`` (absent or null = the defaults)."""
+    where = "engine.sound_feedback"
+    block = _as_object(data, where, _SOUND_FEEDBACK_FIELDS)
+    device = block.get("output_device")
+    if device is not None and (
+        isinstance(device, bool) or not isinstance(device, (str, int))
+    ):
+        raise ValueError(
+            f"Invalid {where}.output_device: {device!r}. "
+            f"Must be a device name, a device index or null."
+        )
+    return SoundFeedbackConfig(
+        enabled=_as_bool(block, "enabled", True, where),
+        output_device=device,
+    )
+
+
+def _parse_server(data: Any) -> ServerConfig:
+    """Parse and validate the ``server`` block (absent or null = the defaults)."""
+    block = _as_object(data, "server", _SERVER_FIELDS)
+    host = block.get("host", "127.0.0.1")
+    if not isinstance(host, str) or not host:
+        raise ValueError(f"Invalid server.host: {host!r}. Must be a non-empty string.")
+    port = block.get("port", 8000)
+    if isinstance(port, bool) or not isinstance(port, int) or not 0 <= port <= 65535:
+        raise ValueError(
+            f"Invalid server.port: {port!r}. Must be an integer from 0 to 65535."
+        )
+    return ServerConfig(host=host, port=port)
+
+
 @dataclass
 class ASREngineConfig:
     """Everything an ``ASREngine`` needs — the whole ``engine`` config block."""
@@ -305,8 +439,16 @@ class ASREngineConfig:
         later at engine construction — so a config with unset credentials still
         builds here.
         """
-        auto_start = engine_block.get("auto_start", True)
-        auto_start_dictation = engine_block.get("auto_start_dictation", False)
+        if not isinstance(engine_block, dict):
+            raise ValueError("Invalid engine config: must be an object.")
+        # `audio` is the old name of `audio_source`: _parse_audio_source refuses
+        # it with a message naming the new block, so it is let through here.
+        _as_object(engine_block, "engine", (*_ENGINE_FIELDS, "audio"))
+
+        auto_start = _as_bool(engine_block, "auto_start", True, "engine")
+        auto_start_dictation = _as_bool(
+            engine_block, "auto_start_dictation", False, "engine"
+        )
         if auto_start_dictation and not auto_start:
             raise ValueError(
                 "Invalid engine config: auto_start_dictation requires auto_start=true."
@@ -330,23 +472,21 @@ class ASREngineConfig:
                 f"'{dictation_default}'. Must be one of {', '.join(_SEGMENT_MODES)}."
             )
 
-        seg_data = engine_block.get("segmentation", {})
-        segmentation = SegmentationConfig(
-            trigger_words=seg_data.get("trigger_words", list(_DEFAULT_TRIGGER_WORDS)),
-            initial_silence_timeout_s=seg_data.get("initial_silence_timeout_s", 10.0),
-            end_of_speech_timeout_s=seg_data.get("end_of_speech_timeout_s", 5.0),
-        )
+        segmentation = _parse_segmentation(engine_block.get("segmentation"))
+        sound_feedback = _parse_sound_feedback(engine_block.get("sound_feedback"))
 
-        sf_data = engine_block.get("sound_feedback", {})
-        sound_feedback = SoundFeedbackConfig(
-            enabled=sf_data.get("enabled", True),
-            output_device=sf_data.get("output_device", None),
-        )
-
-        module_data = engine_block.get("module", {})
+        module_data = engine_block.get("module")
+        if module_data is None:
+            module_data = {}
+        if not isinstance(module_data, dict):
+            raise ValueError("Invalid engine.module: must be an object.")
         module_type = module_data.get("type")
         if not module_type:
             raise ValueError("Config is missing required field: engine.module.type")
+        if not isinstance(module_type, str):
+            raise ValueError(
+                f"Invalid engine.module.type: {module_type!r}. Must be a string."
+            )
         # `type` and `audio_format` are the engine's; the rest is the module's own.
         extra = {
             k: v for k, v in module_data.items() if k not in ("type", "audio_format")
@@ -417,12 +557,12 @@ class MCPServerConfig:
         block to :meth:`ASREngineConfig.from_dict`, so both entry points run identical
         engine validation.
         """
-        server_data = data.get("server", {})
-        server = ServerConfig(
-            host=server_data.get("host", "127.0.0.1"),
-            port=server_data.get("port", 8000),
-        )
-        engine = ASREngineConfig.from_dict(data.get("engine", {}))
+        if not isinstance(data, dict):
+            raise ValueError("Invalid config: must be an object.")
+        _as_object(data, "config", ("server", "engine"))
+        server = _parse_server(data.get("server"))
+        engine_block = data.get("engine")
+        engine = ASREngineConfig.from_dict({} if engine_block is None else engine_block)
         return cls(server=server, engine=engine)
 
     @classmethod
