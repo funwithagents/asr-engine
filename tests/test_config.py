@@ -727,3 +727,109 @@ def test_vad_block_is_parsed_from_a_whole_server_config_file(tmp_path: Path) -> 
     )
     vad = MCPServerConfig.from_json_file(str(path)).engine.vad
     assert vad is not None and vad.threshold == 0.6
+
+
+# ---------------------------------------------------------------------------
+# Types and shapes: a malformed config fails when it is loaded
+# ---------------------------------------------------------------------------
+
+_FAKE = {"module": {"type": "fake"}}
+
+
+@pytest.mark.parametrize(
+    ("block", "message"),
+    [
+        # A string is truthy: "false" would silently mean true.
+        ({"auto_start": "false"}, "engine.auto_start"),
+        ({"auto_start_dictation": 1}, "engine.auto_start_dictation"),
+        ({"sound_feedback": {"enabled": "false"}}, "engine.sound_feedback.enabled"),
+        ({"sound_feedback": {"output_device": 1.5}}, "sound_feedback.output_device"),
+        ({"sound_feedback": []}, "engine.sound_feedback: must be an object"),
+        ({"segmentation": "timeout"}, "engine.segmentation: must be an object"),
+        ({"segmentation": {"trigger_words": "go"}}, "segmentation.trigger_words"),
+        ({"segmentation": {"trigger_words": ["go", 3]}}, "segmentation.trigger_words"),
+        ({"segmentation": {"trigger_words": [" "]}}, "segmentation.trigger_words"),
+        (
+            {"segmentation": {"initial_silence_timeout_s": -1}},
+            "segmentation.initial_silence_timeout_s",
+        ),
+        (
+            {"segmentation": {"end_of_speech_timeout_s": 0}},
+            "segmentation.end_of_speech_timeout_s",
+        ),
+        (
+            {"segmentation": {"end_of_speech_timeout_s": "5"}},
+            "segmentation.end_of_speech_timeout_s",
+        ),
+        (
+            {"segmentation": {"end_of_speech_timeout_s": float("nan")}},
+            "segmentation.end_of_speech_timeout_s",
+        ),
+        ({"audio_source": {"device": 3}}, "engine.audio_source.device"),
+        (
+            {
+                "audio_source": {
+                    "type": "file",
+                    "audio_file": "a.wav",
+                    "trailing_silence_s": -1,
+                }
+            },
+            "audio_source.trailing_silence_s",
+        ),
+        (
+            {"audio_source": {"type": "file", "audio_file": 3}},
+            "audio_source.audio_file",
+        ),
+        ({"module": "fake"}, "engine.module: must be an object"),
+        ({"module": {"type": 3}}, "engine.module.type"),
+    ],
+)
+def test_a_value_of_the_wrong_type_or_range_is_refused(block, message):
+    with pytest.raises(ValueError, match=message):
+        ASREngineConfig.from_dict({**_FAKE, **block})
+
+
+@pytest.mark.parametrize(
+    ("block", "message"),
+    [
+        ({"auto_strat": False}, "engine: unknown field.*auto_strat"),
+        ({"segmentation": {"trigger_word": ["go"]}}, "engine.segmentation: unknown"),
+        ({"sound_feedback": {"enable": False}}, "engine.sound_feedback: unknown"),
+    ],
+)
+def test_a_misspelled_field_is_refused_rather_than_ignored(block, message):
+    with pytest.raises(ValueError, match=message):
+        ASREngineConfig.from_dict({**_FAKE, **block})
+
+
+def test_a_module_block_still_takes_any_field_of_its_own():
+    config = ASREngineConfig.from_dict({"module": {"type": "fake", "anything": 1}})
+    assert config.module.extra == {"anything": 1}
+
+
+@pytest.mark.parametrize("block", ["segmentation", "sound_feedback", "audio_source"])
+def test_a_null_block_means_its_defaults(block):
+    assert ASREngineConfig.from_dict({**_FAKE, block: None}) == (
+        ASREngineConfig.from_dict(_FAKE)
+    )
+
+
+def test_an_engine_config_that_is_not_an_object_is_refused():
+    with pytest.raises(ValueError, match="must be an object"):
+        ASREngineConfig.from_dict(["module"])  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize(
+    ("data", "message"),
+    [
+        ({"server": {"port": "8000"}}, "server.port"),
+        ({"server": {"port": 70000}}, "server.port"),
+        ({"server": {"host": ""}}, "server.host"),
+        ({"server": {"hots": "127.0.0.1"}}, "server: unknown field.*hots"),
+        ({"sever": {}}, "config: unknown field.*sever"),
+        ({"server": [8000]}, "server: must be an object"),
+    ],
+)
+def test_the_server_block_is_validated(data, message):
+    with pytest.raises(ValueError, match=message):
+        MCPServerConfig.from_dict({"engine": _FAKE, **data})

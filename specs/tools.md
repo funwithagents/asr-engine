@@ -54,8 +54,8 @@ class AsrTools:
 
 Thin pass-throughs to the engine:
 
-- `start()` → `await engine.start()`, returns `{"status": "running"}`.
-- `stop()` → `await engine.stop()`, returns `{"status": "stopped"}`.
+- `start()` → `await engine.start()`, returns `{"status": "running"}`. The engine's `ValueError` propagates when it is already running or a `listen` is in progress ([engine.md](engine.md) "Lifecycle").
+- `stop()` → `await engine.stop()`, returns `{"status": "stopped"}`. Safe on a stopped engine; it ends a `listen` in progress, which then raises.
 - `is_running()` → returns `engine.status()` (`{"running": bool, "connected": bool, "vad": str | None}`; see [engine.md](engine.md) "Lifecycle").
 
 ### `listen`

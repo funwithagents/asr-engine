@@ -693,6 +693,127 @@ async def test_listen_rejects_running_engine():
 
 
 # ---------------------------------------------------------------------------
+# Lifecycle: repeated and overlapping start / stop / listen
+# ---------------------------------------------------------------------------
+
+_HELLO_SUBMIT = [
+    {"text": "hello", "start_s": 0.0, "end_s": 0.2},
+    {"text": "submit", "start_s": 0.3, "end_s": 0.4},
+]
+
+
+async def test_a_second_start_is_refused_and_leaves_the_first_pipeline_stoppable(
+    fake_engine_factory,
+):
+    heard: list[str] = []
+
+    async def on_utterance(utterance: SpeechUtterance) -> None:
+        if utterance.is_final:
+            heard.append(utterance.transcript)
+
+    engine = fake_engine_factory(_HELLO_SUBMIT, on_speech_utterance=on_utterance)
+    await engine.start()
+    with pytest.raises(ValueError, match="already running"):
+        await engine.start()
+    assert engine.status()["running"] is True
+
+    while len(heard) < 2:
+        await asyncio.sleep(0)
+    await engine.stop()
+    assert engine.status()["running"] is False
+    # One pipeline ran: a second one would have replayed the script.
+    await asyncio.sleep(0.05)
+    assert heard == ["hello", "submit"]
+
+
+async def test_two_overlapping_starts_start_one_pipeline(fake_engine_factory):
+    engine = fake_engine_factory([])
+    results = await asyncio.gather(
+        engine.start(), engine.start(), return_exceptions=True
+    )
+    try:
+        assert [type(r) for r in results] == [type(None), ValueError]
+        assert engine.status()["running"] is True
+    finally:
+        await engine.stop()
+    assert engine.status()["running"] is False
+
+
+async def test_stop_on_a_stopped_engine_does_nothing(fake_engine_factory):
+    engine = fake_engine_factory([])
+    await engine.stop()
+    await engine.start()
+    await engine.stop()
+    await engine.stop()
+    assert engine.status()["running"] is False
+
+
+async def test_two_overlapping_listens_the_second_is_refused_and_the_first_completes(
+    fake_engine_factory,
+):
+    engine = fake_engine_factory(_HELLO_SUBMIT, trigger_words=["submit"])
+    first, second = await asyncio.gather(
+        engine.listen("trigger_word"),
+        engine.listen("trigger_word"),
+        return_exceptions=True,
+    )
+    assert isinstance(first, SpeechSegment) and first.transcript == "hello"
+    assert isinstance(second, ValueError) and "already in progress" in str(second)
+    assert engine.status()["running"] is False
+
+
+async def test_start_is_refused_while_a_listen_is_in_progress(fake_engine_factory):
+    engine = fake_engine_factory([])  # nothing is said: the listen stays open
+    listening = asyncio.create_task(engine.listen("trigger_word"))
+    while not engine.status()["running"]:
+        await asyncio.sleep(0)
+
+    with pytest.raises(ValueError, match="listen is in progress"):
+        await engine.start()
+
+    await engine.stop()
+    with pytest.raises(RuntimeError, match="stopped before"):
+        await listening
+
+
+async def test_stop_ends_a_listen_in_progress_and_the_engine_is_usable_again(
+    fake_engine_factory,
+):
+    engine = fake_engine_factory(_HELLO_SUBMIT, trigger_words=["never said"])
+    listening = asyncio.create_task(engine.listen("trigger_word"))
+    while not engine.status()["running"]:
+        await asyncio.sleep(0)
+
+    await engine.stop()
+    with pytest.raises(RuntimeError, match="stopped before"):
+        await listening
+    assert engine.status()["running"] is False
+
+    # Not left claimed by the interrupted listen.
+    segment = await engine.listen("utterance")
+    assert segment.transcript == "hello"
+
+
+async def test_an_invalid_segmentation_param_changes_nothing(fake_engine_factory):
+    engine = fake_engine_factory(
+        [
+            {"text": "stop", "start_s": 0.0, "end_s": 0.2},
+            {"text": "submit", "start_s": 0.3, "end_s": 0.4},
+        ],
+        trigger_words=["submit"],
+    )
+    with pytest.raises(ValueError, match="end_of_speech_timeout_s"):
+        await engine.set_segmentation_params(
+            trigger_words=["stop"], end_of_speech_timeout_s=-1
+        )
+
+    # "stop" did not become a trigger word: the call was refused as a whole.
+    segment = await engine.listen("trigger_word")
+    assert segment.transcript == "stop"
+    assert segment.end_reason == "trigger_word"
+
+
+# ---------------------------------------------------------------------------
 # VAD gating (specs/vad.md) — on a deterministic VAD and a hand-fed source
 # ---------------------------------------------------------------------------
 

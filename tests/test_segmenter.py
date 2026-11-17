@@ -196,3 +196,76 @@ async def test_stop_cancels_timers():
 
     await asyncio.sleep(0.12)
     assert not any(s.is_final for s in segments)
+
+
+# ---------------------------------------------------------------------------
+# Timeouts and utterances at the same boundary
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("value", [0, -1, float("nan"), float("inf"), "5", True])
+@pytest.mark.parametrize(
+    "field", ["initial_silence_timeout_s", "end_of_speech_timeout_s"]
+)
+def test_a_timeout_that_is_not_a_positive_number_is_refused(field, value):
+    # A zero or negative sleep returns at once, so the timer would close empty
+    # segments in a tight loop.
+    _, emit = _collector()
+    with pytest.raises(ValueError, match=field):
+        _make("timeout", emit, **{field: value})
+
+
+def _slow_final_consumer():
+    """A consumer that holds the first final segment until ``release`` is set."""
+    delivered: list[SpeechSegment] = []
+    closing = asyncio.Event()
+    release = asyncio.Event()
+
+    async def emit(seg: SpeechSegment) -> None:
+        if seg.is_final and not release.is_set():
+            closing.set()
+            await release.wait()
+        delivered.append(seg)
+
+    return delivered, closing, release, emit
+
+
+async def test_an_utterance_arriving_while_a_timeout_closes_the_segment_opens_the_next():
+    delivered, closing, release, emit = _slow_final_consumer()
+    seg = _make("timeout", emit, end_of_speech_timeout_s=0.01)
+    await seg.start()
+    await seg.on_utterance(_final("one"))
+    await asyncio.wait_for(closing.wait(), 1)  # the timeout is delivering "one"
+
+    arriving = asyncio.create_task(seg.on_utterance(_final("two")))
+    await asyncio.sleep(0)  # "two" reaches the segmenter mid-delivery
+    release.set()
+    await arriving
+    await seg.stop()
+
+    # The final "one" is delivered whole, and "two" starts a fresh segment: it
+    # neither interrupts the final nor inherits its utterance.
+    assert [(s.transcript, s.is_final, s.end_reason) for s in delivered] == [
+        ("one", False, None),
+        ("one", True, "end_of_speech_timeout"),
+        ("two", False, None),
+    ]
+
+
+async def test_stop_lets_a_final_segment_being_delivered_finish_and_starts_nothing():
+    delivered, closing, release, emit = _slow_final_consumer()
+    seg = _make(
+        "timeout", emit, initial_silence_timeout_s=0.01, end_of_speech_timeout_s=0.01
+    )
+    await seg.start()
+    await seg.on_utterance(_final("one"))
+    await asyncio.wait_for(closing.wait(), 1)
+
+    await seg.stop()
+    release.set()
+    await asyncio.sleep(0.05)  # several timeouts' worth: no timer was restarted
+
+    assert [(s.transcript, s.is_final) for s in delivered] == [
+        ("one", False),
+        ("one", True),
+    ]

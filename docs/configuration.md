@@ -50,7 +50,7 @@ config = ASREngineConfig(
 )
 ```
 
-Direct dataclass construction expects trusted values. The `from_*` constructors normalize and validate configuration that comes from outside.
+Direct dataclass construction expects trusted values. The `from_*` constructors normalize and validate configuration that comes from outside: a value of the wrong type (`"false"` for a boolean, a negative timeout) or a field the block does not define (a misspelling) raises a `ValueError` naming the field, such as `engine.segmentation.end_of_speech_timeout_s`. Only the `module` and `vad` blocks take other fields, which the module validates itself.
 
 ## The engine block
 

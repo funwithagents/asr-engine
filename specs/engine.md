@@ -142,10 +142,18 @@ class Segmenter:
         """Feed one utterance; may emit interim and/or final segments."""
 
     async def stop(self) -> None:
-        """Cancel any running timers."""
+        """Cancel the pending timers."""
 ```
 
 `emit` is wired by the engine to call `self.on_speech_segment`.
+
+Both timeouts must be finite, positive numbers; the constructor raises `ValueError` otherwise. A zero or negative timeout would make its timer fire at once and close empty segments in a tight loop.
+
+**One event at a time.** An utterance and a timeout can reach the segmenter at the same moment, and `emit` may suspend (the MCP server sends a notification from it). The segmenter therefore handles one utterance or one timeout at a time, emission included, under an internal lock:
+
+- An utterance that arrives while a timeout is closing the segment waits until the final segment has been delivered, then opens the next segment. It neither interrupts the final nor is added to the segment being closed.
+- A timeout that fires while an utterance is being handled waits for it. If that utterance restarted the timer, the timeout that was waiting is dropped.
+- A timer can be cancelled until it fires. Once it has started closing its segment it runs to the end, so a consumer never receives half of a final segment. `stop()` cancels the pending timers and does not wait: a final segment already being delivered is still delivered, and no timer is started after it.
 
 ---
 
@@ -210,7 +218,7 @@ The **live, in-run** mode swap, used only by `start_dictation` / `stop_dictation
 2. **Stops the old segmenter before swapping** — `await self._segmenter.stop()` so a `timeout`-mode segmenter's timers can't fire through the engine callback after the switch (otherwise a stale timeout segment could close after the mode already changed).
 3. Swaps in the candidate and `await`s its `start()`.
 
-Mode switches and dictation state transitions are serialized by a single engine lock so overlapping `listen` / dictation calls can't interleave.
+Mode switches and dictation state transitions run under the engine lock (see [Lifecycle](#lifecycle)), so overlapping dictation calls can't interleave.
 
 ### `set_segmentation_params`
 
@@ -224,7 +232,7 @@ async def set_segmentation_params(
 ) -> None: ...
 ```
 
-Updates the segmentation params (omitted params keep their current values) and rebuilds the `Segmenter` under the current mode, discarding any in-progress segment (stopping the old segmenter before swapping, like `_set_segmentation_mode`). This is the *only* way to change trigger words / timeouts after construction — dictation and `listen` never touch them.
+Updates the segmentation params (omitted params keep their current values) and rebuilds the `Segmenter` under the current mode, discarding any in-progress segment (stopping the old segmenter before swapping, like `_set_segmentation_mode`). The new `Segmenter` is built before any value is stored, so a timeout that is not a positive number raises `ValueError` and leaves every param as it was. This is the *only* way to change trigger words / timeouts after construction — dictation and `listen` never touch them.
 
 ### `segmentation_mode`
 
@@ -273,7 +281,7 @@ While dictating, the engine watches the segment stream: if `end_on_final_segment
 - Raise `ValueError("No dictation in progress.")` if not dictating.
 - Clear dictation state and `_set_segmentation_mode("utterance")`. The engine keeps running.
 
-Both are serialized with `listen` and mode changes by the engine lock. A dictation and a `listen` can never overlap: `listen` requires the engine stopped, `start_dictation` requires it running.
+Both run under the engine lock, like every mode change. A dictation and a `listen` can never overlap: `listen` requires the engine stopped, `start_dictation` requires it running.
 
 ### `set_dictation_default_segmentation_mode` / `set_listen_default_segmentation_mode`
 
@@ -286,8 +294,18 @@ Update the stored default mode that `start_dictation(segmentation_mode=None)` / 
 
 ### Lifecycle
 
+**One transition at a time.** `start`, `stop`, the dictation transitions and `set_segmentation_params` each run under one engine lock (an `asyncio.Lock`), so two of them never interleave, whoever calls them. The callbacks are never called with the lock held, so a callback may call any of them. `listen` does not hold the lock for its whole duration, since `stop()` must stay callable during a capture; it is made exclusive by a flag claimed before its first `await`.
+
+| Call | On a stopped engine | On a running engine | During a `listen` |
+|---|---|---|---|
+| `start()` | starts | `ValueError("ASR is already running.")` | `ValueError` (a listen is in progress) |
+| `stop()` | does nothing | stops | stops, and the `listen` raises `RuntimeError` |
+| `listen()` | runs | `ValueError("ASR is already running. Stop it before calling listen.")` | `ValueError("A listen is already in progress.")` |
+
+A second `start()` is an error, not a no-op: it would build a second pipeline and replace the references needed to stop the first. Two overlapping `start()` calls start one pipeline, and the other call raises. A `stop()` that overlaps a `start()` waits for it, then stops what it started.
+
 - `async start()` — `await self._start_with_segmentation_mode("utterance")`: the always-on stream is `utterance`. The caller applies `auto_start_dictation` by calling `start_dictation` *after* `start()`.
-- `async stop()` — stops the module, audio capture, and the segmenter's timers, clears any dictation state (a stopped engine is never dictating), and resets the stored segment mode to `utterance` so the `segmentation_mode` getter reads `utterance` at rest (the next `_start_with_segmentation_mode` sets the mode again anyway).
+- `async stop()` — safe to call on a stopped engine; stops the module, audio capture, and the segmenter's timers, clears any dictation state (a stopped engine is never dictating), and resets the stored segment mode to `utterance` so the `segmentation_mode` getter reads `utterance` at rest (the next `_start_with_segmentation_mode` sets the mode again anyway).
 - `status() -> dict` — `{"running": bool, "connected": bool, "vad": str | None}`. `vad` is the configured `engine.vad.type`, or `None` when the engine runs ungated.
 - `vad_state -> VadState | None` (read-only property) — `None` without `engine.vad`. Otherwise a snapshot of the gate, meant to be polled by a UI: `speaking` (audio is reaching the module right now) and `failed_open` (because the VAD failed). Both are false before the first start and once stopped. See [vad.md](vad.md) "Engine integration".
 
@@ -308,12 +326,14 @@ async def listen(
 
 Behaviour:
 
-1. Raise `ValueError` if the engine is already running.
+1. Raise `ValueError` if another `listen` is in progress or the engine is already running.
 2. Resolve `mode` (falling back to `listen_default_segmentation_mode`).
 3. Save the current `on_speech_segment` callback, then install an internal `on_speech_segment` that forwards every update to `on_update` (if given) and resolves a future on the first **final** segment.
 4. Play the start sound cue, then `await self._start_with_segmentation_mode(mode)` (which sets the mode as it starts — no separate mode step), await the future, then `await stop()` and play the stop cue — always, even on error (try/finally).
 5. Restore the saved callback. (`stop()` already reset the stored mode to `utterance`; `listen` never touches the segmentation params.)
 6. Return the closed `SpeechSegment`.
+
+A `stop()` called while a `listen` waits for its segment ends it: `listen` raises `RuntimeError("ASR was stopped before the listen segment closed.")`, after the same cleanup (stop cue, callback restored). The engine is then stopped and usable again.
 
 Sound-feedback cues are played by the engine itself (see [sound-feedback.md](sound-feedback.md)); callers do not wrap `listen` with cue playback.
 

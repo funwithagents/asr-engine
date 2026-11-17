@@ -56,6 +56,8 @@ finally:
 
 Constructing an engine starts nothing. The caller owns its lifecycle.
 
+`start()` on a running engine raises `ValueError`; it never starts a second pipeline. `stop()` is safe to call on a stopped engine. Called while a `listen()` is waiting, `stop()` ends it and `listen()` raises `RuntimeError`.
+
 ## Listen for one segment
 
 `listen()` starts a stopped engine in the requested segmentation mode, waits for one segment to close, stops the engine, and returns that segment:
