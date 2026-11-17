@@ -22,8 +22,10 @@ dependencies = [
 # ASR provider backends. No provider is a core dependency (and none is the
 # default): install the extra for the backend you select in engine.module.type.
 # See specs/asr-module-interface.md "Optional dependencies (extras)".
+# <7: deepgram-v2's keepalive uses the v2 socket client's private _send(),
+# which a major release may remove (specs/modules/deepgram.md "KeepAlive").
 deepgram = [
-    "deepgram-sdk",
+    "deepgram-sdk>=6,<7",
 ]
 # The MCP server (asr-engine-mcp). The plain SDK, not mcp[cli]: the cli extra
 # only serves the SDK's own `mcp dev` tooling. uvicorn is imported directly.

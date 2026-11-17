@@ -262,7 +262,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "asr-engine", extras = ["deepgram", "mcp", "mistral", "mlx-audio", "openai-compatible", "silero"], marker = "extra == 'all'" },
-    { name = "deepgram-sdk", marker = "extra == 'deepgram'" },
+    { name = "deepgram-sdk", marker = "extra == 'deepgram'", specifier = ">=6,<7" },
     { name = "httpx", marker = "extra == 'openai-compatible'", specifier = ">=0.27" },
     { name = "mcp", marker = "extra == 'mcp'", specifier = "<2" },
     { name = "mlx-audio", extras = ["stt"], marker = "platform_machine == 'arm64' and sys_platform == 'darwin' and extra == 'mlx-audio'", specifier = ">=0.6" },

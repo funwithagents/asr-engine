@@ -179,6 +179,32 @@ async def test_audio_loop_sends_keepalive_on_timeout() -> None:
     conn._send.assert_called_with({"type": "KeepAlive"})
 
 
+class _RecordingWebsocket:
+    def __init__(self) -> None:
+        self.sent: list[str | bytes] = []
+
+    async def send(self, data: str | bytes) -> None:
+        self.sent.append(data)
+
+
+@pytest.mark.asyncio
+async def test_keep_alive_reaches_the_socket_through_the_real_sdk_client() -> None:
+    # Pins the private SDK call: an SDK release that removes or changes the v2
+    # client's _send() fails here rather than on a live connection.
+    import json
+
+    from deepgram.listen.v2.socket_client import AsyncV2SocketClient
+
+    from asr_engine.modules.deepgram.v2 import send_keep_alive
+
+    websocket = _RecordingWebsocket()
+    await send_keep_alive(AsyncV2SocketClient(websocket=websocket))  # type: ignore[arg-type]
+
+    assert [json.loads(message) for message in websocket.sent] == [
+        {"type": "KeepAlive"}
+    ]
+
+
 @pytest.mark.asyncio
 async def test_audio_loop_exits_when_stopped() -> None:
     m = DeepgramV2Module(config={"api_key": "sk-test"})

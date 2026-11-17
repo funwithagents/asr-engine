@@ -24,6 +24,21 @@ from asr_engine.modules.base import (
 
 log = logging.getLogger(__name__)
 
+_KEEP_ALIVE = {"type": "KeepAlive"}
+
+
+async def send_keep_alive(conn: object) -> None:
+    """Send Flux a KeepAlive message: the one place that reaches into the SDK.
+
+    The v2 socket client (deepgram-sdk 6) has no public ``send_keep_alive()``, as
+    the v1 client does, so this uses its private ``_send(dict)``, which serialises
+    the dict to JSON. ``tests/modules/test_deepgram_v2.py`` runs this against the
+    SDK's real client class, so an SDK upgrade that removes ``_send`` fails the
+    fast tier; the ``deepgram`` extra is pinned below the next major version for
+    the same reason. Switch to a public method when the SDK adds one.
+    """
+    await conn._send(_KEEP_ALIVE)  # type: ignore[attr-defined]
+
 
 class DeepgramV2Module(ASRModule):
     """ASR module backed by the Deepgram Listen v2 (Flux) WebSocket API.
@@ -194,14 +209,12 @@ class DeepgramV2Module(ASRModule):
                         await conn.send_media(item)  # type: ignore[union-attr]
                 else:
                     # No audio for _KEEPALIVE_TIMEOUT seconds — keep the connection alive.
-                    # The v2 SDK has no public send_keep_alive(); use the internal
-                    # _send() which accepts a dict and serialises it to JSON.
                     get_task.cancel()
                     try:
                         await get_task
                     except (asyncio.CancelledError, Exception):
                         pass
-                    await conn._send({"type": "KeepAlive"})  # type: ignore[union-attr]
+                    await send_keep_alive(conn)
         finally:
             stop_task.cancel()
             try:
