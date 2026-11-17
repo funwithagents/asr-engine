@@ -58,6 +58,13 @@ def make_engine(**cfg_kwargs) -> ASREngine:
         return ASREngine(_engine_config(**cfg_kwargs))
 
 
+async def start_engine(engine: ASREngine) -> None:
+    """Start *engine* on a stand-in microphone."""
+    with patch("asr_engine.engine.AudioCapture") as MockCapture:
+        MockCapture.return_value.start.return_value = asyncio.Queue()
+        await engine.start()
+
+
 def tool_result_json(result) -> dict:
     """Parse the JSON payload from a call_tool result (list of TextContent)."""
     return json.loads(result[0].text)
@@ -201,9 +208,9 @@ def test_create_mcp_server_wires_engine_callbacks():
 def test_create_mcp_server_leaves_engine_segment_mode():
     """The engine's at-rest mode is ``utterance``; the server must not change it."""
     engine = make_engine()
-    assert engine._segment_mode == "utterance"
+    assert engine.segmentation_mode == "utterance"
     create_mcp_server(engine)
-    assert engine._segment_mode == "utterance"
+    assert engine.segmentation_mode == "utterance"
 
 
 # ---------------------------------------------------------------------------
@@ -245,8 +252,8 @@ async def test_stop_tool_stops_engine():
 async def test_is_running_tool_returns_engine_status():
     engine = make_engine()
     mcp = create_mcp_server(engine)
-    engine._running = True
-    engine._connected = True
+    await start_engine(engine)
+    engine.set_connected(True)  # what the module reports once connected
 
     result = await mcp.call_tool("is_running", {})
     assert tool_result_json(result) == {
@@ -254,6 +261,7 @@ async def test_is_running_tool_returns_engine_status():
         "connected": True,
         "vad": None,
     }
+    await engine.stop()
 
 
 # ---------------------------------------------------------------------------
@@ -317,10 +325,11 @@ async def test_listen_engine_already_running():
     from mcp.server.fastmcp.exceptions import ToolError
 
     engine = make_engine()
-    engine._running = True
+    await start_engine(engine)
     mcp = create_mcp_server(engine)
     with pytest.raises(ToolError, match="already running"):
         await mcp.call_tool("listen", {})
+    await engine.stop()
 
 
 @pytest.mark.asyncio

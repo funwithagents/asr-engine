@@ -41,6 +41,7 @@ class ScriptedBatch(BatchASRModule):
     def __init__(self, config: dict[str, Any]) -> None:
         super().__init__(config)
         self.loads = 0
+        self.load_started = threading.Event()
         self.load_failures = 0  # how many load() calls fail first
         self.load_gate = threading.Event()
         self.load_gate.set()
@@ -49,6 +50,7 @@ class ScriptedBatch(BatchASRModule):
         self.decodes: list[str] = []
 
     def load(self) -> None:
+        self.load_started.set()
         self.load_gate.wait(5)
         self.loads += 1
         if self.load_failures:
@@ -184,7 +186,7 @@ async def test_a_load_interrupted_by_stop_is_reused_by_the_next_start(
     h = harnesses()
     h.module.load_gate.clear()
     await h.start(wait_connected=False)
-    await _until(lambda: h.module._load_future is not None)
+    await _until(h.module.load_started.is_set)
     await h.stop()
     assert h.connected == []
 

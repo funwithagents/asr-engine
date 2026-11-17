@@ -26,8 +26,13 @@ class ScriptedVAD(VADModule):
     SUPPORTED_SAMPLE_RATES = frozenset({8000, 16000})
     DEFAULT_SAMPLE_RATE = 16000
 
+    # Every instance built, so a test can find the one an engine built from its
+    # config without reaching into the engine.
+    instances: list["ScriptedVAD"] = []
+
     def __init__(self, config: dict) -> None:
         super().__init__(config)
+        ScriptedVAD.instances.append(self)
         if "boom" in config:
             raise ValueError("scripted VAD: 'boom' is not a valid field")
         self.fail_at_frame: int | None = config.get("fail_at_frame")

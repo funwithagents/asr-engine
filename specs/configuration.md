@@ -3,6 +3,7 @@ code:
   - src/asr_engine/config.py
 tests:
   - tests/test_config.py
+  - tests/examples/test_configs.py
 ---
 
 # Configuration
