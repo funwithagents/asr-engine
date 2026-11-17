@@ -30,6 +30,7 @@ from helpers import (
     MODULES_UNGATED,
     MODULES_VAD,
     ModuleAudio,
+    UtteranceRecorder,
     build_engine,
     normalize_transcript,
     require_api_key,
@@ -38,7 +39,7 @@ from helpers import (
     wait_until,
 )
 
-from asr_engine import ScriptableAudioSource, SpeechUtterance
+from asr_engine import ScriptableAudioSource
 
 
 @pytest.mark.asyncio
@@ -51,10 +52,8 @@ async def test_engine_streams(
     """A module completes the live start/stream/finalize/reuse/stop lifecycle."""
     require_api_key(module_config)
     require_local_model(module_type, module_config)
-    utterances: list[SpeechUtterance] = []
-
-    async def on_utt(u: SpeechUtterance) -> None:
-        utterances.append(u)
+    recorder = UtteranceRecorder()
+    utterances = recorder.utterances
 
     source = ScriptableAudioSource(audio_format=audio.audio_format)
     engine = build_engine(
@@ -62,7 +61,7 @@ async def test_engine_streams(
         module_type,
         module_config,
         audio_format=audio.audio_format,
-        on_speech_utterance=on_utt,
+        on_speech_utterance=recorder,
     )
     try:
         await engine.start()
@@ -74,7 +73,8 @@ async def test_engine_streams(
             lambda: any(
                 u.is_final and "the sky is blue" in normalize_transcript(u.transcript)
                 for u in utterances
-            )
+            ),
+            describe=recorder.describe,
         )
         first_final_index = next(i for i, u in enumerate(utterances) if u.is_final)
         second_start_index = len(utterances)
@@ -86,7 +86,8 @@ async def test_engine_streams(
             lambda: any(
                 u.is_final and "validate" in normalize_transcript(u.transcript)
                 for u in utterances[second_start_index:]
-            )
+            ),
+            describe=recorder.describe,
         )
     finally:
         await engine.stop()
@@ -117,10 +118,8 @@ async def test_engine_modules_vad(
     require_api_key(module_config)
     require_local_model(module_type, module_config)
     require_vad_runtime()
-    utterances: list[SpeechUtterance] = []
-
-    async def on_utt(u: SpeechUtterance) -> None:
-        utterances.append(u)
+    recorder = UtteranceRecorder()
+    utterances = recorder.utterances
 
     def finals(start: int = 0) -> list[str]:
         return [
@@ -133,7 +132,7 @@ async def test_engine_modules_vad(
         module_type,
         module_config,
         audio_format=audio.audio_format,
-        on_speech_utterance=on_utt,
+        on_speech_utterance=recorder,
         vad=vad,
     )
     try:
@@ -144,7 +143,10 @@ async def test_engine_modules_vad(
         # First utterance: the final must hold the whole phrase — the first word
         # (the pre-roll kept it) and the last (the flush brought it out).
         await source.play(audio.blue, trailing_silence_s=silence_s)
-        await wait_until(lambda: any("the sky is blue" in t for t in finals()))
+        await wait_until(
+            lambda: any("the sky is blue" in t for t in finals()),
+            describe=recorder.describe,
+        )
         second_start_index = len(utterances)
         # Whatever the backend's own endpointing would have done with it, the
         # utterance came out as a single final.
@@ -157,7 +159,8 @@ async def test_engine_modules_vad(
             lambda: (
                 "the sky is blue" in " ".join(finals(second_start_index))
                 and "validate" in " ".join(finals(second_start_index))
-            )
+            ),
+            describe=recorder.describe,
         )
         assert engine.status()["connected"] is True
     finally:
@@ -187,10 +190,8 @@ async def test_engine_modules_converted(
     require_local_model(module_type, module_config)
     if vad is not None:
         require_vad_runtime()
-    utterances: list[SpeechUtterance] = []
-
-    async def on_utt(u: SpeechUtterance) -> None:
-        utterances.append(u)
+    recorder = UtteranceRecorder()
+    utterances = recorder.utterances
 
     source = ScriptableAudioSource(audio_format=FORMAT_MP3_44100)
     engine = build_engine(
@@ -199,7 +200,7 @@ async def test_engine_modules_converted(
         module_config,
         audio_format=FORMAT_MP3_44100,
         module_sample_rate=module_sample_rate,
-        on_speech_utterance=on_utt,
+        on_speech_utterance=recorder,
         vad=vad,
     )
     # The source keeps its own rate; the module is fed another.
@@ -213,7 +214,8 @@ async def test_engine_modules_converted(
             lambda: any(
                 u.is_final and "the sky is blue" in normalize_transcript(u.transcript)
                 for u in utterances
-            )
+            ),
+            describe=recorder.describe,
         )
     finally:
         await engine.stop()
