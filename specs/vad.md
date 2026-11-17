@@ -409,9 +409,9 @@ Elsewhere in the fast tier:
 
 ### Live tier: `tests-e2e/`
 
-Kept small, since the gate's behaviour is pinned deterministically above. One new parametrized scenario, `test_engine_modules_vad`, runs each `MODULES` row with `vad: {"type": "silero"}` on the row's existing fixtures: play an utterance with trailing silence through `ScriptableAudioSource` and assert that exactly one final arrives, containing the whole phrase (nothing clipped at either end), then that a second utterance yields its own final (the module survived a gated gap). The existing skip axes apply, plus a skip when `onnxruntime` is missing. No new fixtures: the 44.1 kHz MP3s and 24 kHz WAVs exercise the resampling path. Detail in [e2e-testing.md](e2e-testing.md).
+Kept small, since the gate's behaviour is pinned deterministically above. One new parametrized scenario, `test_engine_modules_vad`, runs each `MODULES` row with `vad: {"type": "silero"}` on the row's existing fixtures: play an utterance with trailing silence through `ScriptableAudioSource` and assert that its finals together hold the whole phrase (nothing clipped at either end), then that a second utterance is finalized too (the module survived a gated gap). **A gated utterance may come out as several finals:** the marker ends what the module sends, not how the backend segments what it heard, and `deepgram-v1`'s `is_final` is a committed chunk rather than an utterance boundary ([modules/deepgram.md](modules/deepgram.md)). What the scenario pins is that nothing is lost, not the number of finals. The existing skip axes apply, plus a skip when `onnxruntime` is missing. No new fixtures: the 44.1 kHz MP3s and 24 kHz WAVs exercise the resampling path. Detail in [e2e-testing.md](e2e-testing.md).
 
-`deepgram-v2` runs the scenario twice, since it has two paths: with the recommended 1500 ms hangover (Flux ends the turn itself) and with a 300 ms one (the marker's injected silence ends it). Both must yield one complete final per utterance.
+`deepgram-v2` runs the scenario twice, since it has two paths: with the recommended 1500 ms hangover (Flux ends the turn itself) and with a 300 ms one (the marker's injected silence ends it). Both must finalize the whole of each utterance.
 
 ## Files
 

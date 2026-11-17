@@ -184,12 +184,15 @@ The module needs **no VAD in front of it**. End-of-utterance comes from the serv
 
 `VAD_GATING = "supported"` ([vad.md](../vad.md)). With `engine.vad` set, the module receives only speech, the bill follows speech time, and room noise never leaves the machine. The server's `turn.end` no longer drives finals (it needs to hear the silence the gate removes), so they come from the gate's `END_OF_SPEECH` marker.
 
-On a marker the send loop calls `finalize()`. `input_audio.end` would end the session, so the flush is local, in two steps:
+On a marker the send loop calls `finalize()`. `input_audio.end` would end the session, so the flush is local, in three steps:
 
 1. **Send one burst of silence** of `streaming_delay_ms` + 200 ms, as a single `input_audio.append`. The text of the audio already sent is still behind the streaming delay, and the probe above showed it does not arrive unless the server receives that much more audio. This is billed: about 0.7 s per utterance at the default delay.
 2. **Arm a `flush` timer** of `streaming_delay_ms + final_margin_ms`. Each delta that arrives while it is armed restarts it, so the final is emitted once the text has stopped for that long, with everything that arrived in between. It uses the same mechanism as the `turn` and `silence` timers, and whichever fires first finalizes and cancels the others.
+3. **Never before the floor.** The final also waits until the server has had time to hear the whole burst and answer: `streaming_delay_ms` + 200 ms (the burst) + `final_margin_ms` + 500 ms (a network round trip, a module constant) after the marker, ≈ 1.28 s at the defaults. The flush timer, armed or restarted, never fires before then.
 
-The session is kept, and the next utterance goes out on it. A final therefore arrives about `0.5 s + streaming_delay_ms + final_margin_ms` after the marker (≈ 1.1 s at the defaults), itself `min_silence_duration_ms` after the speaker stops.
+   **Why a floor.** The server releases the tail's text only as it processes the burst, so the first delta after the marker can come later than the quiet window. Measured over ≈ 60 gated runs, it usually came 70–280 ms after the marker, but 520 ms once and 1063 ms once, when the server lagged; the 500 ms allowance keeps about 220 ms over the slowest seen. A quiet window counted from the marker alone (580 ms, shorter than the 680 ms burst it waits on) sometimes fired first and split the utterance (`"The sky is"` and then `"blue."` as two finals), which made the live tier flaky.
+
+The session is kept, and the next utterance goes out on it. A final therefore arrives at the floor, ≈ 1.3 s after the marker at the defaults, or `streaming_delay_ms + final_margin_ms` after the last delta when the tail comes later; the marker itself is `min_silence_duration_ms` after the speaker stops.
 
 During the gaps nothing new is needed: [idle parking](#lifecycle) ends the session after `idle_close_s` without a chunk and reopens one with the next. A marker read while parked (nothing is open to finalize) or while reconnecting is dropped. A late `turn.end` for a gated utterance, emitted once the next utterance's audio reaches the server, finds an empty accumulator and emits nothing.
 
@@ -219,7 +222,7 @@ The module talks to a **scripted fake connection** (records every client message
 - **Stop flush:** `stop()` sends `input_audio.end`, takes deltas that arrive before `transcription.done` into the final, and returns within `stop_timeout_s` when `done` never comes; `on_connected` ends `False`.
 - **Idle parking:** with no chunk for `idle_close_s`, the accumulator is flushed as a final, `input_audio.end` is sent, and `on_connected` is not called with `False`. The next chunk opens a new session whose first message is `session.update`, and that chunk's bytes follow it.
 - **Reconnect:** a dropped socket emits the accumulator as a final, calls `on_connected(False)`, reconnects, and re-sends `session.update`. A failed handshake retries.
-- **VAD gating:** an `END_OF_SPEECH` marker sends the silence burst (exact length), then the final after the flush wait, including a delta that arrived inside it; deltas that keep arriving hold the final; the session is kept and a second utterance gets its own final; nothing accumulated emits nothing; a marker is dropped while reconnecting and does not reopen a parked session.
+- **VAD gating:** an `END_OF_SPEECH` marker sends the silence burst (exact length), then the final after the flush wait, including a delta that arrived inside it, and not before the floor (a tail slower than the quiet window still joins the final); deltas that keep arriving hold the final; the session is kept and a second utterance gets its own final; nothing accumulated emits nothing; a marker is dropped while reconnecting and does not reopen a parked session.
 - **Validation:** one case per invalid-config rule above (scenario-style, per [testing.md](../testing.md)).
 
 ### Live tier: `tests-e2e/test_engine_modules.py`

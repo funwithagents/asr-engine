@@ -61,6 +61,12 @@ _SERVER_IDLE_KILL_S = (
 # Measured: the text of audio already sent only arrives once the server has
 # received about one streaming delay of further audio (specs/modules/mistral.md).
 _FLUSH_MARGIN_S = 0.2
+# The network share of the gated flush's floor: the server answers the burst
+# above only after it arrives, and sends the tail back over the same socket.
+# Measured: the tail's first delta came back 70 ms to 1.06 s after the marker,
+# and a window that ignored the burst's own length split utterances
+# (specs/modules/mistral.md "VAD gating").
+_FLUSH_ROUND_TRIP_S = 0.5
 _HANDSHAKE_TIMEOUT_S = 10.0
 _CLOSE_TIMEOUT_S = 2.0
 _LANGUAGE_RE = re.compile(r"^[A-Za-z]{2}$")
@@ -256,8 +262,10 @@ class MistralRealtimeModule(ASRModule):
         self._conn: RealtimeConnection | None = None
         self._flush_silence = b""
         # After a marker the final is emitted once no text has arrived for this
-        # long (the streaming delay plus the margin); each delta restarts it.
+        # long (the streaming delay plus the margin); each delta restarts it. It
+        # is never emitted before the flush floor (see finalize()).
         self._flush_s = self._delay_ms / 1000 + self._final_margin_s
+        self._flush_floor = 0.0  # loop time before which a gated final waits
 
         # Utterance assembly. The lock serializes every emission and every change
         # to the accumulator, so an interim and a timer-driven final never interleave.
@@ -445,14 +453,28 @@ class MistralRealtimeModule(ASRModule):
         of the audio already sent is still behind the streaming delay and only
         arrives once the server receives more audio, so this sends one burst of
         silence covering that delay, then emits the accumulated text as a final
-        once no delta has arrived for ``streaming_delay_ms + final_margin_ms``.
-        See specs/vad.md "Per-module finalize()".
+        once no delta has arrived for ``streaming_delay_ms + final_margin_ms``,
+        and not before the floor: the server releases the tail only as it hears
+        the burst, so the final waits for the burst's length, the margin and a
+        round trip after the marker. See specs/modules/mistral.md "VAD gating".
         """
         conn = self._conn
         if conn is None:
             return
         await self._append(conn, self._flush_silence)
-        self._arm("flush", self._flush_s, restart=True)
+        self._flush_floor = asyncio.get_running_loop().time() + (
+            self._delay_ms / 1000
+            + _FLUSH_MARGIN_S
+            + self._final_margin_s
+            + _FLUSH_ROUND_TRIP_S
+        )
+        self._arm_flush()
+
+    def _arm_flush(self) -> None:
+        """(Re)start the gated-flush timer: ``_flush_s`` of quiet, not before the
+        floor."""
+        until_floor = self._flush_floor - asyncio.get_running_loop().time()
+        self._arm("flush", max(self._flush_s, until_floor), restart=True)
 
     @staticmethod
     async def _append(conn: RealtimeConnection, chunk: bytes) -> None:
@@ -493,7 +515,7 @@ class MistralRealtimeModule(ASRModule):
                 await self._emit(transcript, is_final=False)
         self._arm("silence", self._silence_s, restart=True)
         if "flush" in self._timers:  # still flushing a gated utterance
-            self._arm("flush", self._flush_s, restart=True)
+            self._arm_flush()
 
     def _arm(self, name: str, delay: float, *, restart: bool) -> None:
         current = self._timers.get(name)
