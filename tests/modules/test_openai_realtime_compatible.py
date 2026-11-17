@@ -111,6 +111,10 @@ class FakeConnection:
     def types(self) -> list[str]:
         return [m["type"] for m in self.sent]
 
+    def unread(self) -> int:
+        """Messages pushed that the module has not received yet."""
+        return self._incoming.qsize()
+
     def audio(self) -> list[bytes]:
         return [
             base64.b64decode(m["audio"])
@@ -577,7 +581,7 @@ async def test_marker_clears_once_the_server_committed_the_turn(harnesses) -> No
     h = harnesses()
     await h.start()
     h.conn.push(SPEECH_STARTED, committed("a"))
-    await _until(lambda: "a" in h.module._items)
+    await _until(lambda: h.conn.unread() == 0)  # the module has taken it in
     h.queue.put_nowait(b"\x00" * MS_100 * 3)  # trailing silence (the hangover)
     h.queue.put_nowait(END_OF_SPEECH)
 

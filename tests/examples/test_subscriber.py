@@ -64,28 +64,43 @@ class _SessionCM:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
-async def test_start_stop_lifecycle():
-    subscriber = ResourceSubscriber("http://x", "r://u", AsyncMock())
+def _counting_failed_connections():
+    """A transport that refuses every connection, counting the attempts, and a
+    sleep that does not wait, so a retry would happen at once."""
+    attempts: list[int] = []
+    real_sleep = asyncio.sleep
 
-    with (
+    def refuse(*args, **kwargs):
+        attempts.append(1)
+        raise ConnectionError("down")
+
+    async def fast_sleep(_seconds: float) -> None:
+        await real_sleep(0)
+
+    patches = (
         patch(
-            "examples.mcp_client.resource_subscriber.streamable_http_client"
-        ) as mock_transport,
-        patch("examples.mcp_client.resource_subscriber.ClientSession"),
-    ):
-        mock_transport.return_value.__aenter__ = AsyncMock(
-            return_value=(MagicMock(), MagicMock(), lambda: None)
-        )
-        mock_transport.return_value.__aexit__ = AsyncMock(return_value=None)
+            "examples.mcp_client.resource_subscriber.streamable_http_client",
+            side_effect=refuse,
+        ),
+        patch("examples.mcp_client.resource_subscriber.asyncio.sleep", new=fast_sleep),
+    )
+    return attempts, real_sleep, patches
 
+
+@pytest.mark.asyncio
+async def test_stop_ends_the_connection_attempts():
+    attempts, real_sleep, (transport, sleep) = _counting_failed_connections()
+    subscriber = ResourceSubscriber("http://x", "r://u", AsyncMock())
+    with transport, sleep:
         await subscriber.start()
-        task = subscriber._task
-        assert task is not None and not task.done()
+        while len(attempts) < 3:  # it keeps retrying while started
+            await real_sleep(0)
         await subscriber.stop()
-
-    assert task.cancelled() or task.done()
-    assert subscriber._task is None
+        after_stop = len(attempts)
+        for _ in range(20):
+            await real_sleep(0)
+    assert len(attempts) == after_stop
+    await subscriber.stop()  # a second stop is harmless
 
 
 # ---------------------------------------------------------------------------
@@ -226,19 +241,12 @@ async def test_reconnects_on_error():
 
 
 @pytest.mark.asyncio
-async def test_no_reconnect_raises_on_error():
-    """_loop propagates the error when reconnect=False."""
-
-    async def _on_event(p: dict) -> None:
-        pass
-
-    subscriber = ResourceSubscriber("http://x", "r://u", _on_event, reconnect=False)
-
-    async def _failing_connect(reconnecting: bool = False):
-        raise ConnectionError("boom")
-
-    with patch.object(subscriber, "_connect", side_effect=_failing_connect):
+async def test_no_reconnect_makes_a_single_attempt():
+    attempts, real_sleep, (transport, sleep) = _counting_failed_connections()
+    subscriber = ResourceSubscriber("http://x", "r://u", AsyncMock(), reconnect=False)
+    with transport, sleep:
         await subscriber.start()
-        assert subscriber._task is not None
-        with pytest.raises(ConnectionError, match="boom"):
-            await subscriber._task
+        for _ in range(20):  # a retry would happen at once
+            await real_sleep(0)
+        await subscriber.stop()  # does not raise the connection error
+    assert len(attempts) == 1

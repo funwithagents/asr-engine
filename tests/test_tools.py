@@ -18,12 +18,12 @@ class FakeEngine:
     """Minimal ASREngine stand-in for driving AsrTools."""
 
     def __init__(self) -> None:
-        self._running = False
-        self._connected = False
+        self.running = False
+        self.connected = False
         self.started = False
         self.stopped = False
         self.listen_mode: Any = "unset"
-        self._listen_impl: ListenImpl | None = None
+        self.listen_impl: ListenImpl | None = None
         self.dictating = False
         self.segmentation_mode = "utterance"
         self.dictation_started_with: Any = None
@@ -31,7 +31,7 @@ class FakeEngine:
         self.listen_default: Any = None
 
     def status(self) -> dict:
-        return {"running": self._running, "connected": self._connected}
+        return {"running": self.running, "connected": self.connected}
 
     async def start_dictation(
         self, end_on_final_segment: bool = True, segmentation_mode=None
@@ -52,16 +52,16 @@ class FakeEngine:
 
     async def start(self) -> None:
         self.started = True
-        self._running = True
+        self.running = True
 
     async def stop(self) -> None:
         self.stopped = True
-        self._running = False
+        self.running = False
 
     async def listen(self, mode=None, *, on_update=None):
         self.listen_mode = mode
-        if self._listen_impl is not None:
-            return await self._listen_impl(mode, on_update)
+        if self.listen_impl is not None:
+            return await self.listen_impl(mode, on_update)
         return SpeechSegment("hello", True, "trigger_word", utterances=[])
 
 
@@ -97,8 +97,8 @@ async def test_stop_returns_stopped_and_stops_engine():
 
 def test_is_running_reflects_engine_status():
     engine = FakeEngine()
-    engine._running = True
-    engine._connected = True
+    engine.running = True
+    engine.connected = True
     tools = _tools(engine)
     assert tools.is_running() == {"running": True, "connected": True}
 
@@ -137,7 +137,7 @@ async def test_listen_reports_progress_once_per_committed_final():
         await on_update(_seg("one two", True, "trigger_word", utterances=["a", "b"]))
         return _seg("one two", True, "trigger_word", utterances=["a", "b"])
 
-    engine._listen_impl = impl
+    engine.listen_impl = impl
     tools = _tools(engine)
 
     calls: list[tuple] = []
@@ -158,7 +158,7 @@ async def test_listen_no_progress_when_no_finals_committed():
         await on_update(_seg("", True, "trigger_word", utterances=[]))
         return _seg("", True, "trigger_word", utterances=[])
 
-    engine._listen_impl = impl
+    engine.listen_impl = impl
     tools = _tools(engine)
 
     calls: list[tuple] = []
@@ -173,7 +173,7 @@ async def test_listen_no_progress_when_no_finals_committed():
 @pytest.mark.asyncio
 async def test_listen_rejects_when_engine_running():
     engine = FakeEngine()
-    engine._running = True
+    engine.running = True
     tools = _tools(engine)
     with pytest.raises(ValueError, match="already running"):
         await tools.listen(mode="trigger_word")
@@ -188,7 +188,7 @@ async def test_listen_rejects_concurrent_calls():
         await release.wait()
         return _seg("done", True, "trigger_word", utterances=[])
 
-    engine._listen_impl = impl
+    engine.listen_impl = impl
     tools = _tools(engine)
 
     first = asyncio.create_task(tools.listen(mode="trigger_word"))

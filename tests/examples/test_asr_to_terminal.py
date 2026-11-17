@@ -14,21 +14,31 @@ from examples.asr_to_terminal.terminal_typer import TerminalTyper
 # ---------------------------------------------------------------------------
 
 
+async def _tool_run_by(typer: TerminalTyper) -> str:
+    """The program the typer runs to press Enter: xdotool (X11) or ydotool."""
+    proc = MagicMock()
+    proc.communicate = AsyncMock(return_value=(b"", b""))
+    proc.returncode = 0
+    with patch(
+        "examples.asr_to_terminal.terminal_typer.asyncio.create_subprocess_exec",
+        AsyncMock(return_value=proc),
+    ) as run:
+        await typer.send_enter()
+    return run.call_args.args[0]
+
+
 class TestTerminalTyperResolution:
-    def test_auto_detect_x11(self, monkeypatch):
+    async def test_auto_detect_x11(self, monkeypatch):
         monkeypatch.setenv("XDG_SESSION_TYPE", "x11")
-        t = TerminalTyper()
-        assert t._display_server == "x11"
+        assert await _tool_run_by(TerminalTyper()) == "xdotool"
 
-    def test_auto_detect_wayland(self, monkeypatch):
+    async def test_auto_detect_wayland(self, monkeypatch):
         monkeypatch.setenv("XDG_SESSION_TYPE", "wayland")
-        t = TerminalTyper()
-        assert t._display_server == "wayland"
+        assert await _tool_run_by(TerminalTyper()) == "ydotool"
 
-    def test_explicit_arg_overrides_env(self, monkeypatch):
+    async def test_explicit_arg_overrides_env(self, monkeypatch):
         monkeypatch.setenv("XDG_SESSION_TYPE", "wayland")
-        t = TerminalTyper(display_server="x11")
-        assert t._display_server == "x11"
+        assert await _tool_run_by(TerminalTyper(display_server="x11")) == "xdotool"
 
     def test_missing_env_raises(self, monkeypatch):
         monkeypatch.delenv("XDG_SESSION_TYPE", raising=False)
@@ -69,7 +79,7 @@ def _typer_mock():
 
 @pytest.mark.asyncio
 async def test_first_open_segment_no_backspace():
-    """First open segment: no backspace (nothing pending), text typed, _pending set."""
+    """First open segment: no backspace (nothing typed yet), the text typed."""
     typer = _typer_mock()
     atr = _make_atr(typer)
 
@@ -78,7 +88,6 @@ async def test_first_open_segment_no_backspace():
     typer.backspace.assert_called_once_with(0)
     typer.type_text.assert_called_once_with("hello")
     typer.send_enter.assert_not_called()
-    assert atr._pending == "hello"
 
 
 @pytest.mark.asyncio
@@ -86,29 +95,35 @@ async def test_growing_segment_types_suffix():
     """A growing segment types only the changed suffix (shared prefix kept)."""
     typer = _typer_mock()
     atr = _make_atr(typer)
-    atr._pending = "hello"
+    await atr._on_segment({"transcript": "hello", "is_final": False})
+    typer.reset_mock()
 
     await atr._on_segment({"transcript": "hello world", "is_final": False})
 
     typer.backspace.assert_called_once_with(0)  # shared prefix "hello"
     typer.type_text.assert_called_once_with(" world")
     typer.send_enter.assert_not_called()
-    assert atr._pending == "hello world"
 
 
 @pytest.mark.asyncio
 async def test_closed_segment_types_then_sends_enter_and_resets():
-    """A closed segment types the diff, sends Enter, and clears _pending."""
+    """A closed segment types the diff and sends Enter; the next starts afresh."""
     typer = _typer_mock()
     atr = _make_atr(typer)
-    atr._pending = "hello"
+    await atr._on_segment({"transcript": "hello", "is_final": False})
+    typer.reset_mock()
 
     await atr._on_segment({"transcript": "hello world", "is_final": True})
 
     typer.backspace.assert_called_once_with(0)
     typer.type_text.assert_called_once_with(" world")
     typer.send_enter.assert_called_once()
-    assert atr._pending == ""
+
+    # The line was submitted: the next segment erases nothing and types whole.
+    typer.reset_mock()
+    await atr._on_segment({"transcript": "next", "is_final": False})
+    typer.backspace.assert_called_once_with(0)
+    typer.type_text.assert_called_once_with("next")
 
 
 @pytest.mark.asyncio
@@ -116,14 +131,14 @@ async def test_shrinking_transcript_backspaces_divergent_suffix():
     """When the new transcript diverges, backspace the non-common suffix."""
     typer = _typer_mock()
     atr = _make_atr(typer)
-    atr._pending = "hello world"
+    await atr._on_segment({"transcript": "hello world", "is_final": False})
+    typer.reset_mock()
 
     await atr._on_segment({"transcript": "hello there", "is_final": False})
 
     # common prefix "hello " (6 chars); erase "world" (5), type "there"
     typer.backspace.assert_called_once_with(5)
     typer.type_text.assert_called_once_with("there")
-    assert atr._pending == "hello there"
 
 
 @pytest.mark.asyncio

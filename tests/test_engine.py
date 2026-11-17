@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 import numpy as np
 import pytest
@@ -78,6 +78,22 @@ def make_engine(on_speech_utterance=None, on_speech_segment=None, **cfg_kwargs):
     return engine, module
 
 
+async def start_mock_engine(**kwargs):
+    """Start an engine on a mock module; return it, the module, and ``emit``.
+
+    ``emit`` is the utterance callback the engine handed the module's
+    ``start()``: what a real module calls for each result, so a test feeds the
+    engine exactly the way a backend does.
+    """
+    engine, module = make_engine(**kwargs)
+    with patch("asr_engine.engine.AudioCapture") as MockCapture:
+        MockCapture.return_value.start.return_value = asyncio.Queue()
+        await engine.start()
+    await asyncio.sleep(0)  # the module task calls start()
+    emit = module.start.call_args.args[1]
+    return engine, module, emit
+
+
 # ---------------------------------------------------------------------------
 # Constructor — validation
 # ---------------------------------------------------------------------------
@@ -100,9 +116,19 @@ def test_an_old_and_a_new_module_name_start_the_same_module():
             )
         )
 
-    old, new = engine_for("deepgram_v1"), engine_for("deepgram-v1")
-    assert type(old._asr_module) is type(new._asr_module)
-    assert type(new._asr_module).__name__ == "DeepgramV1Module"
+    from asr_engine.modules.deepgram.v1 import DeepgramV1Module
+
+    built: list[type] = []
+    original_init = DeepgramV1Module.__init__
+
+    def recording_init(self, config: dict) -> None:
+        built.append(type(self))
+        original_init(self, config)
+
+    with patch.object(DeepgramV1Module, "__init__", recording_init):
+        engine_for("deepgram_v1")
+        engine_for("deepgram-v1")
+    assert built == [DeepgramV1Module, DeepgramV1Module]
 
 
 def _restricted_module_class(
@@ -337,15 +363,13 @@ def test_known_asr_type_instantiates_module():
     mock_module = MagicMock()
     mock_class = _mock_module_class(mock_module)
     with patch.dict("asr_engine.modules.REGISTRY", {"fake": mock_class}):
-        engine = ASREngine(make_config(module_type="fake", extra={"key": "val"}))
+        ASREngine(make_config(module_type="fake", extra={"key": "val"}))
     mock_class.assert_called_once_with(config={"key": "val"})
-    assert engine._asr_module is mock_module
 
 
 def test_engine_starts_in_utterance_mode():
     """The always-on mode is always ``utterance`` at construction (no config mode)."""
     engine, _ = make_engine(trigger_words=["stop"])
-    assert engine._segment_mode == "utterance"
     assert engine.segmentation_mode == "utterance"
     assert engine.dictating is False
 
@@ -386,9 +410,10 @@ async def test_start_sets_running():
 
         assert engine.status()["running"] is True
         instance.start.assert_called_once()
+        # The utterance callback is exercised by the tests that feed results.
         module.start.assert_called_once_with(
             fake_queue,
-            engine._handle_utterance,
+            ANY,
             engine.set_connected,
             audio_format=engine.audio_format,
         )
@@ -414,14 +439,19 @@ async def test_stop_sets_not_running():
 
 @pytest.mark.asyncio
 async def test_stop_cancels_task():
-    """stop() cancels the ASR module task."""
-    engine, _ = make_engine()
+    """stop() cancels a module whose start() never returns."""
+    engine, module = make_engine()
     fake_queue: asyncio.Queue[bytes] = asyncio.Queue()
+    cancelled = asyncio.Event()
 
     async def hang(audio_queue, on_utterance, on_connected=None, *, audio_format=None):
-        await asyncio.sleep(9999)
+        try:
+            await asyncio.sleep(9999)
+        except asyncio.CancelledError:
+            cancelled.set()
+            raise
 
-    engine._asr_module.start = hang
+    module.start = hang
 
     with patch("asr_engine.engine.AudioCapture") as MockCapture:
         instance = MockCapture.return_value
@@ -431,29 +461,29 @@ async def test_stop_cancels_task():
         await asyncio.sleep(0)
         await engine.stop()
 
-        assert engine._task is not None
-        assert engine._task.cancelled() or engine._task.done()
+        assert cancelled.is_set()
 
 
 # ---------------------------------------------------------------------------
-# _handle_utterance — fires both callbacks
+# A module result reaches both callbacks
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_handle_utterance_fires_utterance_and_segment_callbacks():
+async def test_each_module_result_reaches_both_callbacks():
     on_utterance = AsyncMock()
     segments: list[SpeechSegment] = []
 
     async def on_segment(seg):
         segments.append(seg)
 
-    engine, _ = make_engine(
+    engine, _, emit = await start_mock_engine(
         on_speech_utterance=on_utterance, on_speech_segment=on_segment
     )
     # Default mode is "utterance": each final closes a segment.
     utterance = SpeechUtterance(transcript="hello", is_final=True, confidence=0.9)
-    await engine._handle_utterance(utterance)
+    await emit(utterance)
+    await engine.stop()
 
     on_utterance.assert_called_once_with(utterance)
     assert len(segments) == 1
@@ -479,14 +509,29 @@ def test_set_listen_default_segmentation_mode_invalid_raises():
         engine.set_listen_default_segmentation_mode("nonsense")
 
 
-def test_default_mode_setters_update_the_stored_defaults():
-    engine, _ = make_engine()
+@pytest.mark.asyncio
+async def test_default_mode_setters_change_what_a_later_session_uses(
+    fake_engine_factory,
+):
+    engine = fake_engine_factory(
+        [
+            {"text": "hello", "start_s": 0.0, "end_s": 0.2},
+            {"text": "world", "start_s": 0.3, "end_s": 0.4},
+        ]
+    )
     engine.set_dictation_default_segmentation_mode("timeout")
     engine.set_listen_default_segmentation_mode("utterance")
-    assert engine._dictation_default_segment_mode == "timeout"
-    assert engine._listen_default_segment_mode == "utterance"
     # Setting a default never changes the current (at-rest) mode.
     assert engine.segmentation_mode == "utterance"
+
+    # listen(None) now closes on the first final, as utterance mode does.
+    segment = await engine.listen()
+    assert (segment.transcript, segment.end_reason) == ("hello", "utterance")
+
+    await engine.start()
+    await engine.start_dictation(end_on_final_segment=False)
+    assert engine.segmentation_mode == "timeout"
+    await engine.stop()
 
 
 @pytest.mark.asyncio
@@ -519,11 +564,11 @@ async def test_start_dictation_requires_running_engine():
 
 @pytest.mark.asyncio
 async def test_start_dictation_rejects_second_session():
-    engine, _ = make_engine()
-    engine._running = True
+    engine, _, _ = await start_mock_engine()
     await engine.start_dictation(segmentation_mode="trigger_word")
     with pytest.raises(ValueError, match="already in progress"):
         await engine.start_dictation(segmentation_mode="timeout")
+    await engine.stop()
 
 
 @pytest.mark.asyncio
@@ -540,8 +585,9 @@ async def test_dictation_switches_mode_and_reverts_on_stop():
     async def on_segment(seg):
         segments.append(seg)
 
-    engine, _ = make_engine(on_speech_segment=on_segment, trigger_words=["stop"])
-    engine._running = True
+    engine, _, emit = await start_mock_engine(
+        on_speech_segment=on_segment, trigger_words=["stop"]
+    )
     await engine.start_dictation(
         end_on_final_segment=False, segmentation_mode="trigger_word"
     )
@@ -549,12 +595,12 @@ async def test_dictation_switches_mode_and_reverts_on_stop():
     assert engine.segmentation_mode == "trigger_word"
 
     # Two finals accumulate under trigger_word mode; neither closes the segment.
-    await engine._handle_utterance(SpeechUtterance("the sky", True, None))
-    await engine._handle_utterance(SpeechUtterance("is blue", True, None))
+    await emit(SpeechUtterance("the sky", True, None))
+    await emit(SpeechUtterance("is blue", True, None))
     assert all(not s.is_final for s in segments)
 
     # Trigger word closes the segment, excluding the trigger utterance.
-    await engine._handle_utterance(SpeechUtterance("stop", True, None))
+    await emit(SpeechUtterance("stop", True, None))
     closed = [s for s in segments if s.is_final]
     assert len(closed) == 1
     assert closed[0].transcript == "the sky is blue"
@@ -563,28 +609,30 @@ async def test_dictation_switches_mode_and_reverts_on_stop():
     await engine.stop_dictation()
     assert engine.dictating is False
     assert engine.segmentation_mode == "utterance"
+    await engine.stop()
 
 
 @pytest.mark.asyncio
 async def test_dictation_default_mode_used_when_none():
-    engine, _ = make_engine(dictation_default_segmentation_mode="timeout")
-    engine._running = True
+    engine, _, _ = await start_mock_engine(
+        dictation_default_segmentation_mode="timeout"
+    )
     await engine.start_dictation(end_on_final_segment=False)
     assert engine.segmentation_mode == "timeout"
+    await engine.stop()
 
 
 @pytest.mark.asyncio
 async def test_dictation_end_on_final_segment_auto_reverts():
     """With end_on_final_segment, the first final segment ends the dictation."""
-    engine, _ = make_engine()
-    engine._running = True
+    engine, _, emit = await start_mock_engine()
     # utterance mode: the first final utterance closes a segment.
     await engine.start_dictation(
         end_on_final_segment=True, segmentation_mode="utterance"
     )
     assert engine.dictating is True
 
-    await engine._handle_utterance(SpeechUtterance("hello", True, None))
+    await emit(SpeechUtterance("hello", True, None))
     # The auto-end runs as a scheduled task; let it complete.
     for _ in range(5):
         await asyncio.sleep(0)
@@ -593,18 +641,26 @@ async def test_dictation_end_on_final_segment_auto_reverts():
 
     assert engine.dictating is False
     assert engine.segmentation_mode == "utterance"
+    await engine.stop()
 
 
 @pytest.mark.asyncio
-async def test_set_segmentation_mode_invalid_leaves_state_intact():
-    """A bad mode raises without mutating the current mode or segmenter."""
-    engine, _ = make_engine()
-    engine._running = True
-    before = engine._segmenter
+async def test_an_invalid_dictation_mode_leaves_the_engine_as_it_was():
+    segments: list[SpeechSegment] = []
+
+    async def on_segment(seg):
+        segments.append(seg)
+
+    engine, _, emit = await start_mock_engine(on_speech_segment=on_segment)
     with pytest.raises(ValueError, match="Invalid segment mode"):
-        await engine._set_segmentation_mode("nonsense")
+        await engine.start_dictation(segmentation_mode="nonsense")
     assert engine.segmentation_mode == "utterance"
-    assert engine._segmenter is before
+    assert engine.dictating is False
+
+    # Still segmenting in utterance mode: each final closes its own segment.
+    await emit(SpeechUtterance("hello", True, None))
+    assert [(s.transcript, s.end_reason) for s in segments] == [("hello", "utterance")]
+    await engine.stop()
 
 
 # ---------------------------------------------------------------------------
@@ -657,25 +713,26 @@ async def test_listen_uses_default_mode_when_none(fake_engine_factory):
 
 
 @pytest.mark.asyncio
-async def test_listen_reverts_to_utterance_mode(fake_engine_factory):
-    engine = fake_engine_factory(
-        [
-            {"text": "hi", "start_s": 0.0, "end_s": 0.1},
-            {"text": "go", "start_s": 0.2, "end_s": 0.3},
-        ],
-        trigger_words=["go"],
+async def test_set_segmentation_params_changes_the_trigger_words_in_use():
+    segments: list[SpeechSegment] = []
+
+    async def on_segment(seg):
+        segments.append(seg)
+
+    engine, _, emit = await start_mock_engine(
+        on_speech_segment=on_segment, trigger_words=["submit"]
     )
-    assert engine._segment_mode == "utterance"
-    await engine.listen(mode="trigger_word")
-    assert engine._segment_mode == "utterance"
-
-
-@pytest.mark.asyncio
-async def test_set_segmentation_params_updates_trigger_words():
-    engine, _ = make_engine()
     await engine.set_segmentation_params(trigger_words=["stop"])
-    assert engine._trigger_words == ["stop"]
-    assert engine._segmenter._trigger_words == ["stop"]
+    await engine.start_dictation(
+        end_on_final_segment=False, segmentation_mode="trigger_word"
+    )
+    await emit(SpeechUtterance("hello", True, None))
+    await emit(SpeechUtterance("submit", True, None))  # no longer a trigger word
+    await emit(SpeechUtterance("stop", True, None))
+
+    closed = [(s.transcript, s.end_reason) for s in segments if s.is_final]
+    assert closed == [("hello submit", "trigger_word")]
+    await engine.stop()
 
 
 @pytest.mark.asyncio
@@ -916,7 +973,7 @@ def _vad_engine(
 async def test_vad_module_receives_only_speech_then_one_marker_per_utterance():
     source = HandFedSource()
     engine = _vad_engine(source=source)
-    module = engine._asr_module
+    module = RecordingModule.instances[-1]
     assert isinstance(module, RecordingModule)
     first = pcm(quiet(200), loud(100), quiet(300, seed=3))
     second = pcm(quiet(200, seed=4), loud(60, seed=5), quiet(300, seed=6))
@@ -962,11 +1019,11 @@ def test_vad_module_config_is_validated_at_construction():
 async def test_vad_model_is_loaded_once_across_start_stop_cycles():
     source = HandFedSource()
     engine = _vad_engine(source=source)
-    vad = engine._vad_module
+    vad = ScriptedVAD.instances[-1]
     assert isinstance(vad, ScriptedVAD) and vad.loads == 0  # not at construction
 
     utterance = pcm(quiet(200), loud(100), quiet(300, seed=3))
-    module = engine._asr_module
+    module = RecordingModule.instances[-1]
     assert isinstance(module, RecordingModule)
     for cycle in (1, 2):
         await engine.start()
@@ -1096,7 +1153,7 @@ async def test_the_module_is_fed_the_source_audio_converted_to_its_own_format():
     engine, source = _converting_engine()
     assert engine.audio_format.sample_rate == 44100
     await engine.start()
-    module = engine._asr_module
+    module = RecordingModule.instances[-1]
     assert isinstance(module, RecordingModule)
     _feed(source, _tone(1000, 44100), 4410)
     await settle()
@@ -1123,7 +1180,7 @@ async def test_matching_formats_reach_the_module_untouched():
     source.queue.put_nowait(chunk)
     await settle()
     # The very object the source produced: no converter stands in between.
-    module = engine._asr_module
+    module = RecordingModule.instances[-1]
     assert isinstance(module, RecordingModule)
     assert module.items[0] is chunk
     await engine.stop()
@@ -1133,7 +1190,7 @@ async def test_matching_formats_reach_the_module_untouched():
 async def test_the_vad_gate_runs_on_the_converted_audio():
     engine, source = _converting_engine(vad=_VAD)
     await engine.start()
-    module, vad = engine._asr_module, engine._vad_module
+    module, vad = RecordingModule.instances[-1], ScriptedVAD.instances[-1]
     assert isinstance(module, RecordingModule) and isinstance(vad, ScriptedVAD)
     silence = np.zeros(round(44100 * 0.3), dtype="<i2")
     _feed(source, np.concatenate([silence, _tone(300, 44100), silence]), 4410)

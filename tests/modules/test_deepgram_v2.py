@@ -79,25 +79,28 @@ def test_init_empty_api_key_raises() -> None:
         DeepgramV2Module(config={"api_key": ""})
 
 
-def test_init_defaults() -> None:
-    m = DeepgramV2Module(config={"api_key": "sk-test"})
-    assert m._model == "flux-general-en"
-    assert m._eot_threshold == 0.7
-    assert m._eot_timeout_ms == 2000
+@pytest.mark.asyncio
+async def test_connects_with_the_default_settings() -> None:
+    assert await _connect_params({}) == {
+        "model": "flux-general-en",
+        "encoding": "linear16",
+        "sample_rate": "16000",
+        "eot_threshold": "0.7",
+        "eot_timeout_ms": "2000",
+    }
 
 
-def test_init_custom_values() -> None:
-    m = DeepgramV2Module(
-        config={
-            "api_key": "sk-test",
-            "model": "flux-custom",
-            "eot_threshold": 0.5,
-            "eot_timeout_ms": 3000,
-        }
+@pytest.mark.asyncio
+async def test_connects_with_the_configured_settings() -> None:
+    params = await _connect_params(
+        {"model": "flux-custom", "eot_threshold": 0.5, "eot_timeout_ms": 3000}
     )
-    assert m._model == "flux-custom"
-    assert m._eot_threshold == 0.5
-    assert m._eot_timeout_ms == 3000
+    fields = ("model", "eot_threshold", "eot_timeout_ms")
+    assert {k: params[k] for k in fields} == {
+        "model": "flux-custom",
+        "eot_threshold": "0.5",
+        "eot_timeout_ms": "3000",
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -436,3 +439,22 @@ async def test_end_of_speech_while_reconnecting_is_discarded() -> None:
     await m._drain_queue_for(q, 0.05)
     assert q.empty()
     await m.finalize()  # no connection: nothing to flush, and no error
+
+
+async def _connect_params(config: dict) -> dict:
+    """The parameters the module opens its Deepgram connection with."""
+    m = DeepgramV2Module(config={"api_key": "sk-test", **config})
+    with patch("asr_engine.modules.deepgram.v2.AsyncDeepgramClient") as MockClient:
+        connect = MockClient.return_value.listen.v2.connect
+        connect.return_value.__aenter__ = AsyncMock(return_value=_LiveConn())
+        connect.return_value.__aexit__ = AsyncMock(return_value=False)
+
+        async def on_result(r: SpeechUtterance) -> None:
+            pass
+
+        task = asyncio.create_task(m.start(asyncio.Queue(), on_result))
+        while not connect.called:
+            await asyncio.sleep(0)
+        await m.stop()
+        await task
+    return connect.call_args.kwargs
