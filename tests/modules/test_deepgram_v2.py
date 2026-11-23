@@ -337,43 +337,63 @@ def test_deepgram_v2_registered_in_registry() -> None:
 # ---------------------------------------------------------------------------
 
 
-class _LiveConn:
-    """A connection the test drives: records sent media, delivers server events."""
+class _FluxSocket:
+    """The websocket under the SDK's real ``AsyncV2SocketClient``: records what
+    the module sends (audio as bytes, control messages as parsed JSON) and
+    serves the server messages a test pushes, as JSON text frames."""
 
     def __init__(self) -> None:
-        self.media: list[bytes] = []
-        self._callbacks: list[Any] = []
+        self.sent: list[bytes | dict] = []
         self.listening = asyncio.Event()
+        self._incoming: asyncio.Queue[str] = asyncio.Queue()
 
-    def on(self, event: Any, callback: Any) -> None:
-        from deepgram.core.events import EventType
+    async def send(self, data: str | bytes) -> None:
+        import json
 
-        if event == EventType.MESSAGE:
-            self._callbacks.append(callback)
+        self.sent.append(data if isinstance(data, bytes) else json.loads(data))
 
-    async def start_listening(self) -> None:
+    def __aiter__(self) -> "_FluxSocket":
         self.listening.set()
-        await asyncio.Event().wait()
+        return self
 
-    async def send_media(self, data: bytes) -> None:
-        self.media.append(data)
+    async def __anext__(self) -> str:
+        return await self._incoming.get()
 
-    async def _send(self, message: dict) -> None:
-        pass
+    def push(self, message: dict) -> None:
+        import json
 
-    async def deliver(self, msg: Any) -> None:
-        for callback in self._callbacks:
-            await callback(msg)
+        self._incoming.put_nowait(json.dumps(message))
+
+
+def _flux_conn(socket: _FluxSocket | None = None) -> Any:
+    from deepgram.listen.v2.socket_client import AsyncV2SocketClient
+
+    return AsyncV2SocketClient(websocket=socket or _FluxSocket())  # type: ignore[arg-type]
+
+
+_FORCE_END_TURN = {"type": "ForceEndTurn"}
+
+
+def _turn_info(transcript: str, event: str) -> dict:
+    return {
+        "type": "TurnInfo",
+        "request_id": "req-1",
+        "sequence_id": 1,
+        "event": event,
+        "turn_index": 0,
+        "audio_window_start": 0.0,
+        "audio_window_end": 1.0,
+        "transcript": transcript,
+        "words": [],
+        "end_of_turn_confidence": 0.9,
+    }
 
 
 class _GatedRun:
-    """A DeepgramV2Module running on a ``_LiveConn`` and a hand-fed queue."""
+    """A DeepgramV2Module on the SDK's real socket client and a hand-fed queue."""
 
-    def __init__(self, audio_format: Any = None, **config: Any) -> None:
-        from asr_engine.audio import AudioFormat
-
-        self.audio_format = audio_format or AudioFormat(sample_rate=16000)
-        self.conn = _LiveConn()
+    def __init__(self, **config: Any) -> None:
+        self.socket = _FluxSocket()
         self.module = DeepgramV2Module(config={"api_key": "sk-test", **config})
         self.queue: AudioQueue = asyncio.Queue()
         self.utterances: list[SpeechUtterance] = []
@@ -384,12 +404,12 @@ class _GatedRun:
 
         self._patch = patch("asr_engine.modules.deepgram.v2.AsyncDeepgramClient")
         mc = self._patch.start().return_value
-        mc.listen.v2.connect.return_value.__aenter__ = AsyncMock(return_value=self.conn)
-        mc.listen.v2.connect.return_value.__aexit__ = AsyncMock(return_value=False)
-        self._task = asyncio.create_task(
-            self.module.start(self.queue, on_result, audio_format=self.audio_format)
+        mc.listen.v2.connect.return_value.__aenter__ = AsyncMock(
+            return_value=_flux_conn(self.socket)
         )
-        await asyncio.wait_for(self.conn.listening.wait(), 2.0)
+        mc.listen.v2.connect.return_value.__aexit__ = AsyncMock(return_value=False)
+        self._task = asyncio.create_task(self.module.start(self.queue, on_result))
+        await asyncio.wait_for(self.socket.listening.wait(), 2.0)
         return self
 
     async def __aexit__(self, *exc: object) -> None:
@@ -397,83 +417,129 @@ class _GatedRun:
         await asyncio.wait_for(self._task, 2.0)
         self._patch.stop()
 
-    async def feed(self, *items: Any) -> None:
-        for item in items:
-            self.queue.put_nowait(item)
+    async def _settle(self) -> None:
         for _ in range(20):
             await asyncio.sleep(0)
 
+    async def feed(self, *items: Any) -> None:
+        for item in items:
+            self.queue.put_nowait(item)
+        await self._settle()
+
+    async def server(self, *messages: dict) -> None:
+        for message in messages:
+            self.socket.push(message)
+        await self._settle()
+
 
 @pytest.mark.asyncio
-async def test_end_of_speech_with_an_open_turn_sends_silence_past_the_eot_timeout():
+async def test_end_of_speech_with_an_open_turn_forces_the_end_of_the_turn():
     from asr_engine.audio import END_OF_SPEECH
 
     assert DeepgramV2Module.VAD_GATING == "supported"
-    async with _GatedRun(eot_timeout_ms=1000) as run:
+    async with _GatedRun() as run:
         await run.feed(b"speech")
-        await run.conn.deliver(make_turn_info("the sky", event="Update"))
+        await run.server(_turn_info("the sky", "Update"))
         await run.feed(END_OF_SPEECH)
 
-        # One burst: eot_timeout_ms (1.0 s) + the 0.5 s margin of 16 kHz linear16.
-        assert run.conn.media == [b"speech", b"\x00" * int(1.5 * 16000) * 2]
+        # ForceEndTurn, and no silence: the audio sent is the audio fed.
+        assert run.socket.sent == [b"speech", _FORCE_END_TURN]
 
-        # Flux then ends the turn on the silence; a stray second marker (no audio
-        # in between) sends nothing more.
-        await run.conn.deliver(make_turn_info("the sky", event="EndOfTurn"))
+        # Flux ends the turn; a stray second marker (no audio in between)
+        # sends nothing more.
+        await run.server(_turn_info("the sky is blue", "EndOfTurn"))
         await run.feed(END_OF_SPEECH)
-        assert len(run.conn.media) == 2
+        assert run.socket.sent == [b"speech", _FORCE_END_TURN]
         assert [(u.transcript, u.is_final) for u in run.utterances] == [
             ("the sky", False),
-            ("the sky", True),
+            ("the sky is blue", True),
         ]
 
 
 @pytest.mark.asyncio
 async def test_end_of_speech_after_flux_ended_the_turn_sends_nothing():
     """The recommended longer hangover: Flux hears the silence the gate lets
-    through and ends the turn itself, so the marker costs nothing."""
+    through and ends the turn itself, so the marker sends nothing."""
     from asr_engine.audio import END_OF_SPEECH
 
     async with _GatedRun() as run:
         await run.feed(b"speech")
-        await run.conn.deliver(make_turn_info("the sky", event="Update"))
+        await run.server(_turn_info("the sky", "Update"))
         await run.feed(b"hangover silence")
-        await run.conn.deliver(make_turn_info("the sky", event="EndOfTurn"))
+        await run.server(_turn_info("the sky", "EndOfTurn"))
         await run.feed(END_OF_SPEECH)
 
-        assert run.conn.media == [b"speech", b"hangover silence"]
+        assert run.socket.sent == [b"speech", b"hangover silence"]
 
 
 @pytest.mark.asyncio
-async def test_a_turn_reported_after_the_marker_is_flushed_when_it_appears():
+async def test_a_turn_reported_after_the_marker_is_ended_when_it_appears():
     """The gate can close before Flux's first transcript for the utterance
-    arrives: the silence goes out as soon as the turn is known to be open."""
+    arrives, and Flux ignores ForceEndTurn with no turn open: it goes out as
+    soon as the turn is known to be open."""
     from asr_engine.audio import END_OF_SPEECH
 
     async with _GatedRun() as run:
         await run.feed(b"speech", END_OF_SPEECH)
-        assert run.conn.media == [b"speech"]  # no turn known yet
+        assert run.socket.sent == [b"speech"]  # no turn known yet
 
-        await run.conn.deliver(make_turn_info("the", event="StartOfTurn"))
-        assert len(run.conn.media) == 2 and set(run.conn.media[1]) == {0}
-        await run.conn.deliver(make_turn_info("the sky", event="Update"))
-        assert len(run.conn.media) == 2  # once per gap
+        await run.server(_turn_info("the", "StartOfTurn"))
+        assert run.socket.sent == [b"speech", _FORCE_END_TURN]
+        await run.server(_turn_info("the sky", "Update"))
+        assert run.socket.sent == [b"speech", _FORCE_END_TURN]  # once per gap
 
 
 @pytest.mark.asyncio
-async def test_each_gated_utterance_left_open_gets_its_own_flush_in_mulaw():
-    from asr_engine.audio import END_OF_SPEECH, AudioFormat
+async def test_each_gated_utterance_left_open_gets_its_own_force_end_turn():
+    from asr_engine.audio import END_OF_SPEECH
 
-    fmt = AudioFormat(sample_rate=8000, encoding="mulaw")
-    async with _GatedRun(fmt, eot_timeout_ms=500) as run:
-        silence = b"\xff" * 8000  # 1.0 s of μ-law silence, 1 byte per sample
+    async with _GatedRun() as run:
         for chunk in (b"first", b"second"):
             await run.feed(chunk)
-            await run.conn.deliver(make_turn_info("words", event="Update"))
+            await run.server(_turn_info("words", "Update"))
             await run.feed(END_OF_SPEECH)
-            await run.conn.deliver(make_turn_info("words", event="EndOfTurn"))
+            await run.server(_turn_info("words", "EndOfTurn"))
 
-        assert run.conn.media == [b"first", silence, b"second", silence]
+        assert run.socket.sent == [
+            b"first",
+            _FORCE_END_TURN,
+            b"second",
+            _FORCE_END_TURN,
+        ]
+        assert [u.is_final for u in run.utterances] == [False, True, False, True]
+
+
+@pytest.mark.asyncio
+async def test_a_force_end_turn_that_crosses_flux_end_of_turn_is_harmless():
+    """The open-turn flag can lag the server: Flux may already be ending the
+    turn when ForceEndTurn goes out. It answers with a warning, and the
+    connection carries on with the next utterance."""
+    from asr_engine.audio import END_OF_SPEECH
+
+    async with _GatedRun() as run:
+        await run.feed(b"first")
+        await run.server(_turn_info("hello", "Update"))
+        await run.feed(END_OF_SPEECH)
+        await run.server(
+            _turn_info("hello", "EndOfTurn"),
+            {
+                "type": "Warning",
+                "request_id": "req-1",
+                "sequence_id": 2,
+                "code": "FORCE_END_TURN_NO_ACTIVE_TURN",
+                "description": "Received ForceEndTurn while no turn was active; "
+                "the request was ignored.",
+            },
+        )
+        await run.feed(b"second")
+        await run.server(_turn_info("again", "EndOfTurn"))
+
+        assert run.socket.sent == [b"first", _FORCE_END_TURN, b"second"]
+        assert [(u.transcript, u.is_final) for u in run.utterances] == [
+            ("hello", False),
+            ("hello", True),
+            ("again", True),
+        ]
 
 
 @pytest.mark.asyncio
@@ -495,7 +561,7 @@ async def _connect_params(config: dict) -> dict:
     m = DeepgramV2Module(config={"api_key": "sk-test", **config})
     with patch("asr_engine.modules.deepgram.v2.AsyncDeepgramClient") as MockClient:
         connect = MockClient.return_value.listen.v2.connect
-        connect.return_value.__aenter__ = AsyncMock(return_value=_LiveConn())
+        connect.return_value.__aenter__ = AsyncMock(return_value=_flux_conn())
         connect.return_value.__aexit__ = AsyncMock(return_value=False)
 
         async def on_result(r: SpeechUtterance) -> None:

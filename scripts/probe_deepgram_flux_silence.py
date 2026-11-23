@@ -9,6 +9,11 @@ specs/vad.md rests on two facts about Flux that only a live run can show:
 - **(b) A silence burst ends an open turn** — send a fixture plus a short
   hangover, stop sending (what a closed gate does), then send ``--burst`` seconds
   of silence in one unpaced message. Does ``EndOfTurn`` arrive, and how fast?
+- **(c) ForceEndTurn ends an open turn** — the same, but send Flux's
+  ``ForceEndTurn`` control message instead of the burst. How fast does
+  ``EndOfTurn`` arrive, and does its transcript hold the last words sent just
+  before the gate closed? ``--force-again`` sends it once more after a turn has
+  ended, to see what Flux does with no turn open.
 
 Usage (the key lives in ~/.zshrc, so go through an interactive zsh):
     zsh -ic 'uv run python scripts/probe_deepgram_flux_silence.py'               # (a)
@@ -16,6 +21,8 @@ Usage (the key lives in ~/.zshrc, so go through an interactive zsh):
         --hangover 0.3 --burst 2.5'                                              # (b)
     zsh -ic 'uv run python scripts/probe_deepgram_flux_silence.py \
         --hangover 0.3 --burst 0'       # control: stop sending, no burst
+    zsh -ic 'uv run python scripts/probe_deepgram_flux_silence.py \
+        --hangover 0.3 --force-end-turn --force-again'                           # (c)
 
 Reads the API key from the env var named by ``--api-key-env`` (default
 DEEPGRAM_API_KEY) and never prints it.
@@ -86,10 +93,16 @@ async def run(args: argparse.Namespace) -> None:
             log(
                 msg.event,
                 f"turn={msg.turn_index:.0f} audio_end={msg.audio_window_end:.2f} "
-                f"eot_conf={msg.end_of_turn_confidence:.2f} {msg.transcript!r}",
+                f"eot_conf={msg.end_of_turn_confidence:.2f} trigger={msg.trigger} "
+                f"{msg.transcript!r}",
             )
 
+        async def on_other(msg: object) -> None:
+            if not isinstance(msg, ListenV2TurnInfo):
+                log(type(msg).__name__, repr(msg))
+
         conn.on(EventType.MESSAGE, on_message)
+        conn.on(EventType.MESSAGE, on_other)
         conn.on(EventType.ERROR, lambda e: log("ERROR", str(e)))
         listener = asyncio.create_task(conn.start_listening())
 
@@ -109,7 +122,15 @@ async def run(args: argparse.Namespace) -> None:
         silence = bytes(int(rate * args.hangover) * 2)
         await send_paced(pcm + silence)
         log("SENT", f"speech + {args.hangover:.2f}s of real-time silence")
-        if args.burst is not None:
+        if args.force_end_turn:
+            await asyncio.sleep(args.gap)
+            log("FORCE", "ForceEndTurn")
+            await conn.send_force_end_turn()
+            if args.force_again:
+                await asyncio.sleep(args.wait)
+                log("FORCE", "ForceEndTurn again, no turn open")
+                await conn.send_force_end_turn()
+        elif args.burst is not None:
             await asyncio.sleep(args.gap)
             if args.burst > 0:
                 log("BURST", f"{args.burst:.2f}s of silence, unpaced")
@@ -148,6 +169,16 @@ def main() -> None:
         default=None,
         help="then stop, and send this many seconds of silence in one message "
         "(0: send nothing)",
+    )
+    parser.add_argument(
+        "--force-end-turn",
+        action="store_true",
+        help="then stop, and send ForceEndTurn instead of a burst",
+    )
+    parser.add_argument(
+        "--force-again",
+        action="store_true",
+        help="with --force-end-turn: send it again once the turn has ended",
     )
     parser.add_argument(
         "--gap", type=float, default=0.0, help="seconds to wait before the burst"

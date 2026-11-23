@@ -23,7 +23,7 @@ Two Deepgram modules are provided, targeting different API versions and use case
 
 ## Installation
 
-Both modules ship in the `deepgram` extra (see [asr-module-interface.md](../asr-module-interface.md) "Optional dependencies (extras)"), which pulls `deepgram-sdk>=7,<8` (the upper bound is explained under [KeepAlive](#keepalive-1)):
+Both modules ship in the `deepgram` extra (see [asr-module-interface.md](../asr-module-interface.md) "Optional dependencies (extras)"), which pulls `deepgram-sdk>=7.9,<8` (7.9 adds the v2 `send_force_end_turn()` that [VAD gating](#vad-gating-1) uses; the upper bound is explained under [KeepAlive](#keepalive-1)):
 
 ```bash
 pip install 'asr-engine[deepgram]'
@@ -171,36 +171,43 @@ msg.event                  → dispatch key
 | `"EndOfTurn"` | `True` | Turn complete |
 
 - Results with empty transcript are discarded.
-- Non-`ListenV2TurnInfo` messages (e.g. `Connected`) are ignored.
+- Non-`ListenV2TurnInfo` messages (e.g. `Connected`) are ignored. A `Warning` is logged at debug level: the one expected is `FORCE_END_TURN_NO_ACTIVE_TURN`, when a `ForceEndTurn` crosses an `EndOfTurn` already on its way (see [VAD gating](#vad-gating-1)).
 
 ### KeepAlive
 
 When no audio arrives within 5 seconds, the module sends `{"type": "KeepAlive"}`. The v2 SDK has no public `send_keep_alive()`, as v1 has, so the message goes through the socket client's private `_send(dict)`. That call is confined to one function, `send_keep_alive(conn)` in `v2.py`, to be switched to a public method when the SDK adds one. Two guards keep the private call from breaking silently:
 
-- The `deepgram` extra is pinned to `deepgram-sdk>=7,<8`.
+- The `deepgram` extra is pinned below the next major version (`deepgram-sdk>=7.9,<8`).
 - A fast-tier test sends the keepalive through the SDK's real `AsyncV2SocketClient` over a recording websocket and checks the JSON that reaches it. An SDK release that removes or changes `_send` fails that test.
 
 ### VAD gating
 
-`VAD_GATING = "supported"` ([vad.md](../vad.md)). Flux has no flush message: a turn ends only on silence Flux hears. So the module tracks whether a turn is open — set by any non-`EndOfTurn` `TurnInfo` carrying a transcript, cleared by `EndOfTurn` — and `finalize()` depends on it:
+`VAD_GATING = "supported"` ([vad.md](../vad.md)). Flux's turn ends on silence it hears, or on the `ForceEndTurn` control message: Flux then ends the turn on all the audio it has received and emits a normal `EndOfTurn` (`trigger: "manual"`). The module tracks whether a turn is open — set by any non-`EndOfTurn` `TurnInfo` carrying a transcript, cleared by `EndOfTurn` — and `finalize()` depends on it:
 
-- **No turn open.** Flux already ended the turn on the silence the gate let through. `finalize()` sends nothing, and nothing is billed. This is the normal path with the recommended `min_silence_duration_ms` of about 1500.
-- **Turn open.** The gate closed before Flux decided. `finalize()` sends **one burst of silence** covering `eot_timeout_ms` plus 0.5 s, in the pipeline encoding, through `send_media`. Flux then ends the turn by its own judgement or, at the latest, on its timeout.
-- **Turn reported after the marker.** The gate can close before Flux's first transcript for the utterance arrives. The burst is then sent as soon as that transcript shows the turn is open (once per gap).
+- **No turn open.** Flux already ended the turn on the silence the gate let through. `finalize()` sends nothing. This is the normal path with the recommended `min_silence_duration_ms` of about 1500, which keeps Flux's contextual judgement in charge.
+- **Turn open.** The gate closed before Flux decided. `finalize()` sends **`ForceEndTurn`** through the SDK's `send_force_end_turn()`, and the `EndOfTurn` follows in about 0.2 s. No silence is sent, so nothing extra is billed.
+- **Turn reported after the marker.** The gate can close before Flux's first transcript for the utterance arrives, and a `ForceEndTurn` with no turn open is ignored. So it is sent as soon as that transcript shows the turn is open (once per gap).
+
+The open-turn flag can lag the server: an `EndOfTurn` may already be on its way when `ForceEndTurn` is sent. Flux then ignores the message with a `FORCE_END_TURN_NO_ACTIVE_TURN` warning and keeps the connection, so the race costs nothing.
 
 The connection is kept in every case. A marker read while reconnecting is dropped with the audio.
 
-**Measured** (`scripts/probe_deepgram_flux_silence.py`, live, 2026-11-12, `flux-general-en`, `eot_threshold` 0.7, `eot_timeout_ms` 2000, on the 44.1 kHz fixtures):
+**Measured** (`scripts/probe_deepgram_flux_silence.py`, live, `flux-general-en`, `eot_threshold` 0.7, `eot_timeout_ms` 2000, on the 44.1 kHz fixtures). On 2026-11-12, before `ForceEndTurn` was available:
 
 | Measure | Result |
 |---|---|
 | `EndOfTurn` after speech ends, on real-time silence | **0.17 s** ("Hello. How are you today?") and **1.16 s** ("The sky is blue."): contextual, and inside a 1500 ms hangover in both cases |
 | Stop sending 0.3 s after the speech (a closed gate), nothing more | **No `EndOfTurn`**: the turn stays open indefinitely |
 | Same, then 2.5 s of silence in one unpaced message | `EndOfTurn` **0.6 s** after the burst (Flux consumes it faster than real time) |
-| Same, with a 1.0 s burst | `EndOfTurn` 0.5 s after the burst (this utterance needed about 1 s of silence in all) |
 | After `EndOfTurn` | `Update` events for the next turn carry an empty transcript until speech starts (they are ignored, and do not open a turn) |
 
-The burst is sized on `eot_timeout_ms` rather than on these figures because how much silence Flux needs depends on what was said; the timeout is the one bound it guarantees.
+On 2026-11-23 (`--force-end-turn --force-again`, deepgram-sdk 7.19), "The sky is blue.", "Hello. How are you today?" and "I am very happy to meet you.", each with the gate closing 0.3 s and 0.0 s after the speech:
+
+| Measure | Result |
+|---|---|
+| `ForceEndTurn` with a turn open | `EndOfTurn` (`trigger: "manual"`) **0.13–0.23 s** later, in all four runs |
+| Its transcript | Complete in every run, the 0.0 s case included. Its `audio_end` reaches past the last `Update` (1.92 s against 1.68 s): Flux transcribes the audio it has received before ending the turn, and may send one last `Update` first |
+| `ForceEndTurn` with no turn open (Flux had already ended it, or sent again after) | A `Warning`, `FORCE_END_TURN_NO_ACTIVE_TURN`: "the request was ignored". The connection stays open |
 
 ---
 

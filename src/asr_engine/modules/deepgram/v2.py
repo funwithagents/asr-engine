@@ -6,12 +6,12 @@ import logging
 from deepgram import AsyncDeepgramClient
 from deepgram.core.events import EventType
 from deepgram.listen.v2.types.listen_v2turn_info import ListenV2TurnInfo
+from deepgram.listen.v2.types.listen_v2warning import ListenV2Warning
 
 from asr_engine.audio import (
     DEFAULT_AUDIO_FORMAT,
     AudioFormat,
     EndOfSpeech,
-    _silence,
 )
 from asr_engine.modules.base import (
     ASRModule,
@@ -31,7 +31,7 @@ _KEEP_ALIVE = {"type": "KeepAlive"}
 async def send_keep_alive(conn: object) -> None:
     """Send Flux a KeepAlive message: the one place that reaches into the SDK.
 
-    The v2 socket client (deepgram-sdk 6) has no public ``send_keep_alive()``, as
+    The v2 socket client (deepgram-sdk 7) has no public ``send_keep_alive()``, as
     the v1 client does, so this uses its private ``_send(dict)``, which serialises
     the dict to JSON. ``tests/modules/test_deepgram_v2.py`` runs this against the
     SDK's real client class, so an SDK upgrade that removes ``_send`` fails the
@@ -61,10 +61,6 @@ class DeepgramV2Module(ASRModule):
     DEFAULT_ENCODING = "linear16"
     VAD_GATING = "supported"
 
-    # Silence sent past eot_timeout_ms when a gated utterance leaves a turn open,
-    # so Flux's timeout path is certain to be reached.
-    _FLUSH_MARGIN_S = 0.5
-
     def __init__(self, config: dict) -> None:
         super().__init__(config)
         label = "deepgram-v2"
@@ -79,13 +75,12 @@ class DeepgramV2Module(ASRModule):
 
         self._stop_event = asyncio.Event()
 
-        # VAD gating (specs/vad.md). Flux has no flush message: a turn ends only
-        # on silence it hears. These track whether the gate closed on an open turn.
+        # VAD gating (specs/vad.md). A turn the gate closed on is ended with
+        # ForceEndTurn; these track whether the gate closed on an open turn.
         self._conn: object | None = None
-        self._flush_silence = b""
         self._turn_open = False  # a transcript arrived since the last EndOfTurn
         self._gated = False  # a marker arrived and no audio has followed it
-        self._flushed = False  # the silence for this gap has been sent
+        self._flushed = False  # ForceEndTurn has been sent for this gap
 
     async def start(
         self,
@@ -96,9 +91,6 @@ class DeepgramV2Module(ASRModule):
         audio_format: AudioFormat = DEFAULT_AUDIO_FORMAT,
     ) -> None:
         self._stop_event.clear()
-        self._flush_silence = _silence(
-            audio_format, self._eot_timeout_ms / 1000 + self._FLUSH_MARGIN_S
-        )
         client = AsyncDeepgramClient(api_key=self._api_key)
         attempt = 0
 
@@ -119,6 +111,15 @@ class DeepgramV2Module(ASRModule):
                     try:
 
                         async def on_message(msg: object) -> None:
+                            if isinstance(msg, ListenV2Warning):
+                                # Expected: a ForceEndTurn that crossed an
+                                # EndOfTurn (FORCE_END_TURN_NO_ACTIVE_TURN).
+                                log.debug(
+                                    "Deepgram v2 warning %s: %s",
+                                    msg.code,
+                                    msg.description,
+                                )
+                                return
                             if not isinstance(msg, ListenV2TurnInfo):
                                 return
                             is_final = msg.event == "EndOfTurn"
@@ -232,11 +233,11 @@ class DeepgramV2Module(ASRModule):
         """End of a VAD-gated utterance: make sure Flux ends the turn.
 
         No turn open — Flux already ended it on the silence the gate let through
-        (the recommended longer hangover): nothing to do, nothing billed. Turn
-        open: send one burst of silence covering ``eot_timeout_ms`` plus a margin,
-        so the turn ends on Flux's timeout path at the latest (measured: a burst
-        sent faster than real time ends the turn in about half a second). See
-        specs/vad.md "Per-module finalize()".
+        (the recommended longer hangover): nothing to do. Turn open: send
+        ``ForceEndTurn``, and Flux ends the turn on the audio it has received
+        (measured: ``EndOfTurn`` about 0.2 s later, transcript complete). If the
+        turn is only reported after the marker, it is sent then. See
+        specs/modules/deepgram.md "VAD gating".
         """
         self._gated = True
         await self._flush_open_turn()
@@ -246,7 +247,7 @@ class DeepgramV2Module(ASRModule):
         if conn is None or not (self._gated and self._turn_open) or self._flushed:
             return
         self._flushed = True
-        await conn.send_media(self._flush_silence)  # type: ignore[attr-defined]
+        await conn.send_force_end_turn()  # type: ignore[attr-defined]
 
     async def _drain_queue_for(
         self,
