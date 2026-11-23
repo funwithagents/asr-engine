@@ -371,10 +371,10 @@ async def test_a_segment_closed_by_the_silence_timer_names_the_timer_s_length(
     assert span.parent is None  # a dictated segment starts its own trace
     assert span.attributes["asr_engine.segmentation_mode"] == "timeout"
     assert span.attributes["asr_engine.segmentation.end_of_speech_timeout_s"] == 0.05
-    # The wait is inside finalized − end_decided.
+    # The wait is inside finalized − end_decided. Only the order is asserted:
+    # the wall clock and the loop's timer do not tick together on every platform.
     assert segment.finalized_at is not None and segment.end_decided_at is not None
-    waited = segment.finalized_at - segment.end_decided_at
-    assert waited.total_seconds() >= 0.05
+    assert segment.finalized_at >= segment.end_decided_at
 
 
 async def test_a_dictated_segment_is_a_root_though_dictation_started_inside_a_span(
