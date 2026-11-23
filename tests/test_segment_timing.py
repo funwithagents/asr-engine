@@ -132,6 +132,7 @@ async def test_a_final_segment_carries_its_speech_and_one_span_starts_at_its_end
         speech_ended_at=to_datetime(clock.at_ms(300)),
         end_decided_at=to_datetime(clock.at_ms(400)),
         end_decided_by="vad_gate",
+        emitted_at=to_datetime(clock.at_ms(403)),
         finalized_at=to_datetime(clock.at_ms(403)),
     )
 
@@ -166,8 +167,16 @@ async def test_the_span_is_current_in_the_callback_of_a_final_segment_only(
     assert [s.is_final for s in recorder.segments] == [False, True]
     (span,) = exporter.get_finished_spans()  # the interim opened none
     assert recorder.span_ids == [0, span.context.span_id]
-    # An interim segment carries no timing either.
-    assert recorder.segments[0].timing is None
+    # The interim came with the chunk received at 300 ms. Nothing has ended yet:
+    # it knows when its speech started and when it was emitted.
+    assert recorder.segments[0].timing == SegmentTiming(
+        speech_started_at=to_datetime(clock.at_ms(200)),
+        speech_ended_at=None,
+        end_decided_at=None,
+        end_decided_by=None,
+        emitted_at=to_datetime(clock.at_ms(300)),
+        finalized_at=None,
+    )
 
 
 async def test_a_module_that_finalises_before_the_gate_closes_decided_the_end(
@@ -187,6 +196,7 @@ async def test_a_module_that_finalises_before_the_gate_closes_decided_the_end(
         speech_ended_at=to_datetime(clock.at_ms(300)),
         end_decided_at=to_datetime(clock.at_ms(310)),
         end_decided_by="module",
+        emitted_at=to_datetime(clock.at_ms(310)),
         finalized_at=to_datetime(clock.at_ms(310)),
     )
     (span,) = exporter.get_finished_spans()
@@ -202,12 +212,19 @@ async def test_the_final_utterance_carries_the_same_stamps(clock):
     await engine.stop()
 
     interim, final = recorder.utterances
-    assert interim.timing is None
+    assert interim.timing == UtteranceTiming(
+        speech_started_at=to_datetime(clock.at_ms(200)),
+        speech_ended_at=None,
+        end_decided_at=None,
+        end_decided_by=None,
+        emitted_at=to_datetime(clock.at_ms(300)),
+    )
     assert final.timing == UtteranceTiming(
         speech_started_at=to_datetime(clock.at_ms(200)),
         speech_ended_at=to_datetime(clock.at_ms(300)),
         end_decided_at=to_datetime(clock.at_ms(400)),
         end_decided_by="vad_gate",
+        emitted_at=to_datetime(clock.at_ms(400)),
     )
 
 
@@ -224,6 +241,7 @@ async def test_a_gate_that_failed_open_gives_no_end_of_speech(clock, exporter):
         speech_ended_at=None,
         end_decided_at=to_datetime(clock.at_ms(200)),
         end_decided_by="module",
+        emitted_at=to_datetime(clock.at_ms(200)),
         finalized_at=to_datetime(clock.at_ms(200)),
     )
     (span,) = exporter.get_finished_spans()
@@ -249,6 +267,15 @@ async def test_without_a_vad_the_span_starts_when_the_segment_is_finalized(
     await asyncio.wait_for(recorder.final.wait(), 5)
     await engine.stop()
 
+    # Without a gate an interim only knows when it was emitted.
+    interim = recorder.segments[0].timing
+    assert interim is not None and not recorder.segments[0].is_final
+    assert (interim.speech_started_at, interim.emitted_at, interim.finalized_at) == (
+        None,
+        to_datetime(clock.at_ms(1000)),
+        None,
+    )
+
     (segment,) = recorder.finals
     # The end of turn is still known without a gate: the module decided, when
     # its final arrived.
@@ -257,6 +284,7 @@ async def test_without_a_vad_the_span_starts_when_the_segment_is_finalized(
         speech_ended_at=None,
         end_decided_at=to_datetime(clock.at_ms(1000)),
         end_decided_by="module",
+        emitted_at=to_datetime(clock.at_ms(1000)),
         finalized_at=to_datetime(clock.at_ms(1000)),
     )
 
@@ -289,6 +317,7 @@ async def test_with_no_sdk_installed_the_stamps_are_still_on_the_segment(
     (segment,) = recorder.finals
     timing = segment.timing
     assert timing is not None and timing.end_decided_at is not None
+    assert timing.finalized_at is not None
     assert before <= timing.end_decided_at <= timing.finalized_at
     assert timing.finalized_at.utcoffset() == timedelta(0)  # UTC, aware
     assert recorder.span_ids[-1] == 0  # no recording span was current
@@ -386,6 +415,7 @@ async def test_a_segment_closed_by_the_silence_timer_names_the_timer_s_length(
     # the wall clock and the loop's timer do not tick together on every platform.
     timing = segment.timing
     assert timing is not None and timing.end_decided_at is not None
+    assert timing.finalized_at is not None
     assert timing.finalized_at >= timing.end_decided_at
 
 
@@ -425,6 +455,7 @@ def test_a_callback_that_raises_ends_the_span_as_an_error(exporter):
             speech_ended_at=None,
             end_decided_at=None,
             end_decided_by=None,
+            emitted_at=to_datetime(1_800_000_000_000_000_000),
             finalized_at=to_datetime(1_800_000_000_000_000_000),
         ),
     )
@@ -462,6 +493,7 @@ def _stamped(
             speech_ended_at=to_datetime(clock.at_ms(end_ms)),
             end_decided_at=to_datetime(clock.at_ms(end_ms + 50)),
             end_decided_by=by,
+            emitted_at=to_datetime(clock.at_ms(end_ms + 50)),
         ),
     )
 
@@ -498,9 +530,17 @@ async def test_a_trigger_word_segment_spans_its_first_speech_to_the_trigger_word
         speech_ended_at=to_datetime(clock.at_ms(2000)),
         end_decided_at=to_datetime(clock.at_ms(2050)),
         end_decided_by="module",
+        emitted_at=to_datetime(clock.at_ms(2100)),
         finalized_at=to_datetime(clock.at_ms(2100)),
     )
-    assert all(s.timing is None for s in segments[:-1])  # the open updates
+    # The open updates before it: a start, nothing ended, not finalized.
+    for update in segments[:-1]:
+        assert update.timing is not None
+        assert update.timing.speech_started_at == to_datetime(clock.at_ms(100))
+        assert (update.timing.speech_ended_at, update.timing.finalized_at) == (
+            None,
+            None,
+        )
 
 
 async def test_a_timeout_segment_ends_with_its_last_utterance_and_is_finalized_later(
@@ -524,6 +564,7 @@ async def test_a_timeout_segment_ends_with_its_last_utterance_and_is_finalized_l
         speech_ended_at=to_datetime(clock.at_ms(900)),
         end_decided_at=to_datetime(clock.at_ms(950)),
         end_decided_by="vad_gate",
+        emitted_at=to_datetime(clock.at_ms(6000)),
         finalized_at=to_datetime(clock.at_ms(6000)),
     )
 
@@ -545,6 +586,7 @@ async def test_a_segment_closed_on_initial_silence_has_only_its_finalized_stamp(
         speech_ended_at=None,
         end_decided_at=None,
         end_decided_by=None,
+        emitted_at=to_datetime(clock.BASE),
         finalized_at=to_datetime(clock.BASE),
     )
 

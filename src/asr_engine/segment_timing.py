@@ -77,32 +77,37 @@ def to_ns(moment: datetime) -> int:
 
 @dataclass(frozen=True)
 class UtteranceTiming:
-    """When the speech of one final utterance happened, as UTC datetimes.
+    """When the speech of one utterance happened, as UTC datetimes.
 
-    The two speech stamps come from the VAD gate: they are ``None`` with no VAD,
-    once the gate has failed open, and when it detected no speech.
-    ``speech_ended_at`` is also ``None`` while the person has not paused yet.
+    An interim has ``speech_started_at`` and ``emitted_at``: nothing has ended
+    yet. A final has the end of turn too. The two speech stamps come from the
+    VAD gate: they are ``None`` with no VAD, once the gate has failed open, and
+    when it detected no speech. ``speech_ended_at`` is also ``None`` on a final
+    that arrives before the person has paused.
     """
 
     speech_started_at: datetime | None  # the onset the gate detected
     speech_ended_at: datetime | None  # the end of the last speech silence followed
-    end_decided_at: datetime  # when the utterance's end was decided
-    end_decided_by: EndDecidedBy
+    end_decided_at: datetime | None  # when the utterance's end was decided
+    end_decided_by: EndDecidedBy | None
+    emitted_at: datetime  # when the engine received it from the module
 
 
 @dataclass(frozen=True)
 class SegmentTiming:
-    """When the speech of one final segment happened, as UTC datetimes.
+    """When the speech of one segment happened, as UTC datetimes.
 
-    A stamp that could not be taken is ``None``, never guessed. A segment closed
-    with no utterance has ``finalized_at`` only.
+    An open segment has ``speech_started_at`` and ``emitted_at``. A final one
+    has the rest: a stamp that could not be taken is ``None``, never guessed,
+    and a segment closed with no utterance has no speech and no end of turn.
     """
 
     speech_started_at: datetime | None  # the start of its first speech
     speech_ended_at: datetime | None  # the end of its last speech
     end_decided_at: datetime | None  # when its last utterance's end was decided
     end_decided_by: EndDecidedBy | None
-    finalized_at: datetime  # when the final segment was produced
+    emitted_at: datetime  # when this update of the segment was produced
+    finalized_at: datetime | None  # emitted_at of the final update; None while open
 
 
 @dataclass(frozen=True)
@@ -140,7 +145,7 @@ def segment_span(
     The events carry the times they name, not the time they are added.
     """
     timing = segment.timing
-    finalized = to_ns(timing.finalized_at) if timing is not None else now_ns()
+    finalized = to_ns(timing.emitted_at) if timing is not None else now_ns()
     ended = (
         to_ns(timing.speech_ended_at)
         if timing is not None and timing.speech_ended_at is not None

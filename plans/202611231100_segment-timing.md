@@ -26,8 +26,8 @@ Implements [specs/segment-timing.md](../specs/segment-timing.md): the VAD gate s
 2. Write `segment_timing.py`: the names, the clock helpers, the three timing types, and `segment_span` (explicit start time and event timestamps, an empty context for a root, attach and detach around the block, error status on an exception but not on a cancellation).
 3. In `VadGate`: read the clock when a chunk is received; after each frame is cut, compute its end from the samples received after it and clamp it to the previous frame's; record the onset frame when a run of speech frames begins, a `_SpeechRun` when the gate opens, its latest speech frame, the end of the stretch before each silent frame, and its closing time. `take_speech_timing()` applies the rules of "Which speech a final transcribes". A failure and a restart forget the runs.
 4. Add `timing` to both dataclasses, defaulting to `None`, so every existing construction keeps working; export the two public types from `asr_engine`.
-5. In the engine, `_stamp_final` builds the stamped copy of a final utterance before it reaches `on_speech_utterance` and the segmenter. `_emit_segment` wraps the callback of a final segment in `segment_span`.
-6. In the segmenter, build every final segment through one helper that takes the utterances it covers (the trigger utterance included) and stamps `finalized_at`.
+5. In the engine, `_stamp` builds the stamped copy of each utterance before it reaches `on_speech_utterance` and the segmenter: an interim reads the start of its speech from the gate (`peek_speech_start()`), a final claims its speech (`take_speech_timing()`). `_emit_segment` wraps the callback of a final segment in `segment_span`.
+6. In the segmenter, stamp every open segment with the start of its speech and `emitted_at`, and build every final segment through one helper that takes the utterances it covers (the trigger utterance included) and stamps `finalized_at`.
 7. Tests, then the specs, the docs and the project map.
 
 ## Verification

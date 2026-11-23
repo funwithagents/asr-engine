@@ -17,7 +17,7 @@ tests:
 
 `ASREngine` owns the live speech pipeline and all *segmentation* logic. It wires the audio source — through the format converter and the VAD gate, when they are needed — to the active ASR module, then exposes two independent streams to its consumers:
 
-- **Utterances** — one `SpeechUtterance` per ASR event (interim or final), passed through from the module (a final gains its timing, [segment-timing.md](segment-timing.md)).
+- **Utterances** — one `SpeechUtterance` per ASR event (interim or final), passed through from the module, with its timing added ([segment-timing.md](segment-timing.md)).
 - **Segments** — a `SpeechSegment` produced by aggregating utterances according to the current *segment mode*.
 
 Segmentation lives entirely in the engine (in the `Segmenter` helper), so every consumer sees the same segmentation without re-implementing it. See the macro picture in [architecture.md](architecture.md); this spec is the engine-level detail.
@@ -36,10 +36,10 @@ class SpeechUtterance:
     transcript: str
     is_final: bool  # False = interim/partial, True = final
     confidence: float | None  # None if not provided by the backend
-    timing: UtteranceTiming | None = None  # set by the engine on a final
+    timing: UtteranceTiming | None = None  # set by the engine
 ```
 
-The module builds the first three fields. The engine hands its consumers and the `Segmenter` a copy of each **final** utterance with `timing` set (when its speech started and ended, when its end was decided and by what); an interim passes through unchanged, with `timing` `None`. See [segment-timing.md](segment-timing.md).
+The module builds the first three fields. The engine hands its consumers and the `Segmenter` a copy of each utterance with `timing` set: when its speech started and when it was emitted, and for a final also when the speech ended and when its end was decided and by what. See [segment-timing.md](segment-timing.md).
 
 ### `SpeechSegment`
 
@@ -52,10 +52,10 @@ class SpeechSegment:
     is_final: bool  # True once the segment is closed
     end_reason: str | None  # why the segment closed; None while open
     utterances: list[SpeechUtterance]  # the committed final utterances so far
-    timing: SegmentTiming | None = None  # on a final segment only
+    timing: SegmentTiming | None = None  # set by the Segmenter
 ```
 
-`timing` is `None` on an open segment. On a final one it says when the segment's speech started and ended, when its end was decided and by what, and when it was produced; a stamp that could not be taken is `None`. The fields, and how a segment of several utterances gets them, are in [segment-timing.md](segment-timing.md).
+`timing` says when the segment's speech started and when this update was emitted; on a final segment also when the speech ended, when its end was decided and by what, and when it was finalized. A stamp that could not be taken is `None`. The fields, and how a segment of several utterances gets them, are in [segment-timing.md](segment-timing.md).
 
 | `end_reason` value          | When the segment closes |
 |-----------------------------|-------------------------|

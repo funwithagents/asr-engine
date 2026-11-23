@@ -204,6 +204,15 @@ class VadGate:
             started_ns=started, ended_ns=end.settled_ns, closed_ns=end.closed_ns
         )
 
+    def peek_speech_start(self) -> int | None:
+        """The start of the speech an interim utterance arriving now belongs to:
+        what the next final will be given as its start. Claims nothing."""
+        if self._failed:
+            return None
+        if self._pending_runs:
+            return self._pending_runs[0].started_ns
+        return self._latest_run.started_ns if self._latest_run is not None else None
+
     async def _run_gate(
         self,
         inner_queue: asyncio.Queue[bytes],

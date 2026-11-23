@@ -394,6 +394,22 @@ async def test_speech_without_a_pause_yet_has_a_start_and_no_end(clock):
     )
 
 
+async def test_an_interim_reads_the_start_of_the_speech_without_claiming_it(clock):
+    rig = Rig()
+    assert rig.gate.peek_speech_start() is None  # nothing detected yet
+    await feed_paced(rig, clock, pcm(quiet(200), loud(200)))
+
+    assert rig.gate.peek_speech_start() == clock.at_ms(200)
+    assert rig.gate.peek_speech_start() == clock.at_ms(200)  # as often as asked
+    # The final that follows is still given the whole run.
+    await feed_paced(rig, clock, pcm(quiet(100, seed=3)))
+    assert rig.gate.take_speech_timing() == GateSpeechTiming(
+        started_ns=clock.at_ms(200),
+        ended_ns=clock.at_ms(400),
+        closed_ns=clock.at_ms(500),
+    )
+
+
 async def test_a_final_during_the_hangover_ends_at_the_last_speech_frame(clock):
     """A module with its own end of turn finalises before the gate closes."""
     rig = Rig()
@@ -498,6 +514,7 @@ async def test_a_gate_that_failed_open_gives_no_timing(clock):
 
     assert rig.gate.state().failed_open
     assert rig.gate.take_speech_timing() is None
+    assert rig.gate.peek_speech_start() is None
 
 
 async def test_a_restart_forgets_the_previous_run_s_speech(clock):

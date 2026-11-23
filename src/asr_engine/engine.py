@@ -623,17 +623,32 @@ class ASREngine:
         """Called by the ASR module to report connection state changes."""
         self._connected = state
 
-    def _stamp_final(self, utterance: SpeechUtterance) -> SpeechUtterance:
+    def _stamp(self, utterance: SpeechUtterance) -> SpeechUtterance:
         """*utterance* with its timing (specs/segment-timing.md).
 
         The speech comes from the VAD gate, when there is one and it detected
-        some. The end was decided by the gate if it had closed on that speech
-        when the final arrived, at its closing time; otherwise by the module,
-        now.
+        some. An interim only knows when its speech started. For a final, the
+        end was decided by the gate if it had closed on that speech when the
+        final arrived, at its closing time; otherwise by the module, now.
         """
-        decided_ns: int = now_ns()
-        decided_by: EndDecidedBy = "module"
+        now = now_ns()
         gate = self._vad_gate if self._config.vad is not None else None
+        if not utterance.is_final:
+            started = gate.peek_speech_start() if gate is not None else None
+            return replace(
+                utterance,
+                timing=UtteranceTiming(
+                    speech_started_at=(
+                        to_datetime(started) if started is not None else None
+                    ),
+                    speech_ended_at=None,
+                    end_decided_at=None,
+                    end_decided_by=None,
+                    emitted_at=to_datetime(now),
+                ),
+            )
+        decided_ns: int = now
+        decided_by: EndDecidedBy = "module"
         speech = gate.take_speech_timing() if gate is not None else None
         if speech is not None and speech.closed_ns is not None:
             decided_ns, decided_by = speech.closed_ns, "vad_gate"
@@ -648,12 +663,13 @@ class ASREngine:
             ),
             end_decided_at=to_datetime(decided_ns),
             end_decided_by=decided_by,
+            emitted_at=to_datetime(now),
         )
         return replace(utterance, timing=timing)
 
     async def _handle_utterance(self, utterance: SpeechUtterance) -> None:
+        utterance = self._stamp(utterance)
         if utterance.is_final:
-            utterance = self._stamp_final(utterance)
             log.info("ASR final: %s", utterance.transcript)
         else:
             log.info("ASR interim: %s", utterance.transcript)

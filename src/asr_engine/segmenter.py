@@ -13,6 +13,7 @@ import logging
 import math
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
+from datetime import datetime
 
 from asr_engine.modules.base import SpeechUtterance
 from asr_engine.segment_timing import SegmentTiming, now_ns, to_datetime
@@ -29,8 +30,16 @@ class SpeechSegment:
     is_final: bool
     end_reason: str | None  # None while open; else utterance/trigger_word/*_timeout
     utterances: list[SpeechUtterance] = field(default_factory=list)
-    # On a final segment only (specs/segment-timing.md); None while open.
+    # Set on every segment the Segmenter emits (specs/segment-timing.md).
     timing: SegmentTiming | None = None
+
+
+def _first_start(utterances: list[SpeechUtterance]) -> datetime | None:
+    """The start of the first speech among *utterances* that has one."""
+    for utterance in utterances:
+        if utterance.timing is not None and utterance.timing.speech_started_at:
+            return utterance.timing.speech_started_at
+    return None
 
 
 def _final_segment(
@@ -42,21 +51,20 @@ def _final_segment(
     """A final segment, stamped now. *timed* is every final utterance the segment
     covers, in order: its speech starts with the first one that has a start and
     ends with the last one, whose end of turn is the segment's."""
-    timings = [u.timing for u in timed if u.timing is not None]
     last = timed[-1].timing if timed else None
+    now = to_datetime(now_ns())
     return SpeechSegment(
         transcript=transcript,
         is_final=True,
         end_reason=end_reason,
         utterances=utterances,
         timing=SegmentTiming(
-            speech_started_at=next(
-                (t.speech_started_at for t in timings if t.speech_started_at), None
-            ),
+            speech_started_at=_first_start(timed),
             speech_ended_at=last.speech_ended_at if last else None,
             end_decided_at=last.end_decided_at if last else None,
             end_decided_by=last.end_decided_by if last else None,
-            finalized_at=to_datetime(now_ns()),
+            emitted_at=now,
+            finalized_at=now,
         ),
     )
 
@@ -166,11 +174,11 @@ class Segmenter:
             )
             # Nothing committed to reset in this mode.
         else:
-            await self._emit_open(utterance.transcript)
+            await self._emit_open(utterance)
 
     async def _on_trigger_word_mode(self, utterance: SpeechUtterance) -> None:
         if not utterance.is_final:
-            await self._emit_open(utterance.transcript)
+            await self._emit_open(utterance)
             return
         if contains_trigger_word(utterance.transcript, self._trigger_words):
             # The trigger utterance is not part of the segment's text, but the
@@ -182,7 +190,7 @@ class Segmenter:
 
     async def _on_timeout_mode(self, utterance: SpeechUtterance) -> None:
         if not utterance.is_final:
-            await self._emit_open(utterance.transcript)
+            await self._emit_open(utterance)
             return
         self._committed.append(utterance)
         await self._emit_open(None)
@@ -198,13 +206,26 @@ class Segmenter:
             pieces.append(current_interim)
         return " ".join(pieces)
 
-    async def _emit_open(self, current_interim: str | None) -> None:
+    async def _emit_open(self, interim: SpeechUtterance | None) -> None:
+        """Emit the open segment: the committed finals, then *interim* if any.
+        Nothing of it has ended yet, so it only knows when its speech started."""
+        covered = [*self._committed, *([interim] if interim is not None else [])]
         await self._emit(
             SpeechSegment(
-                transcript=self._open_transcript(current_interim),
+                transcript=self._open_transcript(
+                    interim.transcript if interim is not None else None
+                ),
                 is_final=False,
                 end_reason=None,
                 utterances=list(self._committed),
+                timing=SegmentTiming(
+                    speech_started_at=_first_start(covered),
+                    speech_ended_at=None,
+                    end_decided_at=None,
+                    end_decided_by=None,
+                    emitted_at=to_datetime(now_ns()),
+                    finalized_at=None,
+                ),
             )
         )
 

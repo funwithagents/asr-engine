@@ -1,10 +1,10 @@
 # Measure how long the speaker waited
 
-Every final segment says when its speech started and ended, when something decided the speaker had finished, and when the final transcript was produced. The same stamps come in two forms: fields on the segment, and an OpenTelemetry span. Design and guarantees: [specs/segment-timing.md](../specs/segment-timing.md).
+Every final segment says when its speech started and ended, when something decided the speaker had finished, and when the final transcript was produced. Interim results already say when the speech started. The same stamps come in two forms: fields on the segment, and an OpenTelemetry span. Design and guarantees: [specs/segment-timing.md](../specs/segment-timing.md).
 
-## The timing of a final segment
+## The timing of a segment
 
-A final segment has a `timing` object; an interim one has `None`.
+Every segment has a `timing` object. It is complete on a final segment:
 
 ```python
 from asr_engine import SpeechSegment
@@ -12,24 +12,27 @@ from asr_engine import SpeechSegment
 
 async def on_segment(segment: SpeechSegment) -> None:
     timing = segment.timing
-    if timing is None:
-        return  # an interim update
+    if not segment.is_final or timing is None:
+        return
     if timing.speech_ended_at is not None:
         waited = timing.finalized_at - timing.speech_ended_at
         print(f"final {waited.total_seconds() * 1000:.0f} ms after the last word")
 ```
 
-| Field of `segment.timing` | Meaning |
-|---|---|
-| `speech_started_at` | the start of the first speech the segment transcribes |
-| `speech_ended_at` | the end of its last speech: the last word, not the moment the engine noticed the silence |
-| `end_decided_at` | when something decided the speaker had finished |
-| `end_decided_by` | what decided: `vad_gate` (the gate closed) or `module` (the backend's own end of turn) |
-| `finalized_at` | when this final segment was produced; always set |
+| Field of `segment.timing` | Meaning | On an interim |
+|---|---|---|
+| `speech_started_at` | the start of the first speech the segment transcribes | set |
+| `emitted_at` | when this update of the segment was produced | set |
+| `speech_ended_at` | the end of its last speech: the last word, not the moment the engine noticed the silence | `None` |
+| `end_decided_at` | when something decided the speaker had finished | `None` |
+| `end_decided_by` | what decided: `vad_gate` (the gate closed) or `module` (the backend's own end of turn) | `None` |
+| `finalized_at` | when the final segment was produced | `None` |
 
-Times are timezone-aware UTC datetimes. A final `SpeechUtterance` has a `timing` too (`UtteranceTiming`), with the same fields except `finalized_at`. Both types are importable from `asr_engine`.
+Times are timezone-aware UTC datetimes. A `SpeechUtterance` has a `timing` too (`UtteranceTiming`), with the same fields except `finalized_at`. Both types are importable from `asr_engine`. Use `is_final`, not the timing, to tell an interim from a final.
 
-**The two speech stamps need the [VAD gate](vad.md).** They are `None` when no `engine.vad` is configured, when the gate has failed, and when it detected no speech. `end_decided_at` and `finalized_at` need no gate. A stamp that cannot be taken is `None`, never an estimate.
+While the person is still speaking nothing has ended, so an interim only knows when its speech started and when it was emitted. `emitted_at − speech_started_at` on the first interim is the backend's time to first partial.
+
+**The two speech stamps need the [VAD gate](vad.md).** They are `None` when no `engine.vad` is configured, when the gate has failed, and when it detected no speech. `emitted_at`, `end_decided_at` and `finalized_at` need no gate. A stamp that cannot be taken is `None`, never an estimate.
 
 Useful differences:
 
