@@ -156,7 +156,7 @@ The same file runs each row a second time with `engine.vad` set to the Silero VA
 |---|---|---|
 | `deepgram-v1` | `{"type": "silero"}` | The `Finalize` message sent on the marker |
 | `deepgram-v2-flux_ends_turn` | `+ "min_silence_duration_ms": 1500` | Flux's own `EndOfTurn`, on the silence the longer hangover lets through (the recommended setting) |
-| `deepgram-v2-marker_ends_turn` | `+ "min_silence_duration_ms": 300` | The silence burst the module sends on the marker, since the gate closed before Flux decided |
+| `deepgram-v2-marker_ends_turn` | `+ "min_silence_duration_ms": 300` | The `ForceEndTurn` the module sends on the marker, since the gate closed before Flux decided |
 | `mistral-realtime` | `{"type": "silero"}` | The local flush: silence burst, then the final once the text stops |
 | `openai-realtime-compatible` | `{"type": "silero"}` | The server's own VAD, on the hangover's silence; the marker then clears the trailing silence (or commits, if the server's turn is still open) |
 | `openai-transcriptions-compatible` | `{"type": "silero"}` | The upload of the utterance on the marker |

@@ -63,7 +63,7 @@ pip install 'asr-engine[deepgram]'
 
 - Both modules accept 8000, 16000, 24000, 44100 and 48000 Hz, mono, `linear16` or `mulaw`. The 16000 Hz default works as is.
 - Without a VAD gate, audio is streamed continuously and Deepgram bills the silence too. With `"vad": {"type": "silero"}` the bill follows speech time.
-- For `deepgram-v2`, use `{"type": "silero", "min_silence_duration_ms": 1500}`: the longer window lets Flux end the turn by its own judgement, and the gate only removes the idle time between utterances ([vad.md](../vad.md)).
+- For `deepgram-v2`, use `{"type": "silero", "min_silence_duration_ms": 1500}`: the longer window lets Flux end the turn by its own judgement, and the gate only removes the idle time between utterances ([vad.md](../vad.md)). With a shorter window the gate can close before Flux has decided. The module then asks Flux to end the turn at once (its `ForceEndTurn` message), and the final arrives about 0.2 s later. That final comes from the gate's timing, not Flux's judgement, so a pause in mid-sentence can split the sentence.
 - A lost connection is retried with a backoff; `engine.status()["connected"]` reports the state.
 
 ## Troubleshooting
