@@ -63,3 +63,51 @@ def fake_engine_factory():
         )
 
     return factory
+
+
+class ScriptedClock:
+    """Stands in for the ``time`` module in ``asr_engine.segment_timing``: the
+    wall clock every stamp is read from, moved by hand."""
+
+    BASE = 1_800_000_000 * 1_000_000_000
+
+    def __init__(self) -> None:
+        self.now = self.BASE
+
+    def advance_ms(self, ms: float) -> None:
+        self.now += round(ms * 1_000_000)
+
+    def at_ms(self, ms: float) -> int:
+        """The stamp *ms* after the clock's start."""
+        return self.BASE + round(ms * 1_000_000)
+
+    def time_ns(self) -> int:
+        return self.now
+
+
+@pytest.fixture
+def clock(monkeypatch) -> ScriptedClock:
+    """The engine's wall clock, scripted (specs/segment-timing.md)."""
+    from asr_engine import segment_timing
+
+    scripted = ScriptedClock()
+    monkeypatch.setattr(segment_timing, "time", scripted)
+    return scripted
+
+
+@pytest.fixture
+def exporter(monkeypatch):
+    """An OpenTelemetry SDK for the length of one test, as an application would
+    install it; returns its in-memory span exporter."""
+    from opentelemetry import trace
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+    from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
+        InMemorySpanExporter,
+    )
+
+    spans = InMemorySpanExporter()
+    provider = TracerProvider()
+    provider.add_span_processor(SimpleSpanProcessor(spans))
+    monkeypatch.setattr(trace, "get_tracer_provider", lambda: provider)
+    return spans

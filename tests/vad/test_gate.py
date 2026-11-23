@@ -12,6 +12,7 @@ import numpy as np
 import pytest
 
 from asr_engine.audio import END_OF_SPEECH, AudioFormat, linear16_to_mulaw
+from asr_engine.segment_timing import SpeechTiming
 from asr_engine.vad.gate import VadGate, VadState, analysis_sample_rate
 from tests.vad.scripted import (
     FORMAT_16K,
@@ -323,3 +324,186 @@ async def test_state_after_a_failure_reports_failed_open():
     await rig.feed(pcm(quiet(1000)))
     assert rig.gate.state() == VadState(speaking=True, failed_open=True)
     rig.gate.stop()
+
+
+# ---------------------------------------------------------------------------
+# Speech timing (specs/segment-timing.md) — on a scripted wall clock
+# ---------------------------------------------------------------------------
+
+
+async def feed_paced(rig: Rig, clock, data: bytes, chunk_ms: int = 100) -> None:
+    """Feed *data* as a real-time source would: each chunk is received when its
+    last sample has been captured, so the audio at X ms since the first call
+    happened at ``clock.at_ms(X)``."""
+    size = chunk_ms * BYTES_PER_MS
+    for i in range(0, len(data), size):
+        chunk = data[i : i + size]
+        clock.advance_ms(len(chunk) / BYTES_PER_MS)
+        rig.source.queue.put_nowait(chunk)
+        await settle()
+
+
+async def test_speech_is_stamped_at_its_first_and_last_frame_not_at_the_gate(clock):
+    rig = Rig()
+    await feed_paced(rig, clock, UTTERANCE)
+
+    # Speech is 200-300 ms. The gate opened at 230 ms and forwarded from 180 ms;
+    # it closed on the frame ending at 350 ms, in the chunk received at 400 ms.
+    assert rig.gate.take_speech_timing() == SpeechTiming(
+        started_ns=clock.at_ms(200),
+        ended_ns=clock.at_ms(300),
+        closed_ns=clock.at_ms(400),
+    )
+
+
+async def test_frames_are_placed_by_audio_time_inside_a_chunk(clock):
+    """One 600 ms chunk, scored in one burst when it is received: each frame is
+    placed by the samples that follow it, not by when it was scored."""
+    rig = Rig()
+    await feed_paced(rig, clock, UTTERANCE, chunk_ms=600)
+
+    assert rig.gate.take_speech_timing() == SpeechTiming(
+        started_ns=clock.at_ms(200),
+        ended_ns=clock.at_ms(300),
+        closed_ns=clock.at_ms(600),
+    )
+
+
+async def test_no_speech_detected_gives_no_timing(clock):
+    rig = Rig()
+    await feed_paced(rig, clock, pcm(quiet(300), loud(20), quiet(300, seed=3)))
+
+    assert rig.gate.take_speech_timing() is None  # 20 ms never opened the gate
+
+
+async def test_speech_without_a_pause_yet_has_a_start_and_no_end(clock):
+    rig = Rig()
+    await feed_paced(rig, clock, pcm(quiet(200), loud(200)))
+
+    # A final arriving now is mid-speech: nothing has ended.
+    assert rig.gate.take_speech_timing() == SpeechTiming(
+        started_ns=clock.at_ms(200), ended_ns=None, closed_ns=None
+    )
+
+    # The run was left for the next final, which gets its start and its end.
+    await feed_paced(rig, clock, pcm(quiet(100, seed=3)))
+    assert rig.gate.take_speech_timing() == SpeechTiming(
+        started_ns=clock.at_ms(200),
+        ended_ns=clock.at_ms(400),
+        closed_ns=clock.at_ms(500),
+    )
+
+
+async def test_a_final_during_the_hangover_ends_at_the_last_speech_frame(clock):
+    """A module with its own end of turn finalises before the gate closes."""
+    rig = Rig()
+    await feed_paced(rig, clock, pcm(quiet(200), loud(100), quiet(30)), chunk_ms=10)
+
+    assert rig.gate.state().speaking  # 30 ms of silence: still open
+    assert rig.gate.take_speech_timing() == SpeechTiming(
+        started_ns=clock.at_ms(200), ended_ns=clock.at_ms(300), closed_ns=None
+    )
+
+
+async def test_speech_resumed_before_the_final_keeps_the_earlier_end(clock):
+    """The person starts again after a short pause, and the previous turn's
+    final arrives then: its speech ended before the pause."""
+    rig = Rig()
+    audio = pcm(quiet(200), loud(100), quiet(30), loud(50, seed=7))
+    await feed_paced(rig, clock, audio, chunk_ms=10)
+
+    assert rig.gate.take_speech_timing() == SpeechTiming(
+        started_ns=clock.at_ms(200), ended_ns=clock.at_ms(300), closed_ns=None
+    )
+
+
+async def test_a_late_final_is_given_the_closed_run_not_the_speech_that_followed(
+    clock,
+):
+    rig = Rig()
+    second = pcm(quiet(100, seed=4), loud(100, seed=5))
+    await feed_paced(rig, clock, UTTERANCE + second)  # 700-800 ms: speaking again
+
+    assert rig.gate.take_speech_timing() == SpeechTiming(
+        started_ns=clock.at_ms(200),
+        ended_ns=clock.at_ms(300),
+        closed_ns=clock.at_ms(400),
+    )
+
+    # The second run belongs to the next final.
+    await feed_paced(rig, clock, pcm(quiet(100, seed=6)))
+    assert rig.gate.take_speech_timing() == SpeechTiming(
+        started_ns=clock.at_ms(700),
+        ended_ns=clock.at_ms(800),
+        closed_ns=clock.at_ms(900),
+    )
+
+
+async def test_several_runs_before_one_final_span_the_first_start_to_the_last_end(
+    clock,
+):
+    rig = Rig()
+    await feed_paced(rig, clock, UTTERANCE + UTTERANCE)
+
+    assert rig.gate.take_speech_timing() == SpeechTiming(
+        started_ns=clock.at_ms(200),
+        ended_ns=clock.at_ms(900),
+        closed_ns=clock.at_ms(1000),
+    )
+
+
+async def test_a_second_final_for_the_same_speech_is_given_the_same_run(clock):
+    """A backend may split one stretch of speech into several finals."""
+    rig = Rig()
+    await feed_paced(rig, clock, UTTERANCE)
+
+    first = rig.gate.take_speech_timing()
+    assert first is not None and rig.gate.take_speech_timing() == first
+
+
+async def test_stamps_never_run_backwards_when_chunks_arrive_in_a_burst(clock):
+    """A blocked loop delivers several chunks at once: all are stamped at the
+    same instant, and the order of the stamps still holds."""
+    rig = Rig()
+    await rig.feed(UTTERANCE)  # six chunks, one clock value
+
+    timing = rig.gate.take_speech_timing()
+    assert timing is not None and timing.ended_ns is not None
+    assert timing.started_ns <= timing.ended_ns <= clock.now
+    assert timing.closed_ns == clock.now
+
+
+async def test_timing_holds_through_resampling_within_one_frame(clock):
+    """A 44.1 kHz pipeline analysed at 16 kHz: the stamps follow the pipeline's
+    audio, to the frame."""
+    rate = 44100
+    rig = Rig(AudioFormat(sample_rate=rate), vad=Scripted16kVAD({}))
+    audio = pcm(quiet(200, rate), loud(100, rate), quiet(300, rate, seed=3))
+    chunk = rate // 10 * 2  # 100 ms
+    for i in range(0, len(audio), chunk):
+        clock.advance_ms(100)
+        rig.source.queue.put_nowait(audio[i : i + chunk])
+        await settle()
+
+    timing = rig.gate.take_speech_timing()
+    assert timing is not None and timing.ended_ns is not None
+    frame_ns = 10_000_000
+    assert abs(timing.started_ns - clock.at_ms(200)) <= frame_ns
+    assert abs(timing.ended_ns - clock.at_ms(300)) <= frame_ns
+
+
+async def test_a_gate_that_failed_open_gives_no_timing(clock):
+    rig = Rig(vad=ScriptedVAD({"fail_at_frame": 45}))
+    await feed_paced(rig, clock, UTTERANCE)  # fails at 450 ms, after the run closed
+
+    assert rig.gate.state().failed_open
+    assert rig.gate.take_speech_timing() is None
+
+
+async def test_a_restart_forgets_the_previous_run_s_speech(clock):
+    rig = Rig()
+    await feed_paced(rig, clock, UTTERANCE)
+    rig.gate.stop()
+    rig.gate.start()
+
+    assert rig.gate.take_speech_timing() is None

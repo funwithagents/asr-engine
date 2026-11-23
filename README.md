@@ -174,6 +174,7 @@ Start at [docs/index.md](docs/index.md), the documentation by task. The pages us
 | [docs/audio-input.md](docs/audio-input.md) | The microphone, file input, your own audio source, the audio format |
 | [docs/vad.md](docs/vad.md) | The optional speech gate, and the setting that suits each module |
 | [docs/agents-and-mcp.md](docs/agents-and-mcp.md) | `AsrTools` for an agent, and the MCP server with its two resources |
+| [docs/segment-timing.md](docs/segment-timing.md) | When the speech of a final segment started and ended, and its OpenTelemetry span |
 | [docs/testing-your-application.md](docs/testing-your-application.md) | Deterministic tests with the `fake` module |
 | [docs/troubleshooting.md](docs/troubleshooting.md) | A missing extra, an unsupported sample rate, a missing VAD, no transcription |
 

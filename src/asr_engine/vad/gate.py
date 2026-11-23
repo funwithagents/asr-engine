@@ -25,6 +25,7 @@ from asr_engine.audio import (
     EndOfSpeech,
     mulaw_to_linear16,
 )
+from asr_engine.segment_timing import SpeechTiming, now_ns
 from asr_engine.vad.base import VADModule
 
 log = logging.getLogger(__name__)
@@ -36,6 +37,20 @@ class VadState:
 
     speaking: bool = False  # the gate is open: audio is reaching the module
     failed_open: bool = False  # the VAD raised; everything is forwarded ungated
+
+
+@dataclass
+class _SpeechRun:
+    """One stretch the gate was open for, in wall-clock nanoseconds."""
+
+    started_ns: int  # the start of the onset frame
+    ended_ns: int  # the end of the latest frame scored as speech
+    settled_ns: int | None = None  # the end of the last speech silence followed
+    closed_ns: int | None = None  # when the gate closed; None while it is open
+
+
+# Speech runs kept for a module that emits no final for a long time.
+_MAX_PENDING_RUNS = 32
 
 
 def analysis_sample_rate(vad_cls: type[VADModule], pipeline_rate: int) -> int:
@@ -80,6 +95,7 @@ class VadGate:
         self._sample_bytes = audio_format.channels * audio_format.bytes_per_sample
 
         frame_ms = 1000 * self._frame_samples / self._analysis_rate
+        self._frame_ns = round(frame_ms * 1_000_000)
         # Durations in whole frames, rounded up (the epsilon absorbs float noise).
         self._open_frames = max(1, math.ceil(min_speech_duration_ms / frame_ms - 1e-9))
         self._close_frames = max(
@@ -106,6 +122,18 @@ class VadGate:
         self._analysis = np.zeros(0, dtype=np.float32)  # samples awaiting a frame
         self._frames_done = 0
         self._out = bytearray()  # forwarded bytes awaiting the end of this chunk
+        # Speech timing (specs/segment-timing.md): each chunk is stamped when it
+        # is received, and a frame is placed by its position inside the audio
+        # received so far.
+        self._chunk_ns = 0  # when the chunk being processed was received
+        self._received_bytes = 0
+        self._frame_start_ns = 0  # the frame being stepped
+        self._frame_end_ns = 0
+        self._onset_ns = 0  # the start of the current run of speech frames
+        self._run: _SpeechRun | None = None  # the open run
+        self._latest_run: _SpeechRun | None = None
+        # The runs no final utterance has been given yet.
+        self._pending_runs: deque[_SpeechRun] = deque(maxlen=_MAX_PENDING_RUNS)
         self._resampler = None
         if self._analysis_rate != self._pipeline_rate:
             import soxr  # only when resampling is actually needed
@@ -122,7 +150,7 @@ class VadGate:
         self._reset_state()
         inner_queue = self._inner.start()
         self._queue = asyncio.Queue()
-        self._task = asyncio.create_task(self._run(inner_queue, self._queue))
+        self._task = asyncio.create_task(self._run_gate(inner_queue, self._queue))
         return self._queue
 
     def stop(self) -> None:
@@ -142,13 +170,48 @@ class VadGate:
             speaking=self._speaking or self._failed, failed_open=self._failed
         )
 
-    async def _run(
+    def take_speech_timing(self) -> SpeechTiming | None:
+        """The timing of the speech a final utterance arriving now transcribes.
+
+        Called by the engine once per final utterance. The speech is what the
+        gate has detected since the previous final: it starts with the first of
+        those runs and ends with the last speech that silence followed. A run
+        the person is still speaking in, with no pause yet, is left for the next
+        final. A final with no new speech (a backend that splits one stretch
+        into several finals) is given the latest run again.
+
+        ``None`` when no speech was detected, and once the gate has failed open.
+        """
+        if self._failed:
+            return None
+        fresh = bool(self._pending_runs)
+        runs = list(self._pending_runs)
+        if not runs and self._latest_run is not None:
+            runs = [self._latest_run]
+        if not runs:
+            return None
+        started = runs[0].started_ns
+        last = len(runs) - 1
+        while last >= 0 and runs[last].settled_ns is None:
+            last -= 1
+        if last < 0:
+            return SpeechTiming(started_ns=started, ended_ns=None, closed_ns=None)
+        if fresh:
+            for _ in range(last + 1):
+                self._pending_runs.popleft()
+        end = runs[last]
+        return SpeechTiming(
+            started_ns=started, ended_ns=end.settled_ns, closed_ns=end.closed_ns
+        )
+
+    async def _run_gate(
         self,
         inner_queue: asyncio.Queue[bytes],
         out_queue: asyncio.Queue[bytes | EndOfSpeech],
     ) -> None:
         while True:
             chunk = await inner_queue.get()
+            self._chunk_ns = now_ns()
             if self._failed:
                 out_queue.put_nowait(chunk)
                 continue
@@ -159,6 +222,9 @@ class VadGate:
                     "VAD gate failed; forwarding all audio ungated from now on"
                 )
                 self._failed = True
+                # A gate that no longer scores frames knows nothing of the speech.
+                self._run = self._latest_run = None
+                self._pending_runs.clear()
                 # Nothing already forwarded is repeated: _out and _pipeline hold
                 # only bytes that have not reached the queue (this chunk included).
                 leftover = bytes(self._out) + bytes(self._pipeline)
@@ -173,6 +239,7 @@ class VadGate:
         self, chunk: bytes, out_queue: asyncio.Queue[bytes | EndOfSpeech]
     ) -> None:
         self._pipeline.extend(chunk)
+        self._received_bytes += len(chunk)
         self._analysis = np.concatenate([self._analysis, self._analyse(chunk)])
 
         offset = 0
@@ -193,10 +260,24 @@ class VadGate:
             piece = bytes(self._pipeline[:size])
             del self._pipeline[:size]
             self._pipeline_pos += size // self._sample_bytes
+            self._stamp_frame(boundary)
 
             self._step(probability >= self._threshold, piece, out_queue)
         self._analysis = self._analysis[offset:]
         self._flush(out_queue)
+
+    def _stamp_frame(self, boundary: int) -> None:
+        """Place the frame ending at pipeline sample *boundary* in wall-clock time.
+
+        The chunk was stamped when it was received; the frame ended earlier, by
+        the duration of the samples received after it. Stamps never run
+        backwards, even when chunks arrive in a burst.
+        """
+        after = max(0, self._received_bytes // self._sample_bytes - boundary)
+        end = self._chunk_ns - after * 1_000_000_000 // self._pipeline_rate
+        previous = self._frame_end_ns
+        self._frame_end_ns = max(end, previous)
+        self._frame_start_ns = max(previous, self._frame_end_ns - self._frame_ns)
 
     def _analyse(self, chunk: bytes) -> np.ndarray:
         """The analysis copy of *chunk*: mono float32 at the analysis rate."""
@@ -222,10 +303,16 @@ class VadGate:
         """Advance the two-state machine by one analysed frame."""
         if not self._speaking:
             self._ring.append(piece)
+            if is_speech and self._speech_run == 0:
+                self._onset_ns = self._frame_start_ns
             self._speech_run = self._speech_run + 1 if is_speech else 0
             if self._speech_run >= self._open_frames:
                 self._speaking = True
                 self._silence_run = 0
+                # The onset, not its confirmation, and not the pre-roll.
+                self._run = _SpeechRun(self._onset_ns, self._frame_end_ns)
+                self._latest_run = self._run
+                self._pending_runs.append(self._run)
                 for kept in self._ring:
                     self._out.extend(kept)
                 self._ring.clear()
@@ -233,7 +320,17 @@ class VadGate:
 
         self._out.extend(piece)  # pauses included: the hangover is the tail
         self._silence_run = 0 if is_speech else self._silence_run + 1
+        run = self._run
+        if run is not None:
+            if is_speech:
+                run.ended_ns = self._frame_end_ns
+            else:
+                run.settled_ns = run.ended_ns
         if self._silence_run >= self._close_frames:
+            if run is not None:
+                # Decided now, on the chunk that held the deciding frame.
+                run.closed_ns = self._chunk_ns
+                self._run = None
             self._flush(out_queue)
             if self._emit_end_of_speech:
                 out_queue.put_nowait(END_OF_SPEECH)

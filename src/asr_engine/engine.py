@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from dataclasses import replace
 from typing import TYPE_CHECKING, cast
+
+from opentelemetry import context as otel_context
 
 from asr_engine.audio import (
     AudioCapture,
@@ -17,13 +20,14 @@ from asr_engine.config import (
     AudioFormatConfig,
 )
 from asr_engine.format_converter import ConvertedAudioSource, check_convertible
-from asr_engine.modules import resolve_module_class
+from asr_engine.modules import RENAMED_MODULE_TYPES, resolve_module_class
 from asr_engine.modules.base import (
     AudioQueue,
     SpeechUtterance,
     UtteranceCallback,
     resolve_module_audio_format,
 )
+from asr_engine.segment_timing import EndDecidedBy, now_ns, segment_span, to_datetime
 from asr_engine.segmenter import (
     VALID_MODES,
     SegmentCallback,
@@ -79,6 +83,10 @@ class ASREngine:
         # Raises ValueError (unknown type) or ImportError (provider extra missing).
         self._module_cls = resolve_module_class(config.module.type)
         self._asr_module = self._module_cls(config=config.module.extra)
+        # The module's type under its current name, for the segment spans.
+        self._module_type = RENAMED_MODULE_TYPES.get(
+            config.module.type, config.module.type
+        )
 
         self._audio_source = audio_source
         # Two formats (specs/format-conversion.md): what the source produces
@@ -125,6 +133,9 @@ class ASREngine:
         self._lock = asyncio.Lock()
         self._listening = False
         self._listen_future: asyncio.Future[SpeechSegment] | None = None
+        # The context a listen() was awaited in: the parent of its segment's
+        # span. None outside a listen, where a segment's span is a root.
+        self._listen_context: otel_context.Context | None = None
         self._dictating = False
         self._dictation_end_on_final = False
         self._dictation_ending = False
@@ -255,7 +266,21 @@ class ASREngine:
 
     async def _emit_segment(self, segment: SpeechSegment) -> None:
         # Read the callback dynamically so listen() can swap it at runtime.
-        await self.on_speech_segment(segment)
+        if segment.is_final:
+            # One span per final segment, current while the callback runs
+            # (specs/segment-timing.md).
+            vad = self._config.vad
+            with segment_span(
+                segment,
+                module=self._module_type,
+                vad_min_silence_duration_ms=(
+                    vad.min_silence_duration_ms if vad is not None else None
+                ),
+                parent=self._listen_context,
+            ):
+                await self.on_speech_segment(segment)
+        else:
+            await self.on_speech_segment(segment)
         # Dictation auto-end: the first final segment ends an end-on-final
         # dictation. Scheduled as a separate task so the current emit (and the
         # segmenter operation that drove it) unwinds before the mode reverts.
@@ -591,8 +616,38 @@ class ASREngine:
         """Called by the ASR module to report connection state changes."""
         self._connected = state
 
+    def _stamp_final(self, utterance: SpeechUtterance) -> SpeechUtterance:
+        """*utterance* with its timing (specs/segment-timing.md).
+
+        The speech comes from the VAD gate, when there is one and it detected
+        some. The end was decided by the gate if it had closed on that speech
+        when the final arrived, at its closing time; otherwise by the module,
+        now.
+        """
+        decided_ns, decided_by = now_ns(), cast(EndDecidedBy, "module")
+        gate = self._vad_gate if self._config.vad is not None else None
+        timing = gate.take_speech_timing() if gate is not None else None
+        if timing is None:
+            return replace(
+                utterance,
+                end_decided_at=to_datetime(decided_ns),
+                end_decided_by=decided_by,
+            )
+        if timing.closed_ns is not None:
+            decided_ns, decided_by = timing.closed_ns, "vad_gate"
+        return replace(
+            utterance,
+            speech_started_at=to_datetime(timing.started_ns),
+            speech_ended_at=(
+                to_datetime(timing.ended_ns) if timing.ended_ns is not None else None
+            ),
+            end_decided_at=to_datetime(decided_ns),
+            end_decided_by=decided_by,
+        )
+
     async def _handle_utterance(self, utterance: SpeechUtterance) -> None:
         if utterance.is_final:
+            utterance = self._stamp_final(utterance)
             log.info("ASR final: %s", utterance.transcript)
         else:
             log.info("ASR interim: %s", utterance.transcript)
@@ -642,6 +697,7 @@ class ASREngine:
 
         self.on_speech_segment = _on_segment
         self._listen_future = future
+        self._listen_context = otel_context.get_current()
         try:
             await self._sound_feedback.play_start()
             # _start_with_segmentation_mode sets the mode as it starts — no
@@ -656,4 +712,5 @@ class ASREngine:
                 await self._sound_feedback.play_stop()
             finally:
                 self.on_speech_segment = prev_on_segment
+                self._listen_context = None
                 self._listening = False

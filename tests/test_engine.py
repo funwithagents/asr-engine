@@ -485,7 +485,14 @@ async def test_each_module_result_reaches_both_callbacks():
     await emit(utterance)
     await engine.stop()
 
-    on_utterance.assert_called_once_with(utterance)
+    # The engine hands on a stamped copy of a final (specs/segment-timing.md).
+    on_utterance.assert_called_once()
+    (received,) = on_utterance.call_args.args
+    assert (received.transcript, received.is_final, received.confidence) == (
+        "hello",
+        True,
+        0.9,
+    )
     assert len(segments) == 1
     assert segments[0].transcript == "hello"
     assert segments[0].is_final is True

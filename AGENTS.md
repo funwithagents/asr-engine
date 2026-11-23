@@ -36,6 +36,7 @@ Where things live. This is a coarse, module-level map — for the full file inve
 | [server.py](src/asr_engine/server.py) | MCP server: resources + StreamableHTTP, thin MCP adapter over `AsrTools` | [mcp-server.md](specs/mcp-server.md) |
 | [format_converter.py](src/asr_engine/format_converter.py) | `AudioFormatConverter` + `ConvertedAudioSource`: resamples, remixes and re-encodes the source's audio into the module's format | [format-conversion.md](specs/format-conversion.md) |
 | [speech_utils.py](src/asr_engine/speech_utils.py) | `contains_trigger_word()` — shared trigger-word detection | [engine.md](specs/engine.md) |
+| [segment_timing.py](src/asr_engine/segment_timing.py) | The span of a final segment (`asr_engine.segment`), its event and attribute names, and the wall clock every stamp is read from | [segment-timing.md](specs/segment-timing.md) |
 | [segmenter.py](src/asr_engine/segmenter.py) | `Segmenter` + `SpeechSegment`: utterance→segment aggregation (utterance/trigger_word/timeout) | [engine.md](specs/engine.md) |
 | [sound_feedback.py](src/asr_engine/sound_feedback.py) | `SoundFeedback` + `NoOpSoundFeedback`: WAV cue playback | [sound-feedback.md](specs/sound-feedback.md) |
 | [_logging.py](src/asr_engine/_logging.py) | `setup_logging()` for entry points and scripts | [project.md](specs/project.md) |

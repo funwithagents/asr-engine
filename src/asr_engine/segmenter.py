@@ -13,8 +13,10 @@ import logging
 import math
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
+from datetime import datetime
 
 from asr_engine.modules.base import SpeechUtterance
+from asr_engine.segment_timing import now_ns, to_datetime
 from asr_engine.speech_utils import contains_trigger_word
 
 log = logging.getLogger(__name__)
@@ -28,6 +30,39 @@ class SpeechSegment:
     is_final: bool
     end_reason: str | None  # None while open; else utterance/trigger_word/*_timeout
     utterances: list[SpeechUtterance] = field(default_factory=list)
+    # Timing, on a final segment only (specs/segment-timing.md). A stamp that
+    # could not be taken is None, never guessed.
+    speech_started_at: datetime | None = None  # the start of its first speech
+    speech_ended_at: datetime | None = None  # the end of its last speech
+    end_decided_at: datetime | None = None  # when its last utterance's end was decided
+    end_decided_by: str | None = None  # "vad_gate" or "module"
+    finalized_at: datetime | None = None  # when this final segment was produced
+
+
+def _final_segment(
+    transcript: str,
+    end_reason: str,
+    utterances: list[SpeechUtterance],
+    timed: list[SpeechUtterance],
+) -> SpeechSegment:
+    """A final segment, stamped now. *timed* is every final utterance the segment
+    covers, in order: its speech starts with the first one that has a start and
+    ends with the last one."""
+    last = timed[-1] if timed else None
+    return SpeechSegment(
+        transcript=transcript,
+        is_final=True,
+        end_reason=end_reason,
+        utterances=utterances,
+        speech_started_at=next(
+            (u.speech_started_at for u in timed if u.speech_started_at is not None),
+            None,
+        ),
+        speech_ended_at=last.speech_ended_at if last else None,
+        end_decided_at=last.end_decided_at if last else None,
+        end_decided_by=last.end_decided_by if last else None,
+        finalized_at=to_datetime(now_ns()),
+    )
 
 
 SegmentCallback = Callable[[SpeechSegment], Awaitable[None]]
@@ -129,11 +164,8 @@ class Segmenter:
     async def _on_utterance_mode(self, utterance: SpeechUtterance) -> None:
         if utterance.is_final:
             await self._emit(
-                SpeechSegment(
-                    transcript=utterance.transcript,
-                    is_final=True,
-                    end_reason="utterance",
-                    utterances=[utterance],
+                _final_segment(
+                    utterance.transcript, "utterance", [utterance], [utterance]
                 )
             )
             # Nothing committed to reset in this mode.
@@ -145,7 +177,9 @@ class Segmenter:
             await self._emit_open(utterance.transcript)
             return
         if contains_trigger_word(utterance.transcript, self._trigger_words):
-            await self._close_segment("trigger_word")
+            # The trigger utterance is not part of the segment's text, but the
+            # segment's speech ends with it.
+            await self._close_segment("trigger_word", closing=utterance)
         else:
             self._committed.append(utterance)
             await self._emit_open(None)
@@ -178,12 +212,15 @@ class Segmenter:
             )
         )
 
-    async def _close_segment(self, end_reason: str) -> None:
-        segment = SpeechSegment(
-            transcript=self._committed_transcript(),
-            is_final=True,
-            end_reason=end_reason,
-            utterances=list(self._committed),
+    async def _close_segment(
+        self, end_reason: str, *, closing: SpeechUtterance | None = None
+    ) -> None:
+        committed = list(self._committed)
+        segment = _final_segment(
+            self._committed_transcript(),
+            end_reason,
+            committed,
+            committed if closing is None else [*committed, closing],
         )
         # Called with the lock held, so no utterance is taken in while the final
         # is being delivered; the reset then clears state for the next segment.

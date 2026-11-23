@@ -42,6 +42,8 @@ A `SpeechSegment` is the engine's aggregation of utterances under the active [se
 | `end_reason` | `str \| None` | Why the segment closed (`utterance`, `trigger_word`, `initial_silence_timeout`, `end_of_speech_timeout`); `None` while it grows |
 | `utterances` | `list[SpeechUtterance]` | The final utterances committed to the segment. Interim utterances contribute to `transcript` but are not stored here |
 
+A final segment and a final utterance also say when the speech started and ended and when the transcript was produced: see [segment-timing.md](segment-timing.md).
+
 ## Continuous recognition
 
 `start()` runs the pipeline continuously in `utterance` mode: one segment per final utterance, delivered through the callbacks until `stop()`.

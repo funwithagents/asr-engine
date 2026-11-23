@@ -5,6 +5,7 @@ import logging
 import os
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Awaitable, Callable, ClassVar, Literal, TypeGuard
 
 from asr_engine.audio import DEFAULT_AUDIO_FORMAT, AudioFormat, EndOfSpeech
@@ -17,6 +18,12 @@ class SpeechUtterance:
     transcript: str
     is_final: bool
     confidence: float | None  # None if not provided by backend
+    # Timing, set by the engine on a final utterance (specs/segment-timing.md).
+    # A module leaves these alone.
+    speech_started_at: datetime | None = None  # the onset the VAD gate detected
+    speech_ended_at: datetime | None = None  # the end of that speech
+    end_decided_at: datetime | None = None  # when the utterance's end was decided
+    end_decided_by: str | None = None  # "vad_gate" or "module"
 
 
 # What a module's audio queue carries: PCM chunks, plus the VAD gate's
