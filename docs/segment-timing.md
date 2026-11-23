@@ -2,29 +2,32 @@
 
 Every final segment says when its speech started and ended, when something decided the speaker had finished, and when the final transcript was produced. The same stamps come in two forms: fields on the segment, and an OpenTelemetry span. Design and guarantees: [specs/segment-timing.md](../specs/segment-timing.md).
 
-## The fields of a final segment
+## The timing of a final segment
+
+A final segment has a `timing` object; an interim one has `None`.
 
 ```python
 from asr_engine import SpeechSegment
 
 
 async def on_segment(segment: SpeechSegment) -> None:
-    if not segment.is_final:
-        return
-    if segment.speech_ended_at is not None:
-        waited = segment.finalized_at - segment.speech_ended_at
+    timing = segment.timing
+    if timing is None:
+        return  # an interim update
+    if timing.speech_ended_at is not None:
+        waited = timing.finalized_at - timing.speech_ended_at
         print(f"final {waited.total_seconds() * 1000:.0f} ms after the last word")
 ```
 
-| Field | Meaning |
+| Field of `segment.timing` | Meaning |
 |---|---|
 | `speech_started_at` | the start of the first speech the segment transcribes |
 | `speech_ended_at` | the end of its last speech: the last word, not the moment the engine noticed the silence |
 | `end_decided_at` | when something decided the speaker had finished |
 | `end_decided_by` | what decided: `vad_gate` (the gate closed) or `module` (the backend's own end of turn) |
-| `finalized_at` | when this final segment was produced |
+| `finalized_at` | when this final segment was produced; always set |
 
-Times are timezone-aware UTC datetimes. They are set on final segments only, and a final `SpeechUtterance` carries the same fields except `finalized_at`.
+Times are timezone-aware UTC datetimes. A final `SpeechUtterance` has a `timing` too (`UtteranceTiming`), with the same fields except `finalized_at`. Both types are importable from `asr_engine`.
 
 **The two speech stamps need the [VAD gate](vad.md).** They are `None` when no `engine.vad` is configured, when the gate has failed, and when it detected no speech. `end_decided_at` and `finalized_at` need no gate. A stamp that cannot be taken is `None`, never an estimate.
 

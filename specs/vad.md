@@ -205,7 +205,7 @@ The gate also records **when** the speech it detects happened, for the timing a 
 
 - Each chunk is stamped with the wall clock when the gate receives it, and each analysed frame is placed by the samples received after it. So the stamps are in audio time, not the time a frame was scored.
 - A **run** is one stretch the gate was open for: the start of its onset frame (not the confirmation `min_speech_duration_ms` later, and not the pre-roll), the end of its latest speech frame, and when the gate closed.
-- `take_speech_timing() -> SpeechTiming | None` is called by the engine once per final utterance and returns the speech detected since the previous final. `None` when there is none, and once the gate has failed open.
+- `take_speech_timing() -> GateSpeechTiming | None` is called by the engine once per final utterance and returns the speech detected since the previous final. `None` when there is none, and once the gate has failed open.
 
 Recording the runs changes nothing in what the gate forwards or when it closes.
 

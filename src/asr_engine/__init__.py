@@ -29,6 +29,7 @@ from asr_engine.config import (
 )
 from asr_engine.engine import ASREngine
 from asr_engine.modules.base import SpeechUtterance
+from asr_engine.segment_timing import SegmentTiming, UtteranceTiming
 from asr_engine.segmenter import SpeechSegment
 from asr_engine.tools import AsrTools
 
@@ -64,4 +65,6 @@ __all__ = [
     # Data types
     "SpeechUtterance",
     "SpeechSegment",
+    "UtteranceTiming",
+    "SegmentTiming",
 ]

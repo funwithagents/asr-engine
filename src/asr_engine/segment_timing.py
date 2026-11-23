@@ -76,8 +76,40 @@ def to_ns(moment: datetime) -> int:
 
 
 @dataclass(frozen=True)
-class SpeechTiming:
-    """What the VAD gate knows about the speech a final utterance transcribes.
+class UtteranceTiming:
+    """When the speech of one final utterance happened, as UTC datetimes.
+
+    The two speech stamps come from the VAD gate: they are ``None`` with no VAD,
+    once the gate has failed open, and when it detected no speech.
+    ``speech_ended_at`` is also ``None`` while the person has not paused yet.
+    """
+
+    speech_started_at: datetime | None  # the onset the gate detected
+    speech_ended_at: datetime | None  # the end of the last speech silence followed
+    end_decided_at: datetime  # when the utterance's end was decided
+    end_decided_by: EndDecidedBy
+
+
+@dataclass(frozen=True)
+class SegmentTiming:
+    """When the speech of one final segment happened, as UTC datetimes.
+
+    A stamp that could not be taken is ``None``, never guessed. A segment closed
+    with no utterance has ``finalized_at`` only.
+    """
+
+    speech_started_at: datetime | None  # the start of its first speech
+    speech_ended_at: datetime | None  # the end of its last speech
+    end_decided_at: datetime | None  # when its last utterance's end was decided
+    end_decided_by: EndDecidedBy | None
+    finalized_at: datetime  # when the final segment was produced
+
+
+@dataclass(frozen=True)
+class GateSpeechTiming:
+    """What the VAD gate knows about the speech a final utterance transcribes,
+    in nanoseconds since the epoch. Internal: the engine turns it into an
+    ``UtteranceTiming``.
 
     ``started_ns``: the start of the first frame scored as speech.
     ``ended_ns``: the end of the last speech frame that silence followed, or
@@ -107,11 +139,12 @@ def segment_span(
     context the span is a child of; ``None`` makes it the root of a new trace.
     The events carry the times they name, not the time they are added.
     """
-    finalized = (
-        to_ns(segment.finalized_at) if segment.finalized_at is not None else now_ns()
-    )
+    timing = segment.timing
+    finalized = to_ns(timing.finalized_at) if timing is not None else now_ns()
     ended = (
-        to_ns(segment.speech_ended_at) if segment.speech_ended_at is not None else None
+        to_ns(timing.speech_ended_at)
+        if timing is not None and timing.speech_ended_at is not None
+        else None
     )
     attributes: dict[str, AttributeValue] = {
         ATTR_MODULE: module,
@@ -125,12 +158,12 @@ def segment_span(
         if segment.end_reason == "end_of_speech_timeout":
             # The configured wait inside finalized − end_decided.
             attributes[ATTR_END_OF_SPEECH_TIMEOUT_S] = float(end_of_speech_timeout_s)
-    if segment.end_decided_by is not None:
-        attributes[ATTR_END_DECIDED_BY] = segment.end_decided_by
     if vad_min_silence_duration_ms is not None:
         attributes[ATTR_VAD_MIN_SILENCE_DURATION_MS] = vad_min_silence_duration_ms
-    if segment.speech_started_at is not None:
-        attributes[ATTR_SPEECH_STARTED_UNIX_NS] = to_ns(segment.speech_started_at)
+    if timing is not None and timing.end_decided_by is not None:
+        attributes[ATTR_END_DECIDED_BY] = timing.end_decided_by
+    if timing is not None and timing.speech_started_at is not None:
+        attributes[ATTR_SPEECH_STARTED_UNIX_NS] = to_ns(timing.speech_started_at)
 
     # An empty context, not the current one: the task that delivers segments
     # was created inside start(), and carries whatever was current there.
@@ -141,8 +174,8 @@ def segment_span(
         start_time=finalized if ended is None else ended,
         attributes=attributes,
     )
-    if segment.end_decided_at is not None:
-        span.add_event(EVENT_END_DECIDED, timestamp=to_ns(segment.end_decided_at))
+    if timing is not None and timing.end_decided_at is not None:
+        span.add_event(EVENT_END_DECIDED, timestamp=to_ns(timing.end_decided_at))
     span.add_event(EVENT_FINALIZED, timestamp=finalized)
 
     token = otel_context.attach(trace.set_span_in_context(span, base))

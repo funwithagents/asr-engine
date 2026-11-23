@@ -21,12 +21,14 @@ from asr_engine import (
     ASREngineConfig,
     AudioSourceConfig,
     ModuleConfig,
+    SegmentTiming,
     SoundFeedbackConfig,
     SpeechSegment,
     SpeechUtterance,
+    UtteranceTiming,
     VadConfig,
 )
-from asr_engine.segment_timing import segment_span, to_datetime, to_ns
+from asr_engine.segment_timing import EndDecidedBy, segment_span, to_datetime, to_ns
 from asr_engine.segmenter import Segmenter
 from tests.vad.scripted import HandFedSource, ScriptedVAD, loud, pcm, quiet, settle
 
@@ -125,11 +127,13 @@ async def test_a_final_segment_carries_its_speech_and_one_span_starts_at_its_end
     # The final came with the chunk received at 400 ms, the one the gate closed in.
     (segment,) = recorder.finals
     assert segment.transcript == "hello there"
-    assert segment.speech_started_at == to_datetime(clock.at_ms(200))
-    assert segment.speech_ended_at == to_datetime(clock.at_ms(300))
-    assert segment.end_decided_at == to_datetime(clock.at_ms(400))
-    assert segment.end_decided_by == "vad_gate"
-    assert segment.finalized_at == to_datetime(clock.at_ms(403))
+    assert segment.timing == SegmentTiming(
+        speech_started_at=to_datetime(clock.at_ms(200)),
+        speech_ended_at=to_datetime(clock.at_ms(300)),
+        end_decided_at=to_datetime(clock.at_ms(400)),
+        end_decided_by="vad_gate",
+        finalized_at=to_datetime(clock.at_ms(403)),
+    )
 
     (span,) = exporter.get_finished_spans()
     assert span.name == "asr_engine.segment"
@@ -163,8 +167,7 @@ async def test_the_span_is_current_in_the_callback_of_a_final_segment_only(
     (span,) = exporter.get_finished_spans()  # the interim opened none
     assert recorder.span_ids == [0, span.context.span_id]
     # An interim segment carries no timing either.
-    interim = recorder.segments[0]
-    assert (interim.speech_ended_at, interim.finalized_at) == (None, None)
+    assert recorder.segments[0].timing is None
 
 
 async def test_a_module_that_finalises_before_the_gate_closes_decided_the_end(
@@ -179,9 +182,13 @@ async def test_a_module_that_finalises_before_the_gate_closes_decided_the_end(
     await engine.stop()
 
     (segment,) = recorder.finals
-    assert segment.speech_ended_at == to_datetime(clock.at_ms(300))
-    assert segment.end_decided_at == to_datetime(clock.at_ms(310))
-    assert segment.end_decided_by == "module"
+    assert segment.timing == SegmentTiming(
+        speech_started_at=to_datetime(clock.at_ms(200)),
+        speech_ended_at=to_datetime(clock.at_ms(300)),
+        end_decided_at=to_datetime(clock.at_ms(310)),
+        end_decided_by="module",
+        finalized_at=to_datetime(clock.at_ms(310)),
+    )
     (span,) = exporter.get_finished_spans()
     assert span.start_time == clock.at_ms(300)
     assert span.attributes["asr_engine.end_decided_by"] == "module"
@@ -195,17 +202,12 @@ async def test_the_final_utterance_carries_the_same_stamps(clock):
     await engine.stop()
 
     interim, final = recorder.utterances
-    assert (interim.speech_ended_at, interim.end_decided_at) == (None, None)
-    assert (
-        final.speech_started_at,
-        final.speech_ended_at,
-        final.end_decided_at,
-        final.end_decided_by,
-    ) == (
-        to_datetime(clock.at_ms(200)),
-        to_datetime(clock.at_ms(300)),
-        to_datetime(clock.at_ms(400)),
-        "vad_gate",
+    assert interim.timing is None
+    assert final.timing == UtteranceTiming(
+        speech_started_at=to_datetime(clock.at_ms(200)),
+        speech_ended_at=to_datetime(clock.at_ms(300)),
+        end_decided_at=to_datetime(clock.at_ms(400)),
+        end_decided_by="vad_gate",
     )
 
 
@@ -217,9 +219,13 @@ async def test_a_gate_that_failed_open_gives_no_end_of_speech(clock, exporter):
     await engine.stop()
 
     (segment,) = recorder.finals
-    assert (segment.speech_started_at, segment.speech_ended_at) == (None, None)
-    assert segment.end_decided_by == "module"
-    assert segment.finalized_at == to_datetime(clock.at_ms(200))
+    assert segment.timing == SegmentTiming(
+        speech_started_at=None,
+        speech_ended_at=None,
+        end_decided_at=to_datetime(clock.at_ms(200)),
+        end_decided_by="module",
+        finalized_at=to_datetime(clock.at_ms(200)),
+    )
     (span,) = exporter.get_finished_spans()
     assert span.start_time == clock.at_ms(200)  # no end of speech: finalized_at
     assert span.attributes["asr_engine.speech_end_source"] == "none"
@@ -244,11 +250,15 @@ async def test_without_a_vad_the_span_starts_when_the_segment_is_finalized(
     await engine.stop()
 
     (segment,) = recorder.finals
-    assert (segment.speech_started_at, segment.speech_ended_at) == (None, None)
-    # Still known without a gate: the module decided, when its final arrived.
-    assert segment.end_decided_at == to_datetime(clock.at_ms(1000))
-    assert segment.end_decided_by == "module"
-    assert segment.finalized_at == to_datetime(clock.at_ms(1000))
+    # The end of turn is still known without a gate: the module decided, when
+    # its final arrived.
+    assert segment.timing == SegmentTiming(
+        speech_started_at=None,
+        speech_ended_at=None,
+        end_decided_at=to_datetime(clock.at_ms(1000)),
+        end_decided_by="module",
+        finalized_at=to_datetime(clock.at_ms(1000)),
+    )
 
     (span,) = exporter.get_finished_spans()
     assert span.start_time == clock.at_ms(1000)
@@ -277,9 +287,10 @@ async def test_with_no_sdk_installed_the_stamps_are_still_on_the_segment(
     await engine.stop()
 
     (segment,) = recorder.finals
-    assert segment.finalized_at is not None and segment.end_decided_at is not None
-    assert before <= segment.end_decided_at <= segment.finalized_at
-    assert segment.finalized_at.utcoffset() == timedelta(0)  # UTC, aware
+    timing = segment.timing
+    assert timing is not None and timing.end_decided_at is not None
+    assert before <= timing.end_decided_at <= timing.finalized_at
+    assert timing.finalized_at.utcoffset() == timedelta(0)  # UTC, aware
     assert recorder.span_ids[-1] == 0  # no recording span was current
 
 
@@ -373,8 +384,9 @@ async def test_a_segment_closed_by_the_silence_timer_names_the_timer_s_length(
     assert span.attributes["asr_engine.segmentation.end_of_speech_timeout_s"] == 0.05
     # The wait is inside finalized − end_decided. Only the order is asserted:
     # the wall clock and the loop's timer do not tick together on every platform.
-    assert segment.finalized_at is not None and segment.end_decided_at is not None
-    assert segment.finalized_at >= segment.end_decided_at
+    timing = segment.timing
+    assert timing is not None and timing.end_decided_at is not None
+    assert timing.finalized_at >= timing.end_decided_at
 
 
 async def test_a_dictated_segment_is_a_root_though_dictation_started_inside_a_span(
@@ -408,7 +420,13 @@ def test_a_callback_that_raises_ends_the_span_as_an_error(exporter):
         transcript="hello",
         is_final=True,
         end_reason="utterance",
-        finalized_at=to_datetime(1_800_000_000_000_000_000),
+        timing=SegmentTiming(
+            speech_started_at=None,
+            speech_ended_at=None,
+            end_decided_at=None,
+            end_decided_by=None,
+            finalized_at=to_datetime(1_800_000_000_000_000_000),
+        ),
     )
     with pytest.raises(RuntimeError, match="consumer failed"):
         with segment_span(
@@ -431,16 +449,20 @@ def test_a_callback_that_raises_ends_the_span_as_an_error(exporter):
 # ---------------------------------------------------------------------------
 
 
-def _stamped(text: str, clock, start_ms: int, end_ms: int, by: str) -> SpeechUtterance:
+def _stamped(
+    text: str, clock, start_ms: int, end_ms: int, by: EndDecidedBy
+) -> SpeechUtterance:
     """A final utterance as the engine hands it to the segmenter."""
     return SpeechUtterance(
         transcript=text,
         is_final=True,
         confidence=None,
-        speech_started_at=to_datetime(clock.at_ms(start_ms)),
-        speech_ended_at=to_datetime(clock.at_ms(end_ms)),
-        end_decided_at=to_datetime(clock.at_ms(end_ms + 50)),
-        end_decided_by=by,
+        timing=UtteranceTiming(
+            speech_started_at=to_datetime(clock.at_ms(start_ms)),
+            speech_ended_at=to_datetime(clock.at_ms(end_ms)),
+            end_decided_at=to_datetime(clock.at_ms(end_ms + 50)),
+            end_decided_by=by,
+        ),
     )
 
 
@@ -470,13 +492,15 @@ async def test_a_trigger_word_segment_spans_its_first_speech_to_the_trigger_word
 
     final = segments[-1]
     assert (final.transcript, final.end_reason) == ("the sky is blue", "trigger_word")
-    assert final.speech_started_at == to_datetime(clock.at_ms(100))
     # The trigger word is not in the text, but the speech ended with it.
-    assert final.speech_ended_at == to_datetime(clock.at_ms(2000))
-    assert final.end_decided_at == to_datetime(clock.at_ms(2050))
-    assert final.end_decided_by == "module"
-    assert final.finalized_at == to_datetime(clock.at_ms(2100))
-    assert all(s.finalized_at is None for s in segments[:-1])  # the open updates
+    assert final.timing == SegmentTiming(
+        speech_started_at=to_datetime(clock.at_ms(100)),
+        speech_ended_at=to_datetime(clock.at_ms(2000)),
+        end_decided_at=to_datetime(clock.at_ms(2050)),
+        end_decided_by="module",
+        finalized_at=to_datetime(clock.at_ms(2100)),
+    )
+    assert all(s.timing is None for s in segments[:-1])  # the open updates
 
 
 async def test_a_timeout_segment_ends_with_its_last_utterance_and_is_finalized_later(
@@ -493,12 +517,15 @@ async def test_a_timeout_segment_ends_with_its_last_utterance_and_is_finalized_l
 
     final = segments[-1]
     assert (final.transcript, final.end_reason) == ("one two", "end_of_speech_timeout")
-    assert final.speech_started_at == to_datetime(clock.at_ms(100))
-    assert final.speech_ended_at == to_datetime(clock.at_ms(900))
-    # What ended the last utterance; the timer's wait is finalized − end_decided.
-    assert final.end_decided_at == to_datetime(clock.at_ms(950))
-    assert final.end_decided_by == "vad_gate"
-    assert final.finalized_at == to_datetime(clock.at_ms(6000))
+    # end_decided is what ended the last utterance; the timer's wait is
+    # finalized − end_decided.
+    assert final.timing == SegmentTiming(
+        speech_started_at=to_datetime(clock.at_ms(100)),
+        speech_ended_at=to_datetime(clock.at_ms(900)),
+        end_decided_at=to_datetime(clock.at_ms(950)),
+        end_decided_by="vad_gate",
+        finalized_at=to_datetime(clock.at_ms(6000)),
+    )
 
 
 async def test_a_segment_closed_on_initial_silence_has_only_its_finalized_stamp(
@@ -513,13 +540,13 @@ async def test_a_segment_closed_on_initial_silence_has_only_its_finalized_stamp(
 
     final = segments[0]
     assert final.end_reason == "initial_silence_timeout"
-    assert final.finalized_at == to_datetime(clock.BASE)
-    assert (
-        final.speech_started_at,
-        final.speech_ended_at,
-        final.end_decided_at,
-        final.end_decided_by,
-    ) == (None, None, None, None)
+    assert final.timing == SegmentTiming(
+        speech_started_at=None,
+        speech_ended_at=None,
+        end_decided_at=None,
+        end_decided_by=None,
+        finalized_at=to_datetime(clock.BASE),
+    )
 
     # Its span has no end_decided event and no decider.
     with segment_span(

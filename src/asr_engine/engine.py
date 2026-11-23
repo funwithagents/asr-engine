@@ -27,7 +27,13 @@ from asr_engine.modules.base import (
     UtteranceCallback,
     resolve_module_audio_format,
 )
-from asr_engine.segment_timing import EndDecidedBy, now_ns, segment_span, to_datetime
+from asr_engine.segment_timing import (
+    EndDecidedBy,
+    UtteranceTiming,
+    now_ns,
+    segment_span,
+    to_datetime,
+)
 from asr_engine.segmenter import (
     VALID_MODES,
     SegmentCallback,
@@ -625,26 +631,25 @@ class ASREngine:
         when the final arrived, at its closing time; otherwise by the module,
         now.
         """
-        decided_ns, decided_by = now_ns(), cast(EndDecidedBy, "module")
+        decided_ns: int = now_ns()
+        decided_by: EndDecidedBy = "module"
         gate = self._vad_gate if self._config.vad is not None else None
-        timing = gate.take_speech_timing() if gate is not None else None
-        if timing is None:
-            return replace(
-                utterance,
-                end_decided_at=to_datetime(decided_ns),
-                end_decided_by=decided_by,
-            )
-        if timing.closed_ns is not None:
-            decided_ns, decided_by = timing.closed_ns, "vad_gate"
-        return replace(
-            utterance,
-            speech_started_at=to_datetime(timing.started_ns),
+        speech = gate.take_speech_timing() if gate is not None else None
+        if speech is not None and speech.closed_ns is not None:
+            decided_ns, decided_by = speech.closed_ns, "vad_gate"
+        timing = UtteranceTiming(
+            speech_started_at=(
+                to_datetime(speech.started_ns) if speech is not None else None
+            ),
             speech_ended_at=(
-                to_datetime(timing.ended_ns) if timing.ended_ns is not None else None
+                to_datetime(speech.ended_ns)
+                if speech is not None and speech.ended_ns is not None
+                else None
             ),
             end_decided_at=to_datetime(decided_ns),
             end_decided_by=decided_by,
         )
+        return replace(utterance, timing=timing)
 
     async def _handle_utterance(self, utterance: SpeechUtterance) -> None:
         if utterance.is_final:

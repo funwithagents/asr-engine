@@ -25,7 +25,7 @@ from asr_engine.audio import (
     EndOfSpeech,
     mulaw_to_linear16,
 )
-from asr_engine.segment_timing import SpeechTiming, now_ns
+from asr_engine.segment_timing import GateSpeechTiming, now_ns
 from asr_engine.vad.base import VADModule
 
 log = logging.getLogger(__name__)
@@ -170,7 +170,7 @@ class VadGate:
             speaking=self._speaking or self._failed, failed_open=self._failed
         )
 
-    def take_speech_timing(self) -> SpeechTiming | None:
+    def take_speech_timing(self) -> GateSpeechTiming | None:
         """The timing of the speech a final utterance arriving now transcribes.
 
         Called by the engine once per final utterance. The speech is what the
@@ -195,12 +195,12 @@ class VadGate:
         while last >= 0 and runs[last].settled_ns is None:
             last -= 1
         if last < 0:
-            return SpeechTiming(started_ns=started, ended_ns=None, closed_ns=None)
+            return GateSpeechTiming(started_ns=started, ended_ns=None, closed_ns=None)
         if fresh:
             for _ in range(last + 1):
                 self._pending_runs.popleft()
         end = runs[last]
-        return SpeechTiming(
+        return GateSpeechTiming(
             started_ns=started, ended_ns=end.settled_ns, closed_ns=end.closed_ns
         )
 

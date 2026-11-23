@@ -36,14 +36,10 @@ class SpeechUtterance:
     transcript: str
     is_final: bool  # False = interim/partial, True = final
     confidence: float | None  # None if not provided by the backend
-    # Timing, set by the engine on a final utterance (segment-timing.md)
-    speech_started_at: datetime | None = None
-    speech_ended_at: datetime | None = None
-    end_decided_at: datetime | None = None
-    end_decided_by: str | None = None  # "vad_gate" or "module"
+    timing: UtteranceTiming | None = None  # set by the engine on a final
 ```
 
-The module builds the first three fields. The engine hands its consumers and the `Segmenter` a copy of each **final** utterance with the timing fields set; an interim passes through unchanged. See [segment-timing.md](segment-timing.md).
+The module builds the first three fields. The engine hands its consumers and the `Segmenter` a copy of each **final** utterance with `timing` set (when its speech started and ended, when its end was decided and by what); an interim passes through unchanged, with `timing` `None`. See [segment-timing.md](segment-timing.md).
 
 ### `SpeechSegment`
 
@@ -56,15 +52,10 @@ class SpeechSegment:
     is_final: bool  # True once the segment is closed
     end_reason: str | None  # why the segment closed; None while open
     utterances: list[SpeechUtterance]  # the committed final utterances so far
-    # Timing, on a final segment only (segment-timing.md)
-    speech_started_at: datetime | None = None
-    speech_ended_at: datetime | None = None
-    end_decided_at: datetime | None = None
-    end_decided_by: str | None = None
-    finalized_at: datetime | None = None
+    timing: SegmentTiming | None = None  # on a final segment only
 ```
 
-The timing fields are `None` on an open segment. On a final one they say when its speech started and ended, when its end was decided and by what, and when it was produced; a stamp that could not be taken stays `None`. Their meaning, and how a segment of several utterances gets them, is in [segment-timing.md](segment-timing.md).
+`timing` is `None` on an open segment. On a final one it says when the segment's speech started and ended, when its end was decided and by what, and when it was produced; a stamp that could not be taken is `None`. The fields, and how a segment of several utterances gets them, are in [segment-timing.md](segment-timing.md).
 
 | `end_reason` value          | When the segment closes |
 |-----------------------------|-------------------------|

@@ -22,7 +22,7 @@ An application that reacts to speech wants to know how long the person waited an
 
 The engine now reports these moments for every final segment, in two forms filled from the same stamps:
 
-- **Plain data** on the final `SpeechSegment` (and on each final `SpeechUtterance`), for a caller with no tracing setup.
+- **Plain data**: a `timing` object on the final `SpeechSegment` (and on each final `SpeechUtterance`), for a caller with no tracing setup.
 - **An OpenTelemetry span** per final segment, current while `on_speech_segment` is awaited. An application that traces its own work gets what it does in the callback placed under the span with no code of its own, so the span is the root of the trace of that exchange.
 
 The engine measures; it does not display, export or aggregate. Nothing here changes how speech is recognized or segmented, and there is no configuration. Timing is in process only: the MCP resources and tools ([mcp-server.md](mcp-server.md), [tools.md](tools.md)) are unchanged.
@@ -31,7 +31,7 @@ The engine measures; it does not display, export or aggregate. Nothing here chan
 
 ### The four moments
 
-| Moment | Field | Meaning |
+| Moment | Field of `timing` | Meaning |
 |---|---|---|
 | Start of speech | `speech_started_at` | the start of the first frame the VAD gate scored as speech, in the speech the segment transcribes |
 | End of speech | `speech_ended_at` | the end of the last such frame that silence followed |
@@ -47,28 +47,40 @@ In order: start of speech ≤ end of speech ≤ end decided ≤ finalized.
 ### The data
 
 ```python
+@dataclass(frozen=True)
+class UtteranceTiming:
+    speech_started_at: datetime | None
+    speech_ended_at: datetime | None
+    end_decided_at: datetime
+    end_decided_by: Literal["vad_gate", "module"]
+
+
+@dataclass(frozen=True)
+class SegmentTiming:
+    speech_started_at: datetime | None
+    speech_ended_at: datetime | None
+    end_decided_at: datetime | None
+    end_decided_by: Literal["vad_gate", "module"] | None
+    finalized_at: datetime
+
+
 @dataclass
 class SpeechUtterance:
     ...
-    speech_started_at: datetime | None = None
-    speech_ended_at: datetime | None = None
-    end_decided_at: datetime | None = None
-    end_decided_by: str | None = None  # "vad_gate" or "module"
+    timing: UtteranceTiming | None = None
 
 
 @dataclass
 class SpeechSegment:
     ...
-    speech_started_at: datetime | None = None
-    speech_ended_at: datetime | None = None
-    end_decided_at: datetime | None = None
-    end_decided_by: str | None = None
-    finalized_at: datetime | None = None
+    timing: SegmentTiming | None = None
 ```
 
+- **One sub-object, not loose fields.** `timing` is `None` on an interim utterance or segment and set on a final one, so "is there timing" is one check and the two result types stay small. `tts-engine` does the same (`result.timing`). Both types are frozen and exported from `asr_engine`.
 - Datetimes are timezone-aware UTC, at microsecond precision.
-- **Final values only.** An interim utterance or segment has every field `None`. A final segment always has `finalized_at`.
-- **The engine stamps, not the module.** A module builds `SpeechUtterance(transcript, is_final, confidence)` as before; the engine hands its consumers and the `Segmenter` a stamped copy of each final. The module interface is unchanged, so a third-party module gets timing for free.
+- **What is always there.** A final utterance always has `end_decided_at` and `end_decided_by`; a final segment always has `finalized_at`. The rest is `None` when it could not be taken.
+- **The engine stamps, not the module.** A module builds `SpeechUtterance(transcript, is_final, confidence)` as before; the engine hands its consumers and the `Segmenter` a copy of each final with `timing` set. The module interface is unchanged, so a third-party module gets timing for free.
+- `GateSpeechTiming` (`segment_timing.py`) is internal: the raw nanosecond stamps the gate hands the engine for one final, from which the engine builds the `UtteranceTiming`.
 
 ### Where the speech stamps are taken: the gate
 
@@ -82,7 +94,7 @@ class SpeechSegment:
 
 ### Which speech a final transcribes
 
-The gate and the module are decoupled: nothing in a module's final says which audio it covers. The gate keeps the **runs** it was open for, each with its onset, its latest speech frame and its closing time, and the engine asks it once per final utterance (`VadGate.take_speech_timing()`):
+The gate and the module are decoupled: nothing in a module's final says which audio it covers. The gate keeps the **runs** it was open for, each with its onset, its latest speech frame and its closing time, and the engine asks it once per final utterance (`VadGate.take_speech_timing()`, which returns a `GateSpeechTiming`):
 
 - **The speech of a final is what the gate detected since the previous final.** It starts with the first of those runs.
 - **It ends with the last speech that silence followed.** If the person is speaking again when the final arrives (a late final, or a pause shorter than the hangover), the gate's latest speech frame belongs to the next turn. The end is then the end of the stretch before that pause; a single silent frame counts as a pause.
@@ -108,7 +120,7 @@ In the `trigger_word` and `timeout` modes a segment holds several final utteranc
 - `speech_started_at` is the first utterance's that has one; `speech_ended_at` the last utterance's.
 - `end_decided_at` and `end_decided_by` describe **the end of the last utterance**. The segmenter's own wait (the silence timer) then shows as `finalized − end_decided`, and `end_reason` says why the segment closed.
 - In `trigger_word` mode the trigger utterance is not part of the segment's text, but the segment's speech ends with it.
-- A segment closed with no utterance (`initial_silence_timeout`) has `finalized_at` only.
+- A segment closed with no utterance (`initial_silence_timeout`) has `finalized_at` only: its other four fields are `None`.
 
 **What starts the silence timer.** In `timeout` mode the `end_of_speech_timeout_s` timer is restarted by **every utterance the segmenter receives, interim or final**, when it arrives. It does not run from the end of speech, which the segmenter never sees. For a segment it closes, `finalized − end_decided` is therefore the recognizer finalizing the last utterance plus the whole timer when that final is the last event received, and a little more than the timer when the backend sent something after it. The span carries the timer's length (`asr_engine.segmentation.end_of_speech_timeout_s`) so a reader can show it as configured time, as with the gate's `min_silence_duration_ms`.
 

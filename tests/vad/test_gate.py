@@ -12,7 +12,7 @@ import numpy as np
 import pytest
 
 from asr_engine.audio import END_OF_SPEECH, AudioFormat, linear16_to_mulaw
-from asr_engine.segment_timing import SpeechTiming
+from asr_engine.segment_timing import GateSpeechTiming
 from asr_engine.vad.gate import VadGate, VadState, analysis_sample_rate
 from tests.vad.scripted import (
     FORMAT_16K,
@@ -349,7 +349,7 @@ async def test_speech_is_stamped_at_its_first_and_last_frame_not_at_the_gate(clo
 
     # Speech is 200-300 ms. The gate opened at 230 ms and forwarded from 180 ms;
     # it closed on the frame ending at 350 ms, in the chunk received at 400 ms.
-    assert rig.gate.take_speech_timing() == SpeechTiming(
+    assert rig.gate.take_speech_timing() == GateSpeechTiming(
         started_ns=clock.at_ms(200),
         ended_ns=clock.at_ms(300),
         closed_ns=clock.at_ms(400),
@@ -362,7 +362,7 @@ async def test_frames_are_placed_by_audio_time_inside_a_chunk(clock):
     rig = Rig()
     await feed_paced(rig, clock, UTTERANCE, chunk_ms=600)
 
-    assert rig.gate.take_speech_timing() == SpeechTiming(
+    assert rig.gate.take_speech_timing() == GateSpeechTiming(
         started_ns=clock.at_ms(200),
         ended_ns=clock.at_ms(300),
         closed_ns=clock.at_ms(600),
@@ -381,13 +381,13 @@ async def test_speech_without_a_pause_yet_has_a_start_and_no_end(clock):
     await feed_paced(rig, clock, pcm(quiet(200), loud(200)))
 
     # A final arriving now is mid-speech: nothing has ended.
-    assert rig.gate.take_speech_timing() == SpeechTiming(
+    assert rig.gate.take_speech_timing() == GateSpeechTiming(
         started_ns=clock.at_ms(200), ended_ns=None, closed_ns=None
     )
 
     # The run was left for the next final, which gets its start and its end.
     await feed_paced(rig, clock, pcm(quiet(100, seed=3)))
-    assert rig.gate.take_speech_timing() == SpeechTiming(
+    assert rig.gate.take_speech_timing() == GateSpeechTiming(
         started_ns=clock.at_ms(200),
         ended_ns=clock.at_ms(400),
         closed_ns=clock.at_ms(500),
@@ -400,7 +400,7 @@ async def test_a_final_during_the_hangover_ends_at_the_last_speech_frame(clock):
     await feed_paced(rig, clock, pcm(quiet(200), loud(100), quiet(30)), chunk_ms=10)
 
     assert rig.gate.state().speaking  # 30 ms of silence: still open
-    assert rig.gate.take_speech_timing() == SpeechTiming(
+    assert rig.gate.take_speech_timing() == GateSpeechTiming(
         started_ns=clock.at_ms(200), ended_ns=clock.at_ms(300), closed_ns=None
     )
 
@@ -412,7 +412,7 @@ async def test_speech_resumed_before_the_final_keeps_the_earlier_end(clock):
     audio = pcm(quiet(200), loud(100), quiet(30), loud(50, seed=7))
     await feed_paced(rig, clock, audio, chunk_ms=10)
 
-    assert rig.gate.take_speech_timing() == SpeechTiming(
+    assert rig.gate.take_speech_timing() == GateSpeechTiming(
         started_ns=clock.at_ms(200), ended_ns=clock.at_ms(300), closed_ns=None
     )
 
@@ -424,7 +424,7 @@ async def test_a_late_final_is_given_the_closed_run_not_the_speech_that_followed
     second = pcm(quiet(100, seed=4), loud(100, seed=5))
     await feed_paced(rig, clock, UTTERANCE + second)  # 700-800 ms: speaking again
 
-    assert rig.gate.take_speech_timing() == SpeechTiming(
+    assert rig.gate.take_speech_timing() == GateSpeechTiming(
         started_ns=clock.at_ms(200),
         ended_ns=clock.at_ms(300),
         closed_ns=clock.at_ms(400),
@@ -432,7 +432,7 @@ async def test_a_late_final_is_given_the_closed_run_not_the_speech_that_followed
 
     # The second run belongs to the next final.
     await feed_paced(rig, clock, pcm(quiet(100, seed=6)))
-    assert rig.gate.take_speech_timing() == SpeechTiming(
+    assert rig.gate.take_speech_timing() == GateSpeechTiming(
         started_ns=clock.at_ms(700),
         ended_ns=clock.at_ms(800),
         closed_ns=clock.at_ms(900),
@@ -445,7 +445,7 @@ async def test_several_runs_before_one_final_span_the_first_start_to_the_last_en
     rig = Rig()
     await feed_paced(rig, clock, UTTERANCE + UTTERANCE)
 
-    assert rig.gate.take_speech_timing() == SpeechTiming(
+    assert rig.gate.take_speech_timing() == GateSpeechTiming(
         started_ns=clock.at_ms(200),
         ended_ns=clock.at_ms(900),
         closed_ns=clock.at_ms(1000),
