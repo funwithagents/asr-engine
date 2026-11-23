@@ -264,7 +264,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "asr-engine", extras = ["deepgram", "mcp", "mistral", "mlx-audio", "openai-compatible", "silero"], marker = "extra == 'all'" },
-    { name = "deepgram-sdk", marker = "extra == 'deepgram'", specifier = ">=6,<7" },
+    { name = "deepgram-sdk", marker = "extra == 'deepgram'", specifier = ">=7,<8" },
     { name = "httpx", marker = "extra == 'openai-compatible'", specifier = ">=0.27" },
     { name = "mcp", marker = "extra == 'mcp'", specifier = "<2" },
     { name = "mlx-audio", extras = ["stt"], marker = "platform_machine == 'arm64' and sys_platform == 'darwin' and extra == 'mlx-audio'", specifier = ">=0.6" },
@@ -730,7 +730,7 @@ wheels = [
 
 [[package]]
 name = "deepgram-sdk"
-version = "6.0.1"
+version = "7.19.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "httpx" },
@@ -742,9 +742,9 @@ dependencies = [
     { name = "websockets", version = "15.0.1", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-10-asr-engine-kyutai-mlx' or (extra == 'extra-10-asr-engine-all' and extra == 'extra-10-asr-engine-kyutai-torch') or (extra == 'extra-10-asr-engine-kyutai-torch' and extra == 'extra-10-asr-engine-mlx-audio') or (extra == 'extra-10-asr-engine-kyutai-torch' and extra == 'group-10-asr-engine-dev')" },
     { name = "websockets", version = "16.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-10-asr-engine-all' or extra != 'extra-10-asr-engine-kyutai-mlx' or (extra == 'extra-10-asr-engine-kyutai-mlx' and extra == 'extra-10-asr-engine-mlx-audio') or (extra == 'extra-10-asr-engine-kyutai-mlx' and extra == 'group-10-asr-engine-dev')" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/73/46/6dc45de574d766a20853452d7beccf17cb0cfeb685a0f03460f1fe49b48e/deepgram_sdk-6.0.1.tar.gz", hash = "sha256:88558a43d6173a861c8b6d6491b9ee8805679fb09fb81ef51eeb6871dad77767", size = 176743, upload-time = "2026-02-24T13:52:17.163Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/24/2a/657f471495766961fc89f1c4dce94c0c0065272d7c65037e0a8e69cd59a5/deepgram_sdk-7.19.0.tar.gz", hash = "sha256:e92416b33abcfb7146be7d894e7d8f9b4e8ad8dbbc2ddb4fc65989eff0be401a", size = 266185, upload-time = "2026-11-13T09:44:38.593Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/58/a4/53b9075816edc566694aed014d9864febedf232677b74f5d30bdde64b5de/deepgram_sdk-6.0.1-py3-none-any.whl", hash = "sha256:1b33d621b1c0b1d7a6a7b46fdc393aef4212e670521fada99764f5fb3f9d55fd", size = 490751, upload-time = "2026-02-24T13:52:15.998Z" },
+    { url = "https://files.pythonhosted.org/packages/00/02/99e5fd5d8d4cb3cd8afcdd0e25ede7857770eecdd0b9a648ddd3e1eac090/deepgram_sdk-7.19.0-py3-none-any.whl", hash = "sha256:dcd4a80add10193c7b5f3b4a1fd54c449aa5e4b8e1429c7c6afcd1f116a1508d", size = 688393, upload-time = "2026-11-13T09:44:36.65Z" },
 ]
 
 [[package]]
