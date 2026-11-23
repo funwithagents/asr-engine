@@ -507,10 +507,11 @@ async def test_a_segment_closed_on_initial_silence_has_only_its_finalized_stamp(
     segments: list[SpeechSegment] = []
     segmenter = _segmenter("timeout", segments, initial_silence_timeout_s=0.05)
     await segmenter.start()
-    await asyncio.sleep(0.1)
+    while not segments:  # the timer restarts after each close: take the first
+        await asyncio.sleep(0.01)
     await segmenter.stop()
 
-    (final,) = segments
+    final = segments[0]
     assert final.end_reason == "initial_silence_timeout"
     assert final.finalized_at == to_datetime(clock.BASE)
     assert (
