@@ -97,7 +97,9 @@ Inferred by the engine when the final arrives, with no report from the module:
 - the gate **had closed** on that speech: `vad_gate`, at the time the gate closed (the reception of the chunk holding the deciding frame);
 - otherwise (the gate is still open, or there is no gate): `module`, at the final's arrival.
 
-A module's own end of turn that lands just after the gate closed is attributed to the gate. Telling the two apart would need each module to report it; see "Open questions".
+**A module that beats the gate.** A backend's own end of turn can arrive while the gate is still counting silence, before `min_silence_duration_ms` has run. The final then has `end_decided_by = module` at its arrival, and `speech_ended_at` is the gate's last speech frame: silence has followed it (one scored silent frame is enough) even though the gate has not closed. `end_decided − speech_ended` is then the backend's endpointing delay.
+
+A module's own end of turn that lands just after the gate closed is attributed to the gate: the gate closed first, so the wait was the gate's. Telling the two apart would need each module to report it; see "Open questions".
 
 ### Segments of several utterances
 
@@ -108,6 +110,10 @@ In the `trigger_word` and `timeout` modes a segment holds several final utteranc
 - In `trigger_word` mode the trigger utterance is not part of the segment's text, but the segment's speech ends with it.
 - A segment closed with no utterance (`initial_silence_timeout`) has `finalized_at` only.
 
+**What starts the silence timer.** In `timeout` mode the `end_of_speech_timeout_s` timer is restarted by **every utterance the segmenter receives, interim or final**, when it arrives. It does not run from the end of speech, which the segmenter never sees. For a segment it closes, `finalized − end_decided` is therefore the recognizer finalizing the last utterance plus the whole timer when that final is the last event received, and a little more than the timer when the backend sent something after it. The span carries the timer's length (`asr_engine.segmentation.end_of_speech_timeout_s`) so a reader can show it as configured time, as with the gate's `min_silence_duration_ms`.
+
+**Pauses inside a segment read as speech**: the segment's speech runs from its first onset to its last end.
+
 ### The span
 
 One span per **final** segment; an interim segment opens none.
@@ -115,7 +121,7 @@ One span per **final** segment; an interim segment opens none.
 - **Start time:** `speech_ended_at` when known, else `finalized_at`.
 - **Current while `on_speech_segment` is awaited** for that segment, and ended when the callback returns. A span the callback opens is its child.
 - **Events carry the times they name**, not the time the span is built: `end_decided` (when known) and `finalized`.
-- **Parent.** In the always-on stream and during a dictation the span is a **root**: the task that delivers segments is created inside `start()` and inherits the context current there, which would otherwise make every segment a child of a span that ended long ago. For `listen()` the span is a child of the span current where `listen()` is awaited; it has ended when `listen()` returns the segment.
+- **Parent.** In the always-on stream and during a dictation the span is always a **root**, a new trace, whatever was current at `start()` or `start_dictation()`, and it carries no span link. The task that delivers segments is created inside `start()` and inherits the context current there, which would otherwise make every segment a child of a span that ended long ago. And an application that calls `start_dictation()` from inside its reaction to the previous segment must not see the dictated segment as a follow-up of that reaction. For `listen()` the span is a child of the span current where `listen()` is awaited; it has ended when `listen()` returns the segment.
 - **A callback that raises** ends the span with the exception recorded and an error status, and the exception propagates as before. A cancellation ends it with no error.
 
 ### The names are a contract
@@ -134,6 +140,8 @@ A trace reader finds a segment by its tracer and span name, and reads its steps 
 | Attribute | `asr_engine.end_decided_by` | `vad_gate` or `module`; absent when unknown |
 | Attribute | `asr_engine.vad.min_silence_duration_ms` | the gate's hangover, when a VAD is configured |
 | Attribute | `asr_engine.speech_started_unix_ns` | `speech_started_at` in nanoseconds since the epoch, when known. An attribute, not an event: it is before the span's start |
+| Attribute | `asr_engine.segmentation_mode` | the mode the segment was closed under: `utterance`, `trigger_word` or `timeout` |
+| Attribute | `asr_engine.segmentation.end_of_speech_timeout_s` | the silence timer's length in seconds, only when that timer closed the segment (`end_reason` is `end_of_speech_timeout`) |
 
 Attributes carry the package's name as their prefix, like the tracer: a trace holds spans from many libraries, and `asr.` could be another library's or a future OpenTelemetry convention's. Event names need no prefix, since an event only exists inside its span. The same convention as `tts-engine`.
 
@@ -152,7 +160,7 @@ The tracer is obtained per segment (`trace.get_tracer("asr_engine")`), so an SDK
 Fast tier, per [testing.md](testing.md), on a scripted wall clock (the `clock` fixture) and the SDK's in-memory exporter (the `exporter` fixture), both in `tests/conftest.py`.
 
 - `tests/vad/test_gate.py`: the gate on the scripted VAD, fed as a real-time source would deliver it. The start and end stamps are the speech's first and last frame, to the nanosecond, whatever the chunk size; a final in the hangover, speech resumed before the final, a late final after new speech began, several runs before one final, a second final for the same run; a burst keeps the order; a resampled pipeline is right to the frame; no timing without speech, after a failure, after a restart.
-- `tests/test_segment_timing.py`: `ASREngine` on the `fake` module. With the scripted VAD: a final segment carries the four moments and exactly one span starts at the end of its speech, with its events and attributes; the span is current in the callback of a final segment and of no interim; a final before the gate closes is decided by the module; a gate that failed open gives no end of speech. Without a VAD: the span starts at `finalized_at`. With no tracer provider the stamps are still on the segment. The span's parent in the always-on stream and in `listen()`. The `Segmenter` on stamped utterances for the two aggregating modes and the empty segment.
+- `tests/test_segment_timing.py`: `ASREngine` on the `fake` module. With the scripted VAD: a final segment carries the four moments and exactly one span starts at the end of its speech, with its events and attributes; the span is current in the callback of a final segment and of no interim; a final before the gate closes is decided by the module; a gate that failed open gives no end of speech. Without a VAD: the span starts at `finalized_at`. With no tracer provider the stamps are still on the segment. The span's parent in the always-on stream, in a dictation started inside a span, and in `listen()`; the mode and the timer's length on a segment the silence timer closed. The `Segmenter` on stamped utterances for the two aggregating modes and the empty segment.
 
 ## Open questions
 
@@ -160,6 +168,5 @@ Deferrals only:
 
 - **Capture latency.** The stamps are late by the capture path. For the engine's own `input-device` source, the input stream's reported latency could be carried as an attribute so an application can correct for it; a custom source is its owner's to account for.
 - **A module reporting its own end of turn**, to tell Flux's `EndOfTurn` from the gate's marker when both land close together, and to stamp the decision when the backend took it instead of when its final arrived.
-- **A third `end_decided_by` value** for a segment the segmenter closes (a silence timer), if a reader needs the timer's firing as a decision of its own.
 - **Timing in the MCP payloads.** `asr://segment` and the `listen` tool could carry the stamps as ISO strings; spans cannot cross that boundary.
 - **A `tracer_provider` argument on `ASREngine`**, the usual way to give a library a provider other than the global one.

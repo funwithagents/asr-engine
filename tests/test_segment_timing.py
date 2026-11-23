@@ -142,6 +142,7 @@ async def test_a_final_segment_carries_its_speech_and_one_span_starts_at_its_end
     assert dict(span.attributes) == {
         "asr_engine.module": "fake",
         "asr_engine.end_reason": "utterance",
+        "asr_engine.segmentation_mode": "utterance",
         "asr_engine.speech_end_source": "vad",
         "asr_engine.end_decided_by": "vad_gate",
         "asr_engine.vad.min_silence_duration_ms": 50,
@@ -258,6 +259,7 @@ async def test_without_a_vad_the_span_starts_when_the_segment_is_finalized(
     assert dict(span.attributes) == {
         "asr_engine.module": "fake",
         "asr_engine.end_reason": "utterance",
+        "asr_engine.segmentation_mode": "utterance",
         "asr_engine.speech_end_source": "none",
         "asr_engine.end_decided_by": "module",
     }
@@ -347,6 +349,60 @@ async def test_a_listen_segment_span_is_a_child_of_the_span_listen_was_awaited_i
     assert span.parent is None
 
 
+async def test_a_segment_closed_by_the_silence_timer_names_the_timer_s_length(
+    fake_engine_factory, exporter
+):
+    """In timeout mode finalized − end_decided holds the configured wait; the
+    span says how long it is, and which mode closed the segment."""
+    recorder = Recorder()
+    engine = fake_engine_factory(_SCRIPT, on_speech_segment=recorder.on_segment)
+    await engine.set_segmentation_params(end_of_speech_timeout_s=0.05)
+    await engine.start()
+    await engine.start_dictation(segmentation_mode="timeout")
+    await asyncio.wait_for(recorder.final.wait(), 5)
+    await engine.stop()
+
+    (segment,) = recorder.finals
+    assert (segment.transcript, segment.end_reason) == (
+        "hello there",
+        "end_of_speech_timeout",
+    )
+    (span,) = exporter.get_finished_spans()
+    assert span.parent is None  # a dictated segment starts its own trace
+    assert span.attributes["asr_engine.segmentation_mode"] == "timeout"
+    assert span.attributes["asr_engine.segmentation.end_of_speech_timeout_s"] == 0.05
+    # The wait is inside finalized − end_decided.
+    assert segment.finalized_at is not None and segment.end_decided_at is not None
+    waited = segment.finalized_at - segment.end_decided_at
+    assert waited.total_seconds() >= 0.05
+
+
+async def test_a_dictated_segment_is_a_root_though_dictation_started_inside_a_span(
+    fake_engine_factory, exporter
+):
+    """start_dictation() is called from inside a reaction: the dictated segment
+    must not look like a follow-up of that reaction."""
+    recorder = Recorder()
+    script = [
+        {"text": "the sky is blue", "start_s": 0.3, "end_s": 0.5},
+        {"text": "submit", "start_s": 0.6, "end_s": 0.7},
+    ]
+    engine = fake_engine_factory(
+        script, trigger_words=["submit"], on_speech_segment=recorder.on_segment
+    )
+    await engine.start()
+    with trace.get_tracer("application").start_as_current_span("command"):
+        await engine.start_dictation(segmentation_mode="trigger_word")
+    await asyncio.wait_for(recorder.final.wait(), 5)
+    await engine.stop()
+
+    (span,) = [s for s in exporter.get_finished_spans() if s.name != "command"]
+    assert span.parent is None
+    assert span.attributes["asr_engine.end_reason"] == "trigger_word"
+    assert span.attributes["asr_engine.segmentation_mode"] == "trigger_word"
+    assert "asr_engine.segmentation.end_of_speech_timeout_s" not in span.attributes
+
+
 def test_a_callback_that_raises_ends_the_span_as_an_error(exporter):
     segment = SpeechSegment(
         transcript="hello",
@@ -356,7 +412,11 @@ def test_a_callback_that_raises_ends_the_span_as_an_error(exporter):
     )
     with pytest.raises(RuntimeError, match="consumer failed"):
         with segment_span(
-            segment, module="fake", vad_min_silence_duration_ms=None, parent=None
+            segment,
+            module="fake",
+            vad_min_silence_duration_ms=None,
+            end_of_speech_timeout_s=5.0,
+            parent=None,
         ):
             raise RuntimeError("consumer failed")
 
@@ -462,7 +522,11 @@ async def test_a_segment_closed_on_initial_silence_has_only_its_finalized_stamp(
 
     # Its span has no end_decided event and no decider.
     with segment_span(
-        final, module="fake", vad_min_silence_duration_ms=None, parent=None
+        final,
+        module="fake",
+        vad_min_silence_duration_ms=None,
+        end_of_speech_timeout_s=5.0,
+        parent=None,
     ):
         pass
     (span,) = exporter.get_finished_spans()

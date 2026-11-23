@@ -276,6 +276,7 @@ class ASREngine:
                 vad_min_silence_duration_ms=(
                     vad.min_silence_duration_ms if vad is not None else None
                 ),
+                end_of_speech_timeout_s=self._end_of_speech_timeout_s,
                 parent=self._listen_context,
             ):
                 await self.on_speech_segment(segment)

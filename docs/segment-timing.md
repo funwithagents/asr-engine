@@ -36,7 +36,7 @@ Useful differences:
 | `finalized_at − end_decided_at` | the recognizer's work after the decision. In the `trigger_word` and `timeout` modes it also holds the segmenter's wait, which `end_reason` explains |
 | `finalized_at − speech_ended_at` | what the speaker waited for the transcript |
 
-A segment of several utterances (the [`trigger_word` and `timeout` modes](segmentation.md)) starts with its first speech and ends with its last; `end_decided_at` is about its last utterance.
+A segment of several utterances (the [`trigger_word` and `timeout` modes](segmentation.md)) starts with its first speech and ends with its last; `end_decided_at` is about its last utterance. In `timeout` mode the silence timer restarts each time the backend sends an utterance, interim or final, so `finalized_at − end_decided_at` includes `end_of_speech_timeout_s`.
 
 The stamps are taken where the engine receives the audio, so they are late by the capture path: the sound device's buffer and about one 100 ms chunk.
 
@@ -82,5 +82,7 @@ These names are stable; a trace reader can rely on them.
 | Attribute | `asr_engine.end_decided_by` | `vad_gate` or `module` |
 | Attribute | `asr_engine.vad.min_silence_duration_ms` | the gate's setting, when a VAD is configured |
 | Attribute | `asr_engine.speech_started_unix_ns` | `speech_started_at`, in nanoseconds since the epoch, when known |
+| Attribute | `asr_engine.segmentation_mode` | the mode that closed the segment: `utterance`, `trigger_word` or `timeout` |
+| Attribute | `asr_engine.segmentation.end_of_speech_timeout_s` | the silence timer's length, when that timer closed the segment |
 
 The MCP server's resources and tools carry no timing: the stamps and the span are for an application that imports the engine.

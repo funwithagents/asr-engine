@@ -36,6 +36,17 @@ ATTR_SPEECH_END_SOURCE = "asr_engine.speech_end_source"
 ATTR_END_DECIDED_BY = "asr_engine.end_decided_by"
 ATTR_VAD_MIN_SILENCE_DURATION_MS = "asr_engine.vad.min_silence_duration_ms"
 ATTR_SPEECH_STARTED_UNIX_NS = "asr_engine.speech_started_unix_ns"
+ATTR_SEGMENTATION_MODE = "asr_engine.segmentation_mode"
+ATTR_END_OF_SPEECH_TIMEOUT_S = "asr_engine.segmentation.end_of_speech_timeout_s"
+
+# The segmentation mode that closes a segment for each reason: read from the
+# segment itself, so it is the mode the segment was produced under.
+_MODE_OF_END_REASON = {
+    "utterance": "utterance",
+    "trigger_word": "trigger_word",
+    "end_of_speech_timeout": "timeout",
+    "initial_silence_timeout": "timeout",
+}
 
 # What decided that the person had finished: the VAD gate closing, or the ASR
 # module's own end of turn.
@@ -86,6 +97,7 @@ def segment_span(
     *,
     module: str,
     vad_min_silence_duration_ms: int | None,
+    end_of_speech_timeout_s: float,
     parent: otel_context.Context | None,
 ) -> Iterator[None]:
     """The span of one final *segment*, current inside the ``with`` block.
@@ -107,6 +119,12 @@ def segment_span(
     }
     if segment.end_reason is not None:
         attributes[ATTR_END_REASON] = segment.end_reason
+        mode = _MODE_OF_END_REASON.get(segment.end_reason)
+        if mode is not None:
+            attributes[ATTR_SEGMENTATION_MODE] = mode
+        if segment.end_reason == "end_of_speech_timeout":
+            # The configured wait inside finalized − end_decided.
+            attributes[ATTR_END_OF_SPEECH_TIMEOUT_S] = float(end_of_speech_timeout_s)
     if segment.end_decided_by is not None:
         attributes[ATTR_END_DECIDED_BY] = segment.end_decided_by
     if vad_min_silence_duration_ms is not None:
