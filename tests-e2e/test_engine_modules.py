@@ -109,11 +109,13 @@ async def test_engine_modules_vad(
     audio: ModuleAudio,
     vad: dict,
 ) -> None:
-    """Behind the VAD gate a module still yields one complete final per utterance.
+    """Behind the VAD gate a module still finalizes the whole of each utterance.
 
     The source feeds continuous silence around each fixture, as a microphone
     would; the gate forwards only the speech (with its pre-roll and hangover), so
-    the backend never hears the long silence it normally finalizes on.
+    the backend never hears the long silence it normally finalizes on. An
+    utterance may come out as several finals (specs/vad.md "Live tier"): together
+    they must hold the whole phrase.
     """
     require_api_key(module_config)
     require_local_model(module_type, module_config)
@@ -140,17 +142,14 @@ async def test_engine_modules_vad(
         await wait_until(lambda: engine.status()["connected"])
         assert engine.status()["vad"] == "silero"
 
-        # First utterance: the final must hold the whole phrase — the first word
+        # First utterance: its finals must hold the whole phrase — the first word
         # (the pre-roll kept it) and the last (the flush brought it out).
         await source.play(audio.blue, trailing_silence_s=silence_s)
         await wait_until(
-            lambda: any("the sky is blue" in t for t in finals()),
+            lambda: "the sky is blue" in " ".join(finals()),
             describe=recorder.describe,
         )
         second_start_index = len(utterances)
-        # Whatever the backend's own endpointing would have done with it, the
-        # utterance came out as a single final.
-        assert len(finals()) == 1, finals()
 
         # Second utterance, after a gated gap: the module survived a stretch with
         # no audio at all and finalizes again.

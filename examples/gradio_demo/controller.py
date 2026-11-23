@@ -228,8 +228,10 @@ class DemoController:
             self._phase = "stopped"
             self._set_message("Stopped.")
         elif self._phase == "listening" and self._listen_task is not None:
-            self._loop.call_soon_threadsafe(self._listen_task.cancel)
+            # Message first: the loop thread may cancel the task and set "Listen
+            # cancelled." before this thread runs again, and must not be overwritten.
             self._set_message("Stopping listen…")
+            self._loop.call_soon_threadsafe(self._listen_task.cancel)
 
     def listen(self, mode: str | None = None) -> None:
         """Start a single-shot capture in the background (cancelable via ``stop``).

@@ -55,7 +55,7 @@ A second probe session the same day, for VAD gating (`--trailing-silence`, `--id
 | Stop sending after 0.5 s of real silence | Tail complete 0.14 s after the last chunk |
 | Stop, then 0.6 s of silence in **one unpaced message** | Tail complete **0.46 s** after the burst (0.56 s in a second run) |
 | Same with a 1.0 s burst | Tail complete 0.22 s after the burst |
-| `turn.end` in these runs | Not emitted until more audio arrived: with gating, finals cannot come from the server's turn detection |
+| `turn.end` in these runs | Not emitted until more audio arrived: a short burst does not end the turn. Enough silence does (see [VAD gating](#vad-gating)) |
 
 ## Decisions
 
@@ -182,16 +182,36 @@ The module needs **no VAD in front of it**. End-of-utterance comes from the serv
 
 ### VAD gating
 
-`VAD_GATING = "supported"` ([vad.md](../vad.md)). With `engine.vad` set, the module receives only speech, the bill follows speech time, and room noise never leaves the machine. The server's `turn.end` no longer drives finals (it needs to hear the silence the gate removes), so they come from the gate's `END_OF_SPEECH` marker.
+`VAD_GATING = "supported"` ([vad.md](../vad.md)). With `engine.vad` set, the module receives only speech, the bill follows speech time, and room noise never leaves the machine. The gate removes the silence the server's turn detection needs, so on the gate's `END_OF_SPEECH` marker the module **gives that silence back**: the final still comes from the server's own `turn.end`, as it does ungated. No local timer decides when a gated utterance is over.
 
-On a marker the send loop calls `finalize()`. `input_audio.end` would end the session, so the flush is local, in two steps:
+On a marker the send loop calls `finalize()`, which sends **2.0 s of silence** (`_FLUSH_SILENCE_S`, a module constant) as ordinary chunks of about 100 ms, one `input_audio.append` each. That silence does two things:
 
-1. **Send one burst of silence** of `streaming_delay_ms` + 200 ms, as a single `input_audio.append`. The text of the audio already sent is still behind the streaming delay, and the probe above showed it does not arrive unless the server receives that much more audio. This is billed: about 0.7 s per utterance at the default delay.
-2. **Arm a `flush` timer** of `streaming_delay_ms + final_margin_ms`. Each delta that arrives while it is armed restarts it, so the final is emitted once the text has stopped for that long, with everything that arrived in between. It uses the same mechanism as the `turn` and `silence` timers, and whichever fires first finalizes and cancels the others.
+- it releases the text still behind the streaming delay (the probe above: the tail does not arrive without further audio);
+- it is the pause the server's turn detection waits for, so the server sends `turn.end`, and the module emits the final `final_margin_ms` later on the [turn-end path](#utterance-semantics).
 
-The session is kept, and the next utterance goes out on it. A final therefore arrives about `0.5 s + streaming_delay_ms + final_margin_ms` after the marker (≈ 1.1 s at the defaults), itself `min_silence_duration_ms` after the speaker stops.
+The silence timer (`finalize_after_silence_s`) stays the fallback, as ungated: if `turn.end` never comes, the final is emitted that long after the last delta. With `turn_detection: false` it is the only path.
 
-During the gaps nothing new is needed: [idle parking](#lifecycle) ends the session after `idle_close_s` without a chunk and reopens one with the next. A marker read while parked (nothing is open to finalize) or while reconnecting is dropped. A late `turn.end` for a gated utterance, emitted once the next utterance's audio reaches the server, finds an empty accumulator and emits nothing.
+`input_audio.end` would also end the turn, but it ends the session too, so it is not used: the session is kept and the next utterance goes out on it.
+
+**Measured** (gated by Silero at its defaults, server turn detection at its defaults, the 44.1 kHz "the sky is blue" fixture):
+
+| Silence sent on the marker | `turn.end` received | After the marker |
+|---|---|---|
+| 1.0 s | 0 of 3 | — |
+| 1.5 s | 4 of 5 | 0.9–1.9 s |
+| **2.0 s** | **9 of 9** | **0.57–1.91 s** |
+| 2.5 s | 8 of 9 | 0.8–1.9 s |
+| 3.5 s, in one message | 0 of 2 | rejected: "Audio chunk exceeds maximum size of 262144 bytes", and the server closes the connection |
+
+Every `turn.end` came after the turn's last delta. From the end of the speech, the final arrived after a median of **1.23 s** (1.06–1.62 s over 10 runs; the marker itself comes `min_silence_duration_ms` after the speaker stops), against a median of 2.0 s ungated (1.8–2.6 s, once 4.9 s), where the server waits on real silence.
+
+**Cost:** the silence is billed, 2.0 s per gated utterance (about $0.00027 at $0.008 per minute).
+
+**Why not a local timer.** An earlier design sent `streaming_delay_ms` + 200 ms of silence and emitted the final once no delta had arrived for `streaming_delay_ms + final_margin_ms` (580 ms). The server answers only as it processes the silence, and a slow answer (" blue." up to 1.06 s after the marker) came after that window: the utterance was split into two finals (`"The sky is"`, `"blue."`), which made the live tier flaky. The server's `turn.end` is the signal that the turn's text is complete, so the module waits for it rather than guessing.
+
+**Turn-detection settings.** 2.0 s is measured at the server's defaults (`min_silence_ms` 500). A larger `min_silence_ms` may need more silence than the module sends; the silence timer then closes the utterance instead.
+
+During the gaps nothing new is needed: [idle parking](#lifecycle) ends the session after `idle_close_s` without a chunk and reopens one with the next. A marker read while parked (nothing is open to finalize) or while reconnecting is dropped.
 
 ## Installation
 
@@ -219,7 +239,7 @@ The module talks to a **scripted fake connection** (records every client message
 - **Stop flush:** `stop()` sends `input_audio.end`, takes deltas that arrive before `transcription.done` into the final, and returns within `stop_timeout_s` when `done` never comes; `on_connected` ends `False`.
 - **Idle parking:** with no chunk for `idle_close_s`, the accumulator is flushed as a final, `input_audio.end` is sent, and `on_connected` is not called with `False`. The next chunk opens a new session whose first message is `session.update`, and that chunk's bytes follow it.
 - **Reconnect:** a dropped socket emits the accumulator as a final, calls `on_connected(False)`, reconnects, and re-sends `session.update`. A failed handshake retries.
-- **VAD gating:** an `END_OF_SPEECH` marker sends the silence burst (exact length), then the final after the flush wait, including a delta that arrived inside it; deltas that keep arriving hold the final; the session is kept and a second utterance gets its own final; nothing accumulated emits nothing; a marker is dropped while reconnecting and does not reopen a parked session.
+- **VAD gating:** an `END_OF_SPEECH` marker sends 2.0 s of silence as ordinary chunks, and no `input_audio.end`; the final comes from the server's `turn.end`, with the tail that arrived after the marker, and no local wait emits it before; without `turn.end` the silence timer emits it; the session is kept and a second utterance gets its own final; nothing accumulated emits nothing; a marker is dropped while reconnecting and does not reopen a parked session.
 - **Validation:** one case per invalid-config rule above (scenario-style, per [testing.md](../testing.md)).
 
 ### Live tier: `tests-e2e/test_engine_modules.py`
