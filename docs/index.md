@@ -13,6 +13,7 @@ The documentation of `asr-engine`, by what you want to do. The [README](../READM
 | read a file, or feed audio my application already has | [audio-input.md](audio-input.md): the microphone, file input, a custom `AudioSource`, the audio format |
 | stop paying for silence, or run a batch model | [vad.md](vad.md): the optional speech gate and the setting that suits each module |
 | give an agent a `listen` tool, or run the MCP server | [agents-and-mcp.md](agents-and-mcp.md) |
+| measure how long the speaker waited for a transcript, or trace an exchange | [segment-timing.md](segment-timing.md): the `timing` of a final segment and its OpenTelemetry span |
 | test my application without a microphone or an API key | [testing-your-application.md](testing-your-application.md): the `fake` module and the scriptable audio source |
 | find out why the engine does not start or nothing is transcribed | [troubleshooting.md](troubleshooting.md) |
 

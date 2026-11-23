@@ -199,6 +199,16 @@ Durations are counted in whole analysis frames, rounded up (Silero's frames are 
 
 - **On `stop()`** an open utterance gets no marker. The module's own `stop()` flushes what it has, as it does today.
 
+### Speech timing
+
+The gate also records **when** the speech it detects happened, for the timing a final segment carries ([segment-timing.md](segment-timing.md) has the rules and their rationale):
+
+- Each chunk is stamped with the wall clock when the gate receives it, and each analysed frame is placed by the samples received after it. So the stamps are in audio time, not the time a frame was scored.
+- A **run** is one stretch the gate was open for: the start of its onset frame (not the confirmation `min_speech_duration_ms` later, and not the pre-roll), the end of its latest speech frame, and when the gate closed.
+- `take_speech_timing() -> GateSpeechTiming | None` is called by the engine once per final utterance and returns the speech detected since the previous final. `None` when there is none, and once the gate has failed open. `peek_speech_start()` gives an interim the start of that speech without claiming it.
+
+Recording the runs changes nothing in what the gate forwards or when it closes.
+
 ### Audio formats: pipeline format and analysis format
 
 Two formats are in play, and the gate keeps them apart:
@@ -307,6 +317,7 @@ One visible difference: with VAD on, the number and boundaries of finals follow 
 - **Stop** and `listen()` teardown stop the gate, which stops the inner source. The VAD module stays loaded.
 - `engine.audio_format` and `engine.module_audio_format` are unchanged by VAD.
 - `status()` gains `"vad": <type> | None`.
+- On each final utterance the engine asks the gate for the speech it transcribes (`take_speech_timing()`), and stamps the utterance with it ([segment-timing.md](segment-timing.md)).
 - `vad_state` (read-only property) exposes the gate for display: `None` without VAD, else a frozen `VadState` (`gate.py`) with `speaking` (the gate is open) and `failed_open`. The Gradio demo polls it ([gradio-demo.md](gradio-demo.md)).
 
 ## Configuration

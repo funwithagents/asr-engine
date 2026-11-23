@@ -16,6 +16,10 @@ dependencies = [
     # Resamples the audio when the source's rate is not one the ASR module (or
     # the VAD) takes — see specs/format-conversion.md. 0.2 MB, numpy only.
     "soxr",
+    # The span of each final segment — see specs/segment-timing.md. The tracing
+    # API only (pure Python, a no-op until the application installs an SDK).
+    # <2: the 1.x tracing API.
+    "opentelemetry-api>=1.20,<2",
 ]
 
 [project.optional-dependencies]
@@ -159,6 +163,9 @@ dev = [
     # nothing for a self-referenced extra that sits in a declared conflict, so
     # "asr-engine[mlx-audio]" here would be a no-op. Keep in sync with the extra.
     "mlx-audio[stt]>=0.6; sys_platform == 'darwin' and platform_machine == 'arm64'",
+    # The SDK's in-memory span exporter, for the segment-timing tests. The
+    # library itself never imports the SDK.
+    "opentelemetry-sdk>=1.20,<2",
     "pyright>=1.1.411",
     "pytest",
     "pytest-asyncio",

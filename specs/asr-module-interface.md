@@ -33,6 +33,9 @@ class SpeechUtterance:
     transcript: str
     is_final: bool  # False = interim/partial, True = final
     confidence: float | None  # None if not provided by backend
+    # Set by the engine on every utterance; a module never sets it
+    # (segment-timing.md).
+    timing: UtteranceTiming | None = None
 
 
 # Callback type: called each time the module emits an utterance

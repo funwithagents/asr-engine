@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import Awaitable, Callable, ClassVar, Literal, TypeGuard
 
 from asr_engine.audio import DEFAULT_AUDIO_FORMAT, AudioFormat, EndOfSpeech
+from asr_engine.segment_timing import UtteranceTiming
 
 log = logging.getLogger(__name__)
 
@@ -17,6 +18,9 @@ class SpeechUtterance:
     transcript: str
     is_final: bool
     confidence: float | None  # None if not provided by backend
+    # Set by the engine on a final utterance (specs/segment-timing.md); None on
+    # an interim. A module leaves it alone.
+    timing: UtteranceTiming | None = None
 
 
 # What a module's audio queue carries: PCM chunks, plus the VAD gate's

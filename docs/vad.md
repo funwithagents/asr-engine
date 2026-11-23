@@ -53,6 +53,7 @@ The configs under [examples/config/](../examples/config/) carry these settings.
 
 - The boundaries of final utterances follow `min_silence_duration_ms`, unless the backend ends the turn first. A larger value gives fewer, longer finals.
 - [Segmentation](segmentation.md) is unchanged: `trigger_word` and `timeout` still work on the module's utterances.
+- A final segment knows when its speech started and ended ([segment-timing.md](segment-timing.md)); without the gate those two stamps are absent.
 - `engine.status()["vad"]` names the configured VAD, and `engine.vad_state` says whether speech is reaching the module right now.
 
 ## Limits
