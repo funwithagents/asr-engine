@@ -362,7 +362,7 @@ Any pipeline `encoding` and `sample_rate` the ASR module supports is valid with 
   - The download happens in the thread that loads the model, once per machine. Later starts, and every later process, read the cached file.
 - `SUPPORTED_SAMPLE_RATES = {8000, 16000}`, `DEFAULT_SAMPLE_RATE = 16000`, `frame_samples` 256 / 512.
 - The inference session is created with one intra-op thread: the model is tiny and must not spin up a thread pool on the event loop's thread.
-- **Config:** one field beyond the gate's, `model_path` (below); any other unknown field raises `ConfigError`, so a misspelt gate parameter is not silently ignored. For the setup checks ([setup.md](setup.md)), Silero declares `kind = "local"`, `title = "Silero"`, `extra = "silero"`; `check_files` reports the pinned model in the cache (its SHA-256 checked) or the `model_path`, `prepare` runs `ensure_model`, and `probe` loads the model and releases it. `onnxruntime` is imported in `imports()` and `load()` only.
+- **Config:** one field beyond the gate's, `model_path` (below); any other unknown field raises `ConfigError`, so a misspelt gate parameter is not silently ignored. For the setup checks ([setup.md](setup.md)), Silero declares `kind = "local"`, `title = "Silero"`, `extra = "silero"`; `check_files` reports the pinned model in the cache (its SHA-256 checked; not required, `load()` fetches it) or the `model_path` (required), `prepare` runs `ensure_model`, its bytes measured, and `probe` loads the model and releases it. `onnxruntime` is imported in `imports()` and `load()` only.
 - **Cost:** about 0.1 ms per 32 ms frame on the reference machine (Apple Silicon), far inside the `process_frame` contract.
 
 ### Installation

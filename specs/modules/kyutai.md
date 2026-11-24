@@ -144,7 +144,7 @@ pip install 'asr-engine[kyutai-mlx]' (from source: uv sync --extra kyutai-mlx)
 
 This deliberately mirrors the other modules' install hint so they read alike.
 
-For the setup checks, its `check_files` reports the model (`kyutai:<hf_repo>`) from `download.is_cached`, `prepare` fetches it with `download.download`, and `probe` builds the backend, loads it once and closes it ([setup.md](../setup.md)).
+For the setup checks, its `check_files` reports the model (`kyutai:<hf_repo>`) from `download.is_cached`, not required (the backends fetch it when they load), `prepare` fetches it with `download.download`, its bytes measured, and `probe` builds the backend, loads it once and closes it ([setup.md](../setup.md)).
 
 ## Audio contract
 

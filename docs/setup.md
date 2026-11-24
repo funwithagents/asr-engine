@@ -11,9 +11,12 @@ config = {"module": {"type": "deepgram-v1"}, "vad": {"type": "silero"}}
 
 setup.check_config(config)  # [] when the engine accepts this config
 setup.required_extras(config)  # ["asr-engine[deepgram]", "asr-engine[silero]"]
-# The extras, the key, the model files: each "ready", "missing" or "unknown".
-setup.check_setup(config)
-setup.prepare(config)  # downloads the missing files (here, the Silero model)
+# The extras, the key, the model files: each "ready", "missing" or "unknown",
+# and each required to start or not.
+items = setup.check_setup(config)
+for item in items:  # one call per item; several may run at the same time
+    if item["preparable"] and item["status"] == "missing":
+        setup.prepare(config, item["id"])  # here, the Silero model
 # A light real check: {"ok": True, "message": ..., "duration_s": ...}.
 setup.probe(config)
 ```
@@ -25,14 +28,14 @@ setup.probe(config)
 | `config_schema()` | The engine block as a JSON Schema: one branch per module and per VAD, each field with its type, default, bounds and a description | Nothing |
 | `required_extras(config)` | The extras the selected module and VAD need, as `asr-engine[<extra>]`, or `[]` | Nothing |
 | `check_config(config)` | What is wrong in the config itself: every reason the engine would refuse it, each with a JSON Pointer to the field and the message the engine raises | Nothing |
-| `check_setup(config)` | What this machine is missing to run the config: the module's extra, the environment variable holding its key, its model files, then the VAD's extra and model file | Nothing |
-| `prepare(config, on_progress)` | Downloads the missing files; `on_progress` receives `{"id", "fraction", "message"}` | The extras, the network |
+| `check_setup(config)` | What this machine is missing to run the config: the module's extra, the environment variable holding its key, its model files, then the VAD's extra and model file; each says whether it is `required` to start | Nothing |
+| `prepare(config, item, on_progress=)` | Downloads one item `check_setup` called preparable; `on_progress` receives `{"fraction", "message"}` about it ("Downloading 120 of 300 MB") | The extras, the network |
 | `options("input-devices", config)` | The machine's input devices, after the system default, each with the `audio_source.device` it sets | Nothing |
 | `probe(config)` | A light real check: a hosted module makes one free, authenticated listing call with the key (and finds the configured model there); a local module loads its model and releases it, as does the VAD. No microphone, no audio, no transcription. Never raises | Everything the config needs |
 
 "Nothing" means the base install, with no network: `config_schema`, `required_extras` and `check_config` look at the config only, so an application can show and check a config for a module that is not installed yet. `check_setup` also tries the module's imports (a missing extra is one of its answers) and reads the environment.
 
-The usual order is `check_config`, then `check_setup`; install what it says is missing and set the key; `prepare`; `check_setup` again; `probe` when you want to know it works.
+The usual order is `check_config`, then `check_setup`; install what it says is missing and set the key; `prepare` each preparable item; `check_setup` again; `probe` when you want to know it works.
 
 ## `check_config` and `check_setup`
 
@@ -60,4 +63,6 @@ A few fields are richer than a form field: Mistral's and OpenAI's `turn_detectio
 
 ## Local models
 
-`kyutai` and `mlx-audio` have their model in the Hugging Face cache, reported `ready` or `missing`; `prepare` downloads it with the same call the module makes. A local path (`mlx-audio`'s `model`, the VAD's `model_path`) is `ready` or `missing` and never downloaded. The Silero VAD's model is a small pinned file in the engine's cache directory ([vad.md](vad.md)).
+`kyutai` and `mlx-audio` have their model in the Hugging Face cache, reported `ready` or `missing`; `prepare` downloads it into the same cache the module loads it from. The Silero VAD's model is a small pinned file in the engine's cache directory ([vad.md](vad.md)). None of the three is **required**: a session whose model is missing downloads it when it starts, which makes that start slow and needs the network, so preparing it ahead is better. `prepare` reports the bytes received against the model's size as it goes.
+
+A local path (`mlx-audio`'s `model`, the VAD's `model_path`) is `ready` or `missing`, never downloaded, and required: only you can put the file there.

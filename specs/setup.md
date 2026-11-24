@@ -4,18 +4,20 @@ code:
   - src/asr_engine/errors.py
   - src/asr_engine/modules/fields.py
   - src/asr_engine/modules/base.py
+  - src/asr_engine/modules/downloads.py
   - src/asr_engine/modules/__init__.py
   - src/asr_engine/vad/__init__.py
   - src/asr_engine/config.py
 tests:
   - tests/test_setup.py
   - tests/modules/test_fields.py
+  - tests/modules/test_downloads.py
   - tests/conftest.py
 ---
 
 # Setup
 
-**Status:** Implemented
+**Status:** Updated
 
 ## Purpose
 
@@ -23,7 +25,7 @@ Everything an application needs to set the engine up for a person, without knowi
 
 Before this spec the same knowledge was spread over each module's constructor, the per-module docs, and the error raised when something was missing. A config could only be checked by constructing the module, which imported its provider library, read its key and, for a local module, resolved its model. This spec makes it available as data, before anything is installed or loaded.
 
-These functions implement the **module contract** of the `module-setup` project (its `specs/module-contract.md`), version 1, which is the reference for the shapes exchanged; this spec says what asr-engine puts in them. The engine does not depend on `module-setup` at runtime: the contract is plain data, and `module-setup` is a dev dependency only, for the conformance check its tests run.
+These functions implement the **module contract** of the `app-setup` project (its `specs/module-contract.md`), version 1, which is the reference for the shapes exchanged; this spec says what asr-engine puts in them. The engine does not depend on `app-setup` at runtime: the contract is plain data, and `app-setup` is a dev dependency only, for the conformance check its tests run.
 
 ## The `setup` module
 
@@ -36,8 +38,9 @@ def check_config(config: dict) -> list[dict]: ...
 def check_setup(config: dict, *, base_dir: str | None = None) -> list[dict]: ...
 def prepare(
     config: dict,
-    on_progress: Callable[[dict], None] | None = None,
+    item: str,
     *,
+    on_progress: Callable[[dict], None] | None = None,
     base_dir: str | None = None,
 ) -> None: ...
 def options(name: str, config: dict, *, base_dir: str | None = None) -> list[dict]: ...
@@ -51,7 +54,7 @@ def probe(
 
 They take and return JSON-compatible data only, are synchronous, and import no provider library at module level: importing `asr_engine.setup` (or `asr_engine`) imports no `deepgram`, `websockets`, `httpx`, `onnxruntime`, `mlx_audio` or `moshi`. `config_schema`, `required_extras` and `check_config` read nothing but the config; `check_setup` also tries the selected modules' imports and reads the environment; `prepare` and `probe` need the extras and may use the network.
 
-**Relative paths: `base_dir`.** The four functions that look at the machine take `base_dir`, the folder the config's relative paths are relative to: `audio_source.audio_file`, `vad.model_path`, and a `module.model` written as a relative path (`./models/parakeet`; a bare `org/name` is a Hugging Face repository). They resolve them with `config.resolve_paths`, the function `ASREngineConfig.from_dict(..., base_dir=...)` applies, so the checks and the engine look at the same file. `None` means the working directory. An application passes the folder its config lives in (module-setup passes the app's folder), and builds the engine with the same one. `options` takes it for the contract; no list depends on a path. The three functions that only read the config take none.
+**Relative paths: `base_dir`.** The four functions that look at the machine take `base_dir`, the folder the config's relative paths are relative to: `audio_source.audio_file`, `vad.model_path`, and a `module.model` written as a relative path (`./models/parakeet`; a bare `org/name` is a Hugging Face repository). They resolve them with `config.resolve_paths`, the function `ASREngineConfig.from_dict(..., base_dir=...)` applies, so the checks and the engine look at the same file. `None` means the working directory. An application passes the folder its config lives in (app-setup passes the app's folder), and builds the engine with the same one. `options` takes it for the contract; no list depends on a path. The three functions that only read the config take none.
 
 Each is the engine's own part (the audio source, segmentation, sound feedback, the scalar settings, the module choice, the VAD gate's parameters) plus the method of the same name on the selected ASR module, then on the selected VAD module.
 
@@ -60,8 +63,8 @@ Each is the engine's own part (the audio source, segmentation, sound feedback, t
 | `config_schema()` | `{"contract": 1, "distribution": "asr-engine", "title": "Speech recognition", "schema": …}`: the engine block as a JSON Schema (below). The same value on every call |
 | `required_extras(config)` | The extras this config needs, as requirement strings: the module's (`asr-engine[deepgram]`), then the VAD's (`asr-engine[silero]`). Reads the `type`s (and kyutai's `backend`) only; never raises; `[]` for an unknown or missing type |
 | `check_config(config)` | Every problem that makes the loader or a constructor refuse the config, each `{"path": "/module/model", "message": …}` with a JSON Pointer into the engine block; `[]` when it is accepted |
-| `check_setup(config)` | What this machine is missing to run it: each `{"id", "title", "status": "ready"/"missing"/"unknown", "detail", "preparable"}`; `[]` when it needs nothing |
-| `prepare(config, on_progress)` | Makes every preparable item ready (downloads the model weights). Blocking, idempotent, raises on failure. `on_progress` receives `{"id", "fraction", "message"}` |
+| `check_setup(config)` | What this machine is missing to run it: each `{"id", "title", "status": "ready"/"missing"/"unknown", "detail", "preparable", "required"}`; `[]` when it needs nothing |
+| `prepare(config, item, on_progress=)` | Makes the one preparable `item` ready (downloads that model). Blocking, idempotent, raises on failure; an id that is not a preparable item of the config raises `ValueError` naming it. `on_progress` receives `{"fraction", "message"}` about that item |
 | `options(name, config)` | The choices of a named list, each `{"label", "fields"}`: `"input-devices"` only |
 | `probe(config)` | One light real check of the config, `{"ok", "message", "duration_s"}`. Never raises |
 
@@ -105,7 +108,9 @@ class Declared:
     @classmethod
     def check_setup(cls, config) -> list[dict]: ...
     @classmethod
-    def prepare(cls, config, on_progress=None) -> None: ...
+    def preparable_items(cls, config) -> list[str]: ...
+    @classmethod
+    def prepare(cls, config, item, on_progress=None) -> None: ...
     @classmethod
     def options(cls, name, config) -> list[dict]: ...
     @classmethod
@@ -135,7 +140,8 @@ The module's own block is what the engine hands its constructor: `engine.module`
 | `required_extras` | `asr-engine[<extra>]`; `[]` without one | `kyutai` |
 | `check_config` | the problems of `fields_for(config)`, a key written in the config, or, when there are none, the `config_rules` failure under the name `""` | none |
 | `check_setup` | for each required extra, `imports` tried; then the key; then `check_files` once the extras import | none |
-| `prepare` | nothing | `kyutai`, `mlx-audio`, Silero |
+| `preparable_items` | `[]` | `kyutai`, `mlx-audio`, Silero |
+| `prepare` | raises `ValueError`: nothing is preparable | `kyutai`, `mlx-audio`, Silero |
 | `options` | `[]` | none |
 | `probe` | says there is nothing to try (the fixture) | every other module |
 | `imports` | nothing | every module with an extra |
@@ -188,17 +194,42 @@ A module or VAD block the engine part already found broken is not asked about. I
 
 `check_setup` is asked only about a config `check_config` accepts (the caller's duty). It returns the selected ASR module's items, then the VAD module's, each in this order:
 
-1. **The extras**: one item per extra `required_extras` names, `extra:asr-engine[<extra>]`, titled "<title> extra", never preparable: `ready` ("Installed.") when `imports` succeeds, else `missing` with the install hint. An extra whose packages all carry another platform's marker (`mlx-audio`, `kyutai-mlx`) installs nothing there and is `missing`.
-2. **The key**: one item `key:<VARIABLE>` for the variable `api_key_env` names, or its default, never preparable: `ready` when set and non-empty, else `missing` naming the variable and the field. Whether the provider accepts the key is `probe`'s business.
-3. **The files**, only once the extras import: `check_files`. An exception there is one `unknown` item.
+1. **The extras**: one item per extra `required_extras` names, `extra:asr-engine[<extra>]`, titled "<title> extra", never preparable, always required: `ready` ("Installed.") when `imports` succeeds, else `missing` with the install hint. An extra whose packages all carry another platform's marker (`mlx-audio`, `kyutai-mlx`) installs nothing there and is `missing`.
+2. **The key**: one item `key:<VARIABLE>` for the variable `api_key_env` names, or its default, never preparable, always required: `ready` when set and non-empty, else `missing` naming the variable and the field. Whether the provider accepts the key is `probe`'s business.
+3. **The files**, only once the extras import: `check_files`. An exception there is one `unknown` item, not preparable, required.
 
-| Module | Item | How `check_files` knows | `prepare` |
-|---|---|---|---|
-| `kyutai` | `kyutai:<hf_repo>`, the model | `download.is_cached` (the Hugging Face cache, no network) | `download.download`, the files the backends load |
-| `mlx-audio` | `mlx-audio:<model>`, the model | `download.is_cached`; a local path is `ready` or `missing`, never preparable | `download.download`, mlx-audio's own loader call |
-| Silero VAD | `silero:<file>`, the pinned model | The cache file and its SHA-256; a `model_path` is `ready` or `missing`, never preparable | `ensure_model`, the call `load()` makes |
+Every item carries `required`: whether a session can start without it. A model the module downloads itself when the session loads it is **not required** (`required: false`): the session starts without it, its start slower and needing the network, so preparing it during setup is better. A local file the config names is required and never preparable: only the user can put it there. A preparable item is preparable whatever its status (`prepare` on a ready one returns at once), so an item keeps its `required` and `preparable` as it goes from `missing` to `ready`.
+
+| Module | Item | `required` | How `check_files` knows | `prepare` |
+|---|---|---|---|---|
+| `kyutai` | `kyutai:<hf_repo>`, the model | `false`: both backends fetch it with `hf_hub_download` when they load | `download.is_cached` (the Hugging Face cache, no network) | `download.download`: `config.json`, then the files it names |
+| `mlx-audio` | `mlx-audio:<model>`, a repository | `false`: mlx-audio's loader fetches it | `download.is_cached` | `download.download`: the repository's files matching mlx-audio's own patterns (`DEFAULT_ALLOW_PATTERNS`, what its `get_model_path` fetches) |
+| `mlx-audio` | `mlx-audio:<path>`, a local model | `true`, never preparable | the path exists | — |
+| Silero VAD | `silero:<file>`, the pinned model | `false`: `load()` fetches it | The cache file and its SHA-256 | `ensure_model`, the call `load()` makes |
+| Silero VAD | `silero:<model_path>`, a local copy | `true`, never preparable | the file exists | — |
 
 The environment read is the process's own: an application keeping keys in a file loads them first. Hosted modules and the fixture have no files.
+
+### `prepare`: one item at a time
+
+`prepare(config, item)` looks for the selected module (then the VAD module) whose `preparable_items(block)` holds `item`, and hands it the item; `preparable_items` reads the config only, so an id is recognised before anything is imported or fetched. An id no selected module prepares raises `ValueError`: `"'<item>' is not a preparable item of this config (it has: kyutai:…, silero:…)"`. A download that fails raises what failed, with its message (the Silero one names the `model_path` way out); nothing half-downloaded is left as ready.
+
+**Concurrency.** An application calls it once per item, at the same time on several threads. The calls share nothing: each item's download has its own progress, writes its own files (the Hugging Face cache, file by file; the Silero model to a temporary file renamed once its hash is checked), and holds no lock another item waits on. A config has at most two preparable items, the module's model and the VAD's.
+
+### Progress
+
+`on_progress`, when given, receives `{"fraction", "message"}` about the item being prepared, from the thread downloading it:
+
+- `{"fraction": 0.0, "message": "Downloading <what>"}` once as it starts (`fraction` `None` when the size is unknown);
+- `{"fraction": f, "message": "Downloading 120 of 300 MB"}` as the bytes arrive, at most once per percent, `f` below `1.0`;
+- `{"fraction": 1.0, "message": "<what> is ready"}` once it is; an item already ready reports this one event only.
+
+`modules/downloads.py` measures it. `ByteProgress` turns bytes received against bytes expected into these events. `fetch(repo, names, on_progress)` downloads a Hugging Face repository's files one by one with `hf_hub_download` (the call the loaders make, so the files land where they look), the total taken from the Hub's listing of those files (`HfApi.get_paths_info`), a file already cached counted at once:
+
+- with a `huggingface_hub` whose `hf_hub_download` takes `tqdm_class` (1.x, the default environment), a stand-in bar counts every byte written; it draws nothing, and its `update_transfer` makes the library use that one bar per file, so a byte is counted once;
+- with an older one, which offers no hook (the Kyutai MLX extra pins 0.28), the size of the download's `.incomplete` file in the repository's cache folder is read twice a second, and each file's bytes are counted once it is complete.
+
+The Silero model is fetched with `urllib`; its bytes are counted as they are read, against the response's `Content-Length`.
 
 ## `options`
 
@@ -225,15 +256,17 @@ A refused key reads `"<Service> refused the key (HTTP 401)."`, an unlisted model
 
 `tests/modules/test_fields.py` (shared with the other libraries' copy): `read_fields` and `field_problems` agree for every kind and rule; `fields_schema` emits each attribute and annotation.
 
+`tests/modules/test_downloads.py`, over a stand-in Hub, with and without a `tqdm_class` hook: a model's bytes reported against its size, a cached file counted at once and not fetched, a failed download raising and leaving the model missing, an unknown size reported as unmeasured (`fraction` `None`).
+
 `tests/test_setup.py`:
 
 - every registered module and VAD module declares `kind`, `title`, `extra` and documented fields; the extras it can require are declared in `pyproject.toml`, and only the fixture needs none;
 - `config_schema()` is stable, has one branch per registered module and per VAD, and the key field carries its default variable and no `api_key` property;
-- the contract's conformance check (`module_setup.contract.check_contract`) passes over the example configs' engine blocks and a file-source config;
+- the contract's conformance check (`app_setup.contract.check_contract`) passes over the example configs' engine blocks and a file-source config;
 - `required_extras` for each kind of config, kyutai by backend and by platform, and `[]` for what selects nothing;
 - `check_config`: the examples pass; each engine-level problem at its path, and the loader refusing the same config with the same message; engine and module problems together; a module problem refused by the constructor with the same message, and the reverse; hosted OpenAI without a key variable; a batch module without the gate; an unsupported audio format; a renamed type;
 - in a subprocess with every provider import blocked: the schema, `check_config` and `required_extras` work, and `check_setup` reports each module's extra `missing` with the hint `imports` raises, then its key, and nothing else;
-- `check_setup`: each extra `ready` where it installs and `missing` with its hint elsewhere; a key variable `missing` until set (empty counts as unset); the default variables; no key item for a compatible server; the Silero model `missing`, prepared, then `ready`; a local model path never downloaded; kyutai's model prepared once;
+- `check_setup` and `prepare`: each extra `ready` where it installs and `missing` with its hint elsewhere, required; a key variable `missing` until set (empty counts as unset), required; the default variables; no key item for a compatible server; the Silero model not required, `missing`, prepared alone with its bytes measured (fractions from `0.0` to `1.0`, never backwards), then `ready`, and prepared again without a fetch; a Silero download that fails raising with the `model_path` way out; a local model path (Silero's, mlx-audio's) required, never preparable, `prepare` refusing it; kyutai's model not required and prepared once; an unknown id raising `ValueError` naming it and the config's items; what `check_setup` calls preparable is what `prepare` takes, and every item is required or preparable; the module's model and the Silero model prepared at the same time on two threads, each waiting for the other to be under way;
 - `options("input-devices")` and an unknown list;
 - `probe`: the fixture; the Deepgram key proven on the projects list; a refused key; Mistral's model found or not; a compatible server listed without a key, hosted OpenAI with one; a config with a problem; keys given in code;
 - `ASREngine(config, secrets=...)` hands them to a module that reads a key, not to the fixture;

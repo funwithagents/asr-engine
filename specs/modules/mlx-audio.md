@@ -55,7 +55,7 @@ It is a **batch** module, the first [`BatchASRModule`](../batch-asr-module.md): 
 
 Validation in `__init__`, from the declared `fields` (title "mlx-audio", then `batch_fields(0.5)`), `generate_kwargs` as a `schema_extras` free-form object, and `config_rules`, each a `ConfigError`: `model` is a non-empty string; `generate_kwargs` is an object with string keys; the base-class fields. Then, unless a test injects a loader, `imports()`: the platform is macOS on arm64, and `mlx_audio` imports. Otherwise it raises `ImportError` with the install hint: *"mlx-audio module requires the optional dependency 'mlx-audio' which is not installed. Install it with: pip install 'asr-engine[mlx-audio]' (from source: uv sync --extra mlx-audio). It is for Apple Silicon only, and cannot share an environment with kyutai-mlx / kyutai-torch."*
 
-For the setup checks ([setup.md](../setup.md)): `extra = "mlx-audio"`; `check_files` reports the model (`mlx-audio:<model>`) from `download.is_cached`, a local path `ready` or `missing` and never downloaded; `prepare` fetches a missing repository with `download.download`; `probe` loads the model through the runner and drops it.
+For the setup checks ([setup.md](../setup.md)): `extra = "mlx-audio"`; `check_files` reports the model (`mlx-audio:<model>`) from `download.is_cached`, not required (mlx-audio's loader fetches it), a local path `ready` or `missing`, required and never downloaded; `prepare` fetches a missing repository with `download.download` (the files mlx-audio's loader would fetch, its bytes measured); `probe` loads the model through the runner and drops it.
 
 ### Examples
 
