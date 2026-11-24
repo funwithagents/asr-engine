@@ -116,7 +116,7 @@ def ensure_model(on_progress: ProgressCallback | None = None) -> Path:
                 length = r.headers.get("Content-Length")
                 progress = ByteProgress(
                     on_progress,
-                    "the Silero VAD model",
+                    "Silero VAD model",
                     int(length) if length and length.isdigit() else None,
                 )
                 progress.start()
@@ -221,7 +221,7 @@ class SileroVAD(VADModule):
         if cached_model() is None:
             ensure_model(on_progress)
         elif on_progress is not None:
-            on_progress({"fraction": 1.0, "message": "the Silero VAD model is ready"})
+            on_progress({"fraction": 1.0, "message": "Silero VAD model is ready"})
 
     @classmethod
     def probe(cls, config: dict, secrets: Mapping[str, str] | None = None) -> str:
