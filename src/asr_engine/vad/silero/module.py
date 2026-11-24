@@ -29,6 +29,7 @@ import numpy as np
 
 from asr_engine.errors import ConfigError
 from asr_engine.modules.base import ProgressCallback
+from asr_engine.modules.downloads import ByteProgress
 from asr_engine.modules.fields import Field
 from asr_engine.vad.base import VADModule
 
@@ -83,8 +84,10 @@ def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def ensure_model() -> Path:
-    """Return the cached model file, downloading and verifying it when needed.
+def ensure_model(on_progress: ProgressCallback | None = None) -> Path:
+    """Return the cached model file, downloading and verifying it when needed,
+    the bytes received reported to *on_progress* against the size the server
+    announces (specs/setup.md "Progress").
 
     A cached file whose hash does not match (truncated, tampered with) is
     downloaded again. The download goes to a temporary file and is moved into
@@ -110,8 +113,16 @@ def ensure_model() -> Path:
                 os.fdopen(fd, "wb") as out,
                 urllib.request.urlopen(MODEL_URL, timeout=_DOWNLOAD_TIMEOUT_S) as r,
             ):
+                length = r.headers.get("Content-Length")
+                progress = ByteProgress(
+                    on_progress,
+                    "the Silero VAD model",
+                    int(length) if length and length.isdigit() else None,
+                )
+                progress.start()
                 while block := r.read(1 << 16):
                     out.write(block)
+                    progress.add(len(block))
             digest = _sha256(tmp)
             if digest != MODEL_SHA256:
                 raise RuntimeError(
@@ -119,6 +130,7 @@ def ensure_model() -> Path:
                     f"SHA-256 (got {digest}); it was not installed. {hint}"
                 )
             os.replace(tmp, target)
+            progress.finish()
         finally:
             tmp.unlink(missing_ok=True)
     except OSError as exc:  # no network, HTTP error, unwritable cache directory
@@ -175,6 +187,7 @@ class SileroVAD(VADModule):
                     "status": "ready" if present else "missing",
                     "detail": "On this machine." if present else f"No file at {path}.",
                     "preparable": False,
+                    "required": True,
                 }
             ]
         cached = cached_model()
@@ -186,25 +199,29 @@ class SileroVAD(VADModule):
                 "detail": (
                     f"In {cached}."
                     if cached
-                    else "Not downloaded yet (about 2 MB): Prepare fetches it."
+                    else "Not downloaded yet (about 2 MB): Prepare fetches it, or "
+                    "the first start does."
                 ),
-                "preparable": not cached,
+                # `load()` downloads it when the session starts.
+                "preparable": True,
+                "required": False,
             }
         ]
 
     @classmethod
-    def prepare(cls, config: dict, on_progress: ProgressCallback | None = None) -> None:
-        if config.get("model_path") or cached_model() is not None:
-            return
-        if on_progress is not None:
-            on_progress(
-                {"id": _MODEL_ITEM, "fraction": None, "message": "Downloading Silero"}
-            )
-        ensure_model()
-        if on_progress is not None:
-            on_progress(
-                {"id": _MODEL_ITEM, "fraction": 1.0, "message": "Silero is ready"}
-            )
+    def preparable_items(cls, config: dict) -> list[str]:
+        return [] if config.get("model_path") else [_MODEL_ITEM]
+
+    @classmethod
+    def prepare(
+        cls, config: dict, item: str, on_progress: ProgressCallback | None = None
+    ) -> None:
+        if item not in cls.preparable_items(config):
+            return super().prepare(config, item, on_progress)
+        if cached_model() is None:
+            ensure_model(on_progress)
+        elif on_progress is not None:
+            on_progress({"fraction": 1.0, "message": "the Silero VAD model is ready"})
 
     @classmethod
     def probe(cls, config: dict, secrets: Mapping[str, str] | None = None) -> str:

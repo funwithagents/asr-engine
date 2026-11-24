@@ -272,25 +272,31 @@ class KyutaiModule(ASRModule):
                 "detail": (
                     "In the Hugging Face cache."
                     if ready
-                    else "Not downloaded yet: Prepare fetches it."
+                    else "Not downloaded yet: Prepare fetches it, or the first "
+                    "start does."
                 ),
-                "preparable": not ready,
+                # The backends download it when they load: a session starts
+                # without it, slower.
+                "preparable": True,
+                "required": False,
             }
         ]
 
     @classmethod
-    def prepare(cls, config: dict, on_progress: ProgressCallback | None = None) -> None:
+    def preparable_items(cls, config: dict) -> list[str]:
+        return [f"kyutai:{config.get('hf_repo', download.DEFAULT_REPO)}"]
+
+    @classmethod
+    def prepare(
+        cls, config: dict, item: str, on_progress: ProgressCallback | None = None
+    ) -> None:
+        if item not in cls.preparable_items(config):
+            return super().prepare(config, item, on_progress)
         repo = config.get("hf_repo", download.DEFAULT_REPO)
-        if download.is_cached(repo):
-            return
-        item = f"kyutai:{repo}"
-        if on_progress is not None:
-            on_progress(
-                {"id": item, "fraction": None, "message": f"Downloading {repo}"}
-            )
-        download.download(repo)
-        if on_progress is not None:
-            on_progress({"id": item, "fraction": 1.0, "message": f"{repo} is ready"})
+        if not download.is_cached(repo):
+            download.download(repo, on_progress=on_progress)
+        elif on_progress is not None:
+            on_progress({"fraction": 1.0, "message": f"{repo} is ready"})
 
     @classmethod
     def probe(cls, config: dict, secrets: Mapping[str, str] | None = None) -> str:

@@ -14,13 +14,15 @@ import platform as platform_module
 import subprocess
 import sys
 import textwrap
+import threading
 import tomllib
 import urllib.error
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
 import pytest
-from module_setup.contract import check_contract
+from app_setup.contract import check_contract
 from packaging.requirements import Requirement
 
 from asr_engine import setup
@@ -30,6 +32,7 @@ from asr_engine.modules import REGISTRY
 from asr_engine.modules.base import Declared
 from asr_engine.modules.kyutai import download as kyutai_download
 from asr_engine.modules.kyutai import module as kyutai_module
+from asr_engine.modules.mlx_audio import download as mlx_download
 from asr_engine.modules.mlx_audio import module as mlx_module
 from asr_engine.vad import REGISTRY as VAD_REGISTRY
 from asr_engine.vad.silero import module as silero
@@ -511,6 +514,7 @@ def test_an_extra_is_ready_where_it_installs_and_missing_with_its_hint_elsewhere
         "status": status,
         "detail": detail,
         "preparable": False,
+        "required": True,
     }
 
 
@@ -524,6 +528,7 @@ def test_a_key_variable_is_missing_until_set(monkeypatch: pytest.MonkeyPatch) ->
         "status": "missing",
         "detail": "Set the environment variable DEMO_ASR_KEY (named by 'api_key_env').",
         "preparable": False,
+        "required": True,
     }
 
     monkeypatch.setenv("DEMO_ASR_KEY", "")
@@ -570,7 +575,13 @@ def test_a_module_without_files_has_no_item_and_nothing_to_prepare() -> None:
     config = {"module": {"type": "fake"}}
 
     assert setup.check_setup(config) == []
-    setup.prepare(config)
+    with pytest.raises(ValueError, match="'files:fake' is not a preparable item"):
+        setup.prepare(config, "files:fake")
+
+
+# Large enough to arrive in several reads, so its progress has steps.
+_SILERO_BYTES = bytes(range(256)) * 1200
+_SILERO_ITEM = f"silero:{silero.MODEL_FILENAME}"
 
 
 @pytest.fixture
@@ -579,35 +590,70 @@ def upstream(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     cache directory."""
     source = tmp_path / "upstream" / "silero_vad.onnx"
     source.parent.mkdir()
-    source.write_bytes(b"model bytes")
+    source.write_bytes(_SILERO_BYTES)
     monkeypatch.setattr(silero, "MODEL_URL", source.as_uri())
     monkeypatch.setattr(
-        silero, "MODEL_SHA256", hashlib.sha256(b"model bytes").hexdigest()
+        silero, "MODEL_SHA256", hashlib.sha256(_SILERO_BYTES).hexdigest()
     )
     monkeypatch.setenv(silero.CACHE_DIR_ENV, str(tmp_path / "cache"))
     return source
 
 
+def _steps(progress: list[dict[str, Any]]) -> list[float | None]:
+    return [event["fraction"] for event in progress]
+
+
 @pytest.mark.skipif(not _installs_here("silero"), reason="no onnxruntime here")
-def test_the_vad_model_is_missing_until_prepared(upstream: Path) -> None:
+def test_the_vad_model_is_not_required_and_prepared_with_its_bytes_measured(
+    upstream: Path,
+) -> None:
     config = {"module": {"type": "fake"}, "vad": {"type": "silero"}}
 
-    before = _files(config)
-    assert [(i["id"], i["status"], i["preparable"]) for i in before] == [
-        (f"silero:{silero.MODEL_FILENAME}", "missing", True)
-    ]
+    item = _files(config)[0]
+    assert (item["id"], item["status"], item["preparable"], item["required"]) == (
+        _SILERO_ITEM,
+        "missing",
+        True,
+        False,  # the session's `load()` downloads it itself
+    )
 
     progress: list[dict[str, Any]] = []
-    setup.prepare(config, progress.append)
+    setup.prepare(config, _SILERO_ITEM, on_progress=progress.append)
 
-    assert [p["fraction"] for p in progress] == [None, 1.0]
-    assert [i["status"] for i in _files(config)] == ["ready"]
+    steps = [f for f in _steps(progress) if f is not None]
+    assert len(steps) == len(progress)  # the size is known: every step measured
+    assert steps[0] == 0.0 and steps[-1] == 1.0
+    assert any(0.0 < f < 1.0 for f in steps)
+    assert steps == sorted(steps)  # never backwards
+    assert "Downloading 0.2 of 0.3 MB" in [e["message"] for e in progress]
+    assert all(set(event) == {"fraction", "message"} for event in progress)
+    after = _files(config)[0]
+    assert (after["status"], after["preparable"], after["required"]) == (
+        "ready",
+        True,
+        False,
+    )
+
     upstream.unlink()
-    setup.prepare(config)  # everything is ready: nothing more is fetched
+    progress.clear()
+    setup.prepare(config, _SILERO_ITEM, on_progress=progress.append)
+    assert _steps(progress) == [1.0]  # ready: nothing more is fetched
 
 
 @pytest.mark.skipif(not _installs_here("silero"), reason="no onnxruntime here")
-def test_a_local_vad_model_is_ready_or_missing_and_never_preparable(
+def test_a_vad_model_that_cannot_be_fetched_raises_with_the_way_out(
+    upstream: Path,
+) -> None:
+    config = {"module": {"type": "fake"}, "vad": {"type": "silero"}}
+    upstream.unlink()
+
+    with pytest.raises(RuntimeError, match="model_path"):
+        setup.prepare(config, _SILERO_ITEM)
+    assert _files(config)[0]["status"] == "missing"
+
+
+@pytest.mark.skipif(not _installs_here("silero"), reason="no onnxruntime here")
+def test_a_local_vad_model_is_required_and_never_preparable(
     tmp_path: Path, upstream: Path
 ) -> None:
     local = tmp_path / "silero.onnx"
@@ -617,16 +663,23 @@ def test_a_local_vad_model_is_ready_or_missing_and_never_preparable(
     }
 
     missing = _files(config)[0]
-    assert (missing["status"], missing["preparable"]) == ("missing", False)
+    assert (missing["status"], missing["preparable"], missing["required"]) == (
+        "missing",
+        False,
+        True,
+    )
     assert str(local) in missing["detail"]
-    setup.prepare(config)
+    with pytest.raises(ValueError, match="is not a preparable item"):
+        setup.prepare(config, missing["id"])
+    with pytest.raises(ValueError, match=_SILERO_ITEM):
+        setup.prepare(config, _SILERO_ITEM)
     assert not (tmp_path / "cache").exists()
 
     local.write_bytes(b"onnx")
     assert _files(config)[0]["status"] == "ready"
 
 
-def test_a_local_model_is_missing_until_prepared(
+def test_a_kyutai_model_is_not_required_and_prepared_once(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     cache: set[str] = set()
@@ -636,24 +689,24 @@ def test_a_local_model_is_missing_until_prepared(
     )
     monkeypatch.setattr(kyutai_download, "is_cached", lambda repo: repo in cache)
 
-    def fetch(repo: str) -> None:
+    def fetch(repo: str, *, on_progress: Any = None) -> None:
         downloads.append(repo)
         cache.add(repo)
 
     monkeypatch.setattr(kyutai_download, "download", fetch)
     config = {"module": {"type": "kyutai", "hf_repo": "kyutai/a-model"}}
 
-    assert [(i["id"], i["status"], i["preparable"]) for i in _files(config)] == [
-        ("kyutai:kyutai/a-model", "missing", True)
-    ]
-    setup.prepare(config)
-    setup.prepare(config)
+    assert [
+        (i["id"], i["status"], i["preparable"], i["required"]) for i in _files(config)
+    ] == [("kyutai:kyutai/a-model", "missing", True, False)]
+    setup.prepare(config, "kyutai:kyutai/a-model")
+    setup.prepare(config, "kyutai:kyutai/a-model")
 
     assert downloads == ["kyutai/a-model"]
-    assert [i["status"] for i in _files(config)] == ["ready"]
+    assert [(i["status"], i["required"]) for i in _files(config)] == [("ready", False)]
 
 
-def test_an_mlx_audio_model_on_disk_is_never_downloaded(
+def test_an_mlx_audio_model_on_disk_is_required_and_never_downloaded(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(
@@ -662,7 +715,7 @@ def test_an_mlx_audio_model_on_disk_is_never_downloaded(
     monkeypatch.setattr(
         mlx_module,
         "download",
-        lambda model: pytest.fail("a local model is not fetched"),
+        lambda model, **kw: pytest.fail("a local model is not fetched"),
     )
     model = tmp_path / "parakeet"
     config = {
@@ -671,12 +724,97 @@ def test_an_mlx_audio_model_on_disk_is_never_downloaded(
     }
 
     missing = [i for i in _files(config) if i["id"].startswith("mlx-audio:")][0]
-    assert (missing["status"], missing["preparable"]) == ("missing", False)
-    setup.prepare(config)
+    assert (missing["status"], missing["preparable"], missing["required"]) == (
+        "missing",
+        False,
+        True,
+    )
+    with pytest.raises(ValueError, match="is not a preparable item"):
+        setup.prepare(config, missing["id"])
 
     model.mkdir()
     ready = [i for i in _files(config) if i["id"].startswith("mlx-audio:")][0]
-    assert ready["status"] == "ready"
+    assert (ready["status"], ready["required"]) == ("ready", True)
+
+
+def test_an_unknown_item_raises_naming_it_and_the_config_s_items() -> None:
+    config = {"module": {"type": "kyutai"}, "vad": {"type": "silero"}}
+
+    with pytest.raises(ValueError) as error:
+        setup.prepare(config, "weights:nothing")
+
+    assert "'weights:nothing'" in str(error.value)
+    assert f"kyutai:{kyutai_download.DEFAULT_REPO}" in str(error.value)
+    assert _SILERO_ITEM in str(error.value)
+
+
+def test_every_preparable_item_check_setup_reports_is_one_prepare_takes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """What `check_setup` calls preparable is what `prepare` accepts; the rest it
+    refuses."""
+    for cls in (kyutai_module.KyutaiModule, mlx_module.MlxAudioModule):
+        monkeypatch.setattr(cls, "imports", classmethod(lambda cls, c: None))
+    monkeypatch.setattr(silero.SileroVAD, "imports", classmethod(lambda cls, c: None))
+    configs = [
+        {"module": {"type": "kyutai"}, "vad": {"type": "silero"}},
+        {"module": {"type": "mlx-audio"}, "vad": {"type": "silero"}},
+        {"module": {"type": "mlx-audio", "model": "/nowhere/parakeet"}},
+        {"module": {"type": "deepgram-v1"}},
+    ]
+    for config in configs:
+        for item in setup.check_setup(config):
+            selected = setup._selected(config)
+            takes = any(item["id"] in c.preparable_items(b) for c, b in selected)
+            assert takes == item["preparable"], (config, item)
+            assert item["required"] or item["preparable"], (config, item)
+
+
+@pytest.mark.skipif(not _installs_here("silero"), reason="no onnxruntime here")
+def test_two_items_are_prepared_at_the_same_time_on_two_threads(
+    upstream: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Each item's download waits for the other's to be under way: if one call
+    waited for the other to finish, the barrier would break."""
+    both_running = threading.Barrier(2, timeout=10)
+    cache: set[str] = set()
+    monkeypatch.setattr(mlx_module, "is_cached", lambda model: model in cache)
+
+    def fetch(model: str, *, on_progress: Any = None) -> None:
+        on_progress({"fraction": 0.0, "message": "Downloading"})
+        both_running.wait()
+        cache.add(model)
+        on_progress({"fraction": 1.0, "message": "ready"})
+
+    monkeypatch.setattr(mlx_module, "download", fetch)
+    config = {"module": {"type": "mlx-audio"}, "vad": {"type": "silero"}}
+    model_item = f"mlx-audio:{mlx_download.DEFAULT_REPO}"
+    events: dict[str, list[dict[str, Any]]] = {model_item: [], _SILERO_ITEM: []}
+
+    def on_silero_progress(event: dict[str, Any]) -> None:
+        if not events[_SILERO_ITEM]:
+            both_running.wait()  # the first read is in, the model's is under way
+        events[_SILERO_ITEM].append(event)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = [
+            pool.submit(
+                setup.prepare,
+                config,
+                model_item,
+                on_progress=events[model_item].append,
+            ),
+            pool.submit(
+                setup.prepare, config, _SILERO_ITEM, on_progress=on_silero_progress
+            ),
+        ]
+        for future in futures:
+            future.result()
+
+    assert _steps(events[model_item]) == [0.0, 1.0]
+    assert _steps(events[_SILERO_ITEM])[-1] == 1.0
+    assert silero.cached_model() is not None
+    assert mlx_download.DEFAULT_REPO in cache
 
 
 # --- options --------------------------------------------------------------------

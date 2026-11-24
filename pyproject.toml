@@ -172,10 +172,10 @@ dev = [
     "pytest-mock",
     "pytest-timeout",
     "ruff>=0.16.5",
-    # The setup contract's conformance check (`module_setup.contract.check_contract`)
+    # The setup contract's conformance check (`app_setup.contract.check_contract`)
     # runs in tests/test_setup.py (specs/setup.md); a test-time dependency only,
     # never a runtime one: the contract is plain data.
-    "module-setup",
+    "app-setup",
 ]
 # Optional: the examples/ Gradio demo (see specs/gradio-demo.md). Not a core
 # dependency — `import asr_engine` and the MCP server stay lean without it.
@@ -184,4 +184,4 @@ demo = [
 ]
 
 [tool.uv.sources]
-module-setup = { git = "https://github.com/funwithagents/module-setup", rev = "main" }
+app-setup = { git = "https://github.com/funwithagents/app-setup", rev = "main" }

@@ -104,9 +104,10 @@ class Declared:
     @classmethod
     def check_setup(cls, config: dict) -> list[dict[str, Any]]:
         """What this machine is missing to run this config block, each item
-        `{"id", "title", "status", "detail", "preparable"}`: the module's extra
-        (its imports tried), the keys its config names, then its files once the
-        extra imports (`check_files`). Local: no network. Never raises."""
+        `{"id", "title", "status", "detail", "preparable", "required"}`: the
+        module's extra (its imports tried), the keys its config names, then its
+        files once the extra imports (`check_files`). Local: no network. Never
+        raises."""
         found: list[dict[str, Any]] = []
         imported = True
         for requirement in cls.required_extras(config):
@@ -124,6 +125,7 @@ class Declared:
                     "status": status,
                     "detail": detail,
                     "preparable": False,
+                    "required": True,
                 }
             )
         found += cls._key_items(config)
@@ -138,15 +140,27 @@ class Declared:
                         "status": "unknown",
                         "detail": str(exc) or type(exc).__name__,
                         "preparable": False,
+                        "required": True,
                     }
                 )
         return found
 
     @classmethod
-    def prepare(cls, config: dict, on_progress: ProgressCallback | None = None) -> None:
-        """Make every preparable item of this config ready (download the model).
-        Needs the extra installed. Blocking and idempotent; raises on failure.
-        Nothing to do by default."""
+    def preparable_items(cls, config: dict) -> list[str]:
+        """The ids of the items of this config block `prepare` can make ready,
+        whatever their status: what `check_files` reports preparable. Reads the
+        config only. None by default."""
+        return []
+
+    @classmethod
+    def prepare(
+        cls, config: dict, item: str, on_progress: ProgressCallback | None = None
+    ) -> None:
+        """Make the one *item* of this config ready (download its model), reporting
+        `{"fraction", "message"}` to *on_progress*. Needs the extra installed.
+        Blocking and idempotent; raises on failure. Safe to run at the same time as
+        the preparation of another item. Nothing is preparable by default."""
+        raise ValueError(f"'{item}' is not a preparable item of this config")
 
     @classmethod
     def options(cls, name: str, config: dict) -> list[dict[str, Any]]:
@@ -278,6 +292,7 @@ class Declared:
                     "'api_key_env')."
                 ),
                 "preparable": False,
+                "required": True,
             }
         ]
 

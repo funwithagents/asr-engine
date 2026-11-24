@@ -1,6 +1,6 @@
 # Setup items one by one: required or not, each prepared on its own, with progress
 
-**Status:** Todo
+**Status:** Done
 
 Implements the changes to `specs/setup.md` ("`check_setup` and `prepare`", "`prepare`: one item at a time", "Progress"): every `check_setup` item says whether a session can start without it (`required`), and `prepare` makes one item ready per call, safe to run for two items at the same time, reporting the bytes it downloads against the size it expects. It also moves the conformance check onto `app-setup`, the new name of the package that defines the contract. Nothing else of the contract changes.
 

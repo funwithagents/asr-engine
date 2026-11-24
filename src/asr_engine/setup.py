@@ -4,9 +4,9 @@ Seven functions over the engine block (the document ``ASREngineConfig.from_dict`
 takes): what its config looks like (``config_schema``), which extras a config
 needs (``required_extras``), what is wrong in the config itself
 (``check_config``), what this machine is missing to run it (``check_setup``: the
-extras, the keys, the model files), downloading the files (``prepare``), the
+extras, the keys, the model files), downloading one of the files (``prepare``), the
 choices of a field (``options``), and one light real call to see it work
-(``probe``). They implement the module contract of the ``module-setup`` project
+(``probe``). They implement the module contract of the ``app-setup`` project
 and exchange JSON-compatible data only.
 
 Each is the engine's own part (the audio source, the segmentation, the sound
@@ -345,14 +345,27 @@ def check_setup(
 
 def prepare(
     config: dict[str, Any],
-    on_progress: Callable[[dict[str, Any]], None] | None = None,
+    item: str,
     *,
+    on_progress: Callable[[dict[str, Any]], None] | None = None,
     base_dir: str | None = None,
 ) -> None:
-    """Download what `check_setup` reports missing and preparable: the module's
-    model, the VAD's. Needs the extras installed; blocking and idempotent."""
-    for cls, block in _selected(resolve_paths(config, base_dir)):
-        cls.prepare(block, on_progress)
+    """Make the one *item* of this config ready (an id `check_setup` returned):
+    the module's model, or the VAD's. *on_progress* receives `{"fraction",
+    "message"}` about it, from the thread downloading. Needs the extras installed;
+    blocking and idempotent; raises on failure. Calls for two different items may
+    run at the same time. An id that is not a preparable item of this config
+    raises `ValueError` naming it."""
+    selected = _selected(resolve_paths(config, base_dir))
+    for cls, block in selected:
+        if item in cls.preparable_items(block):
+            cls.prepare(block, item, on_progress)
+            return
+    known = [i for cls, block in selected for i in cls.preparable_items(block)]
+    raise ValueError(
+        f"'{item}' is not a preparable item of this config"
+        + (f" (it has: {', '.join(known)})" if known else " (it has none)")
+    )
 
 
 def options(

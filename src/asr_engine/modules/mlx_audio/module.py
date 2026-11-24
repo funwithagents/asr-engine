@@ -117,30 +117,36 @@ class MlxAudioModule(BatchASRModule):
         elif local:
             detail = f"No model at {model}."
         else:
-            detail = "Not downloaded yet: Prepare fetches it."
+            detail = "Not downloaded yet: Prepare fetches it, or the first start does."
         return [
             {
                 "id": f"mlx-audio:{model}",
                 "title": f"Model {model}",
                 "status": "ready" if ready else "missing",
                 "detail": detail,
-                "preparable": not ready and not local,
+                # A repository is downloaded by mlx-audio's loader when the
+                # session loads it; a local path only the user can provide.
+                "preparable": not local,
+                "required": local,
             }
         ]
 
     @classmethod
-    def prepare(cls, config: dict, on_progress: ProgressCallback | None = None) -> None:
+    def preparable_items(cls, config: dict) -> list[str]:
         model = config.get("model", DEFAULT_MODEL)
-        if _is_path(model) or is_cached(model):
-            return
-        item = f"mlx-audio:{model}"
-        if on_progress is not None:
-            on_progress(
-                {"id": item, "fraction": None, "message": f"Downloading {model}"}
-            )
-        download(model)
-        if on_progress is not None:
-            on_progress({"id": item, "fraction": 1.0, "message": f"{model} is ready"})
+        return [] if _is_path(model) else [f"mlx-audio:{model}"]
+
+    @classmethod
+    def prepare(
+        cls, config: dict, item: str, on_progress: ProgressCallback | None = None
+    ) -> None:
+        if item not in cls.preparable_items(config):
+            return super().prepare(config, item, on_progress)
+        model = config.get("model", DEFAULT_MODEL)
+        if not is_cached(model):
+            download(model, on_progress=on_progress)
+        elif on_progress is not None:
+            on_progress({"fraction": 1.0, "message": f"{model} is ready"})
 
     @classmethod
     def probe(cls, config: dict, secrets: Mapping[str, str] | None = None) -> str:
