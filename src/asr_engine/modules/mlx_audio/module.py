@@ -56,7 +56,8 @@ def _load_runner(model: str, generate_kwargs: dict[str, Any]) -> Transcriber:
 
 def _is_path(model: str) -> bool:
     """Whether *model* names a local directory rather than a Hub repository."""
-    return model.startswith(("/", "~", ".")) or Path(model).expanduser().exists()
+    path = Path(model).expanduser()
+    return model.startswith(("~", ".")) or path.is_absolute() or path.exists()
 
 
 class MlxAudioModule(BatchASRModule):
