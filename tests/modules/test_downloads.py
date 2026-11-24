@@ -74,7 +74,7 @@ class _Hub:
             if context is not None:
                 context.close()
         target = self.blobs / name
-        partial.rename(target)
+        partial.replace(target)  # a file fetched again overwrites, as on Windows
         self.cached[name] = target
         return str(target)
 
