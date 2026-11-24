@@ -9,6 +9,7 @@ import hashlib
 import inspect
 import io
 import json
+import os
 import platform as platform_module
 import subprocess
 import sys
@@ -462,7 +463,9 @@ def test_schema_config_and_extras_need_no_provider_library_and_check_setup_says_
         capture_output=True,
         text=True,
         check=False,
-        env={"DEEPGRAM_API_KEY": "k", "MISTRAL_API_KEY": "k", "PATH": ""},
+        # The environment as is (Windows needs its own variables to start Python),
+        # with the keys the autouse fixture set.
+        env=dict(os.environ),
     )
 
     assert result.returncode == 0, result.stderr
