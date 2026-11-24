@@ -1,6 +1,6 @@
 """The engine's demo page (see specs/gradio-demo.md).
 
-The demo's own Listen tab next to module-setup's Setup and Secrets panels, over
+The demo's own Listen tab next to app-setup's Setup and Secrets panels, over
 one section, ``asr``, the engine block: the Setup panel chooses and configures a
 module and an input device, installs their extras and downloads their models;
 the Listen tab starts a session from the saved config, listens once, runs a
@@ -22,9 +22,9 @@ from collections.abc import Sequence
 from pathlib import Path
 
 import gradio as gr
-from module_setup.app import App, AppModel, Section
-from module_setup.folder import ConfigFolder, default_folder
-from module_setup.ui import secrets_panel, setup_panel
+from app_setup.app import App, AppModel, Section
+from app_setup.folder import ConfigFolder, default_folder
+from app_setup.ui import secrets_panel, setup_panel
 
 import asr_engine.setup
 
@@ -224,7 +224,7 @@ def _render(state: ControllerState) -> list:
 
 
 def build_page(model: AppModel, controller: DemoController) -> gr.Blocks:
-    """The demo's page: its Listen tab, then module-setup's Setup and Secrets
+    """The demo's page: its Listen tab, then app-setup's Setup and Secrets
     panels. It opens on Setup."""
     with gr.Blocks(title=model.title) as page:
         gr.Markdown(f"# {model.title}")

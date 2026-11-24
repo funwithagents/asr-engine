@@ -16,7 +16,7 @@ tests:
 
 ## Purpose
 
-A page to try the engine without writing a config by hand: choose a module and an input device, configure them, install their extras, download their models, set the key, then listen. It is the engine's demo, built on [setup.md](setup.md): its Setup and Secrets panels, the app's folder and the checks behind them come from the `module-setup` project, whose specs are the reference for them; this spec says what the engine's demo puts around them: its section, its page and its listening session.
+A page to try the engine without writing a config by hand: choose a module and an input device, configure them, install their extras, download their models, set the key, then listen. It is the engine's demo, built on [setup.md](setup.md): its Setup and Secrets panels, the app's folder and the checks behind them come from the `app-setup` project, whose specs are the reference for them; this spec says what the engine's demo puts around them: its section, its page and its listening session.
 
 It is a **direct-import consumer** of the library: it builds an `ASREngine` from an `ASREngineConfig` in-process and calls the engine API directly. It is **not** an MCP client and does **not** go through `AsrTools` (see [tools.md](tools.md)). This demo is the worked example of the "Direct import (no MCP)" usage in [engine.md](engine.md).
 
@@ -34,14 +34,14 @@ uv run python -m examples.gradio_demo [--folder PATH] [--host ADDRESS] [--port N
 
 (`python -m examples.gradio_demo.app` runs it too.) The page opens on its Setup tab with the `fake` module, which needs nothing installed and no key. The app's folder (its saved `config.json` and its `.env`) is `~/.config/asr-engine-demo` unless `--folder` names another. The page listens on `127.0.0.1` unless `--host` names another address; `--port` defaults to gradio's.
 
-`module-setup[ui]` (and through it gradio) is the `demo` dependency group, synced by default with `dev` (`[tool.uv] default-groups = ["dev", "demo"]`), so pyright and the tests see the page: it is never a dependency of the published package. It cannot share an environment with the `kyutai-mlx` extra (gradio's `huggingface-hub` floor is above moshi-mlx's ceiling), declared in `[tool.uv] conflicts`; the Kyutai environment is synced without the default groups anyway.
+`app-setup[ui]` (and through it gradio) is the `demo` dependency group, synced by default with `dev` (`[tool.uv] default-groups = ["dev", "demo"]`), so pyright and the tests see the page: it is never a dependency of the published package. It cannot share an environment with the `kyutai-mlx` extra (gradio's `huggingface-hub` floor is above moshi-mlx's ceiling), declared in `[tool.uv] conflicts`; the Kyutai environment is synced without the default groups anyway.
 
 ## What the demo declares
 
 - **One section, `asr`**, whose document is the engine block (`ASREngineConfig.from_dict`'s), described by `asr_engine.setup`, titled "Speech recognition".
 - **The host is `asr-engine` itself**, so "Install missing extras" installs this project's own extras (`deepgram`, `silero`, …) from its lock.
-- **The default config** is a committed file, `examples/gradio_demo/default_config.json` (one field per line, for review), loaded into `App(default_config=...)`; module-setup writes it into an empty folder at the first launch. It is the `fake` module with a two-utterance script, so Start shows the pipeline working on the microphone's audio clock before any choice.
-- **The page**: three tabs, **Listen** first, then module-setup's Setup panel and its Secrets panel, which follows the Setup panel's draft (a key a newly chosen module needs appears before saving). It opens on Setup.
+- **The default config** is a committed file, `examples/gradio_demo/default_config.json` (one field per line, for review), loaded into `App(default_config=...)`; app-setup writes it into an empty folder at the first launch. It is the `fake` module with a two-utterance script, so Start shows the pipeline working on the microphone's audio clock before any choice.
+- **The page**: three tabs, **Listen** first, then app-setup's Setup panel and its Secrets panel, which follows the Setup panel's draft (a key a newly chosen module needs appears before saving). It opens on Setup.
 - **The model**: `AppModel(APP, ConfigFolder(folder, APP.default_config), locked=controller.locked)`. Building it creates the folder, writes the default config there when there is none, and loads the folder's `.env` under the shell's variables.
 
 The input device is chosen on the Setup panel: the "Input device" branch of the section's `audio_source`, whose `device` field lists the machine's inputs (`options("input-devices")`). The module, its fields, the VAD gate and the segmentation settings are chosen there too; the Listen tab has no config of its own.
@@ -50,7 +50,7 @@ The input device is chosen on the Setup panel: the "Input device" branch of the 
 
 Something keeps running between two uses (a microphone stream, a connection), so the demo's tab is a **session with a lock**:
 
-- **Start** (always-on capture) and **Listen** (single-shot) read the **saved** config. With blockers (`model.blockers(saved)`: its problems, then what the machine is missing) they say why, as the message, and start nothing. Else they build an `ASREngine` from `model.used_config(saved)["asr"]`, with `base_dir=model.path`: its relative file paths (an `audio_source.audio_file`, a `vad.model_path`, a local model) are relative to the app's folder, the folder module-setup passes to the setup checks as their `base_dir`, so Check and Start look at the same file. Then they start it. A config the engine still refuses (`ConfigError`), or a missing extra (`ImportError`), is said the same way and leaves nothing behind.
+- **Start** (always-on capture) and **Listen** (single-shot) read the **saved** config. With blockers (`model.blockers(saved)`: its problems, then the **required** items the machine is missing; a model not prepared yet is not one, the session downloads it as it starts) they say why, as the message, and start nothing. Else they build an `ASREngine` from `model.used_config(saved)["asr"]`, with `base_dir=model.path`: its relative file paths (an `audio_source.audio_file`, a `vad.model_path`, a local model) are relative to the app's folder, the folder app-setup passes to the setup checks as their `base_dir`, so Check and Start look at the same file. Then they start it. A config the engine still refuses (`ConfigError`), or a missing extra (`ImportError`), is said the same way and leaves nothing behind.
 - **Stop** stops the session and **releases** the engine: the next Start builds one from the saved config again, so a change saved in between is what the next session runs. A Listen releases its engine when its capture ends or is cancelled.
 - **`locked()`** is true from a Start (or Listen) until the engine is released. The Setup panel polls it and disables Save and Reset meanwhile; `model.save` raises `RuntimeError`.
 
@@ -60,7 +60,7 @@ The `ASREngine` is async and expects a running event loop; Gradio callbacks are 
 
 ## `DemoController`
 
-The UI-agnostic core (`controller.py`, which imports `asr_engine` and `module_setup.app`, never gradio). Holds the loop thread, at most one session's engine and its config, and rolling event state.
+The UI-agnostic core (`controller.py`, which imports `asr_engine` and `app_setup.app`, never gradio). Holds the loop thread, at most one session's engine and its config, and rolling event state.
 
 ```python
 class DemoController:
@@ -135,7 +135,7 @@ Start and Stop are greyed by the session's status: a click greys both at once (a
 
 ## Testing
 
-`tests/examples/test_gradio_demo.py` drives `DemoController` over a real module-setup `AppModel` on a temporary folder (its secrets kept off the environment), with `ASREngine` replaced by a fake in-process engine, so no audio device, network or browser is needed:
+`tests/examples/test_gradio_demo.py` drives `DemoController` over a real app-setup `AppModel` on a temporary folder (its secrets kept off the environment), with `ASREngine` replaced by a fake in-process engine, so no audio device, network or browser is needed:
 
 - the default config is accepted and has no blockers on any machine;
 - the page puts Listen first, then Setup and Secrets, and opens on Setup;

@@ -2,7 +2,7 @@
 
 The controller owns a real background asyncio loop but drives an ``ASREngine``
 replaced with a ``FakeEngine`` (patched at
-``examples.gradio_demo.controller.ASREngine``), over a real module-setup
+``examples.gradio_demo.controller.ASREngine``), over a real app-setup
 ``AppModel`` on a temporary folder. So these exercise the session's own logic —
 built from the saved config, refused with the config's blockers, the config
 locked while it runs, listen cancellation, dictation, phase/enablement — without
@@ -22,9 +22,9 @@ from unittest.mock import patch
 
 import gradio as gr
 import pytest
-from module_setup.app import AppModel
-from module_setup.folder import ConfigFolder
-from module_setup.secrets import SecretStore
+from app_setup.app import AppModel
+from app_setup.folder import ConfigFolder
+from app_setup.secrets import SecretStore
 
 from asr_engine import setup
 from asr_engine.config import ASREngineConfig
@@ -385,6 +385,6 @@ def test_a_relative_path_runs_against_the_app_s_folder(tmp_path: Path) -> None:
         before = model.blockers(model.saved_config())
         controller.start(model)
 
-        assert before == []  # module-setup checks the file in the app's folder
+        assert before == []  # app-setup checks the file in the app's folder
         [engine] = FakeEngine.instances
         assert engine.config.audio_source.audio_file == str(folder / "speech.wav")

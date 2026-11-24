@@ -18,7 +18,7 @@ from collections import deque
 from dataclasses import dataclass
 from typing import Literal
 
-from module_setup.app import AppModel
+from app_setup.app import AppModel
 
 from asr_engine.config import ASREngineConfig, ConfigError, VadConfig
 from asr_engine.engine import ASREngine
@@ -200,7 +200,7 @@ class DemoController:
             return None
         section = model.used_config(saved)[SECTION]
         try:
-            # Relative paths are relative to the app's folder, as module-setup's
+            # Relative paths are relative to the app's folder, as app-setup's
             # checks read them (it passes the same folder as base_dir).
             config = ASREngineConfig.from_dict(section, base_dir=model.path)
             engine = ASREngine(
