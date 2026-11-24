@@ -120,6 +120,15 @@ def _with(**asr: Any) -> dict[str, Any]:
     return {"asr": {**DEFAULT_CONFIG["asr"], **asr}}
 
 
+def _silero(tmp_path: Path) -> dict[str, Any]:
+    """A Silero gate on a model file of its own, so the machine misses nothing
+    (the cached model is not there on a fresh machine). Its extra must import."""
+    pytest.importorskip("onnxruntime")
+    path = tmp_path / "silero_vad.onnx"
+    path.write_bytes(b"onnx")
+    return {"type": "silero", "model_path": str(path)}
+
+
 def wait_until(pred: Callable[[], bool], timeout: float = 5.0) -> None:
     """Poll a predicate off the controller's loop thread until true."""
     deadline = time.monotonic() + timeout
@@ -187,7 +196,7 @@ def test_a_config_saved_between_sessions_is_the_one_the_next_session_runs(
     with session(tmp_path) as (controller, model):
         controller.start(model)
         controller.stop()
-        model.save(_with(vad={"type": "silero"}))
+        model.save(_with(vad=_silero(tmp_path)))
         controller.start(model)
 
         first, second = FakeEngine.instances
@@ -301,7 +310,7 @@ def test_the_saved_gate_is_shown_before_a_session_then_the_session_s(
     tmp_path: Path,
 ) -> None:
     with session(tmp_path) as (controller, model):
-        model.save(_with(vad={"type": "silero", "min_silence_duration_ms": 900}))
+        model.save(_with(vad={**_silero(tmp_path), "min_silence_duration_ms": 900}))
         before = controller.state(model)
         controller.start(model)
         FakeEngine.instances[0].vad_state = VadState(speaking=True)
