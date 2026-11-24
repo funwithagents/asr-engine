@@ -50,7 +50,7 @@ The input device is chosen on the Setup panel: the "Input device" branch of the 
 
 Something keeps running between two uses (a microphone stream, a connection), so the demo's tab is a **session with a lock**:
 
-- **Start** (always-on capture) and **Listen** (single-shot) read the **saved** config. With blockers (`model.blockers(saved)`: its problems, then what the machine is missing) they say why, as the message, and start nothing. Else they build an `ASREngine` from `model.used_config(saved)["asr"]`, its relative file paths (an `audio_source.audio_file`, a `vad.model_path`) resolved against the app's folder (`resolve_paths`; the engine block has no base directory of its own), and start it. A config the engine still refuses (`ConfigError`), or a missing extra (`ImportError`), is said the same way and leaves nothing behind.
+- **Start** (always-on capture) and **Listen** (single-shot) read the **saved** config. With blockers (`model.blockers(saved)`: its problems, then what the machine is missing) they say why, as the message, and start nothing. Else they build an `ASREngine` from `model.used_config(saved)["asr"]`, with `base_dir=model.path`: its relative file paths (an `audio_source.audio_file`, a `vad.model_path`, a local model) are relative to the app's folder, the folder module-setup passes to the setup checks as their `base_dir`, so Check and Start look at the same file. Then they start it. A config the engine still refuses (`ConfigError`), or a missing extra (`ImportError`), is said the same way and leaves nothing behind.
 - **Stop** stops the session and **releases** the engine: the next Start builds one from the saved config again, so a change saved in between is what the next session runs. A Listen releases its engine when its capture ends or is cancelled.
 - **`locked()`** is true from a Start (or Listen) until the engine is released. The Setup panel polls it and disables Save and Reset meanwhile; `model.save` raises `RuntimeError`.
 
@@ -145,7 +145,7 @@ Start and Stop are greyed by the session's status: a click greys both at once (a
 - Listen runs locked, and Stop cancels it and releases the engine; Listen is refused while a session runs;
 - the enablement of each phase; a dictation round trip; dictation refused without a session;
 - the gate's view without a gate, from the saved config, then following the session's;
-- relative paths resolved against the app's folder;
+- a relative path runs against the app's folder;
 - the default config is the committed file, written into a new folder;
 - Start and Stop both greyed while the session starts and while it stops.
 

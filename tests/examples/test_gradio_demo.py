@@ -33,7 +33,6 @@ from examples.gradio_demo.app import APP, DEFAULT_CONFIG, build_page
 from examples.gradio_demo.controller import (
     ControllerState,
     DemoController,
-    resolve_paths,
 )
 
 
@@ -374,17 +373,18 @@ def test_the_saved_gate_is_shown_before_a_session_then_the_session_s(
 # --- Paths -------------------------------------------------------------------------
 
 
-def test_relative_paths_resolve_against_the_app_s_folder(tmp_path: Path) -> None:
-    section = {
-        "module": {"type": "fake"},
-        "audio_source": {"type": "file", "audio_file": "speech.wav"},
-        "vad": {"type": "silero", "model_path": str(tmp_path / "abs.onnx")},
-    }
+def test_a_relative_path_runs_against_the_app_s_folder(tmp_path: Path) -> None:
+    folder = tmp_path / "app"
+    with session(folder) as (controller, model):
+        (folder / "speech.wav").write_bytes(b"")
+        model.save(
+            _with(
+                audio_source={"type": "file", "audio_file": "speech.wav"},
+            )
+        )
+        before = model.blockers(model.saved_config())
+        controller.start(model)
 
-    resolved = resolve_paths(section, tmp_path / "folder")
-
-    assert resolved["audio_source"]["audio_file"] == str(
-        tmp_path / "folder" / "speech.wav"
-    )
-    assert resolved["vad"]["model_path"] == str(tmp_path / "abs.onnx")
-    assert section["audio_source"]["audio_file"] == "speech.wav"  # not mutated
+        assert before == []  # module-setup checks the file in the app's folder
+        [engine] = FakeEngine.instances
+        assert engine.config.audio_source.audio_file == str(folder / "speech.wav")

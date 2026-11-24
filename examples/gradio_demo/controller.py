@@ -12,14 +12,11 @@ the loop thread and update thread-safe rolling state that ``state()`` snapshots.
 from __future__ import annotations
 
 import asyncio
-import copy
 import logging
 import threading
 from collections import deque
-from collections.abc import Mapping
 from dataclasses import dataclass
-from pathlib import Path
-from typing import Any, Literal
+from typing import Literal
 
 from module_setup.app import AppModel
 
@@ -83,25 +80,6 @@ def format_voice_activity(state: VadState | None, capturing: bool) -> str:
     if state.speaking:
         return "SPEECH: audio is sent to the module"
     return "silence: audio is held back"
-
-
-def resolve_paths(section: Mapping[str, Any], folder: Path) -> dict[str, Any]:
-    """The engine block with its relative file paths (an audio file source, a
-    local VAD model) resolved against the app's folder, as a person writing them
-    in the Setup panel means them."""
-    block = copy.deepcopy(dict(section))
-    for parent, key in (("audio_source", "audio_file"), ("vad", "model_path")):
-        holder = block.get(parent)
-        if not isinstance(holder, dict):
-            continue
-        value = holder.get(key)
-        if (
-            isinstance(value, str)
-            and value
-            and not Path(value).expanduser().is_absolute()
-        ):
-            holder[key] = str(folder / value)
-    return block
 
 
 @dataclass(frozen=True)
@@ -222,7 +200,9 @@ class DemoController:
             return None
         section = model.used_config(saved)[SECTION]
         try:
-            config = ASREngineConfig.from_dict(resolve_paths(section, model.path))
+            # Relative paths are relative to the app's folder, as module-setup's
+            # checks read them (it passes the same folder as base_dir).
+            config = ASREngineConfig.from_dict(section, base_dir=model.path)
             engine = ASREngine(
                 config,
                 on_speech_utterance=self._on_utterance,
