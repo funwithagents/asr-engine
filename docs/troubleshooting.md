@@ -5,10 +5,10 @@ Most configuration mistakes fail when the engine is constructed, with a message 
 ## A module requires an optional dependency
 
 ```text
-ASR module 'deepgram-v1' requires the optional dependency 'deepgram' which is not installed.
+Deepgram Nova module requires the optional dependency 'deepgram' which is not installed.
 ```
 
-The module's extra is not installed in the environment running the engine. Install it: `uv sync --no-default-groups --extra deepgram` from a checkout, or `pip install 'asr-engine[deepgram]'`. The same message with `VAD module 'silero'` asks for the `silero` extra. Every extra is listed in [modules/index.md](modules/index.md#installing-a-module).
+The module's extra is not installed in the environment running the engine. Install it: `uv sync --no-default-groups --extra deepgram` from a checkout, or `pip install 'asr-engine[deepgram]'`. The same message with `Silero VAD` asks for the `silero` extra. An application can find out before building the engine: `asr_engine.setup.check_setup` lists each missing extra ([setup.md](setup.md)). Every extra is listed in [modules/index.md](modules/index.md#installing-a-module).
 
 ## `asr-engine-mcp` exits with an install hint
 
