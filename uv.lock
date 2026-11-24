@@ -288,7 +288,7 @@ demo = [{ name = "gradio" }]
 dev = [
     { name = "asr-engine", extras = ["deepgram", "mcp", "mistral", "openai-compatible", "silero"] },
     { name = "mlx-audio", extras = ["stt"], marker = "platform_machine == 'arm64' and sys_platform == 'darwin'", specifier = ">=0.6" },
-    { name = "module-setup", git = "https://github.com/funwithagents/module-setup?rev=base-dir" },
+    { name = "module-setup", git = "https://github.com/funwithagents/module-setup?rev=main" },
     { name = "opentelemetry-sdk", specifier = ">=1.20,<2" },
     { name = "pyright", specifier = ">=1.1.411" },
     { name = "pytest" },
@@ -1681,7 +1681,7 @@ wheels = [
 [[package]]
 name = "module-setup"
 version = "0.1.0"
-source = { git = "https://github.com/funwithagents/module-setup?rev=base-dir#940c5f37e4f52d314437c75e0ea0bc513e63b92d" }
+source = { git = "https://github.com/funwithagents/module-setup?rev=main#d28ff373407cc765d552d131f2dbd9dbd4c976f0" }
 dependencies = [
     { name = "packaging" },
 ]
