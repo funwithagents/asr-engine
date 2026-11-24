@@ -1,24 +1,58 @@
-"""Gradio demo UI for the ASR engine (see specs/gradio-demo.md).
+"""The engine's demo page (see specs/gradio-demo.md).
 
-A thin wiring layer over ``DemoController``: it builds the Gradio page, binds
-each widget to a controller method, and polls ``controller.state()`` on a timer
-to refresh results and widget enablement. All logic lives in the controller.
+The demo's own Listen tab next to module-setup's Setup and Secrets panels, over
+one section, ``asr``, the engine block: the Setup panel chooses and configures a
+module and an input device, installs their extras and downloads their models;
+the Listen tab starts a session from the saved config, listens once, runs a
+dictation, and shows the utterances and segments. While a session runs the
+config is locked: the Setup panel cannot save under it.
 
 Run it from the repo root::
 
-    uv run python -m examples.gradio_demo.app --config config.json
+    uv run python -m examples.gradio_demo [--folder PATH] [--host ADDRESS] [--port N]
 """
 
 from __future__ import annotations
 
 import argparse
 import logging
+from collections.abc import Sequence
+from pathlib import Path
 
 import gradio as gr
+from module_setup.app import App, AppModel, Section
+from module_setup.folder import ConfigFolder, default_folder
+from module_setup.ui import secrets_panel, setup_panel
 
-from asr_engine.config import MCPServerConfig
+import asr_engine.setup
 
-from .controller import ControllerState, DemoController
+from .controller import SECTION, ControllerState, DemoController
+
+__all__ = ["APP", "DEFAULT_CONFIG", "build_page", "main"]
+
+log = logging.getLogger(__name__)
+
+# The fake module needs nothing installed and no key, so the page works before
+# any choice: it replays this script on the microphone's audio clock.
+DEFAULT_CONFIG = {
+    SECTION: {
+        "module": {
+            "type": "fake",
+            "utterances": [
+                {"text": "hello from the fake module", "start_s": 1.0, "end_s": 2.5},
+                {"text": "choose a real one in setup", "start_s": 4.0, "end_s": 5.5},
+            ],
+        },
+    },
+}
+
+APP = App(
+    name="asr-engine-demo",
+    title="asr-engine — set up speech recognition",
+    host="asr-engine",
+    sections=(Section(SECTION, asr_engine.setup, title="Speech recognition"),),
+    default_config=DEFAULT_CONFIG,
+)
 
 _SEG_MODES = ["utterance", "trigger_word", "timeout"]
 # Also how fast the voice-activity box follows the gate; 0.25 s keeps a short
@@ -26,221 +60,156 @@ _SEG_MODES = ["utterance", "trigger_word", "timeout"]
 _POLL_INTERVAL_S = 0.25
 
 
-def build_ui(controller: DemoController) -> gr.Blocks:
-    """Assemble the Gradio Blocks page bound to *controller*."""
-    devices = controller.available_devices()
-    modules = controller.available_modules()
-    # Default the device to the first available one rather than the system default.
-    if devices and controller.state().device is None:
-        controller.set_device(devices[0])
-    initial = controller.state()
+def _listen_tab(model: AppModel, controller: DemoController) -> None:
+    """Start/Stop, Listen, dictation, and what the engine heard."""
+    gr.Markdown(
+        "Start a session with the **saved** config (the Setup tab changes it while "
+        "nothing runs). Listen captures one segment, then stops."
+    )
+    with gr.Row():
+        start_btn = gr.Button("Start", variant="primary")
+        stop_btn = gr.Button("Stop")
 
-    with gr.Blocks(title="ASR Engine Demo") as demo:
-        gr.Markdown("# ASR Engine Demo\nDrive an in-process `ASREngine` directly.")
-
-        with gr.Row():
-            device_dd = gr.Dropdown(
-                choices=devices, value=initial.device, label="Input device"
-            )
-            module_dd = gr.Dropdown(
-                choices=modules, value=initial.module_type, label="ASR module"
-            )
-
-        with gr.Row():
-            trigger_words_tb = gr.Textbox(
-                value=initial.trigger_words,
-                label="Trigger words (comma-separated)",
-                info="used in trigger_word mode",
-            )
-            initial_silence_num = gr.Number(
-                value=initial.initial_silence_timeout_s,
-                label="Initial-silence timeout (s)",
-                info="timeout mode",
-            )
-            eos_num = gr.Number(
-                value=initial.end_of_speech_timeout_s,
-                label="End-of-speech timeout (s)",
-                info="timeout mode",
-            )
-            apply_params_btn = gr.Button("Apply params")
-
-        with gr.Row():
-            start_btn = gr.Button("Start", variant="primary")
-            stop_btn = gr.Button("Stop")
-
-        with gr.Row():
-            state_box = gr.Textbox(
-                label="Engine state",
-                info="stopped · running · dictating · listening (single-shot)",
-                interactive=False,
-            )
-            connected_box = gr.Textbox(
-                label="Backend connected",
-                info="ASR provider socket state",
-                interactive=False,
-            )
-
-        with gr.Row():
-            vad_config_box = gr.Textbox(
-                value=initial.vad,
-                label="VAD gate",
-                info="engine.vad from the config",
-                interactive=False,
-                scale=2,
-            )
-            voice_activity_box = gr.Textbox(
-                label="Voice activity",
-                info="is audio reaching the ASR module right now?",
-                interactive=False,
-            )
-
-        with gr.Row():
-            with gr.Row():
-                seg_mode_dd = gr.Dropdown(
-                    choices=_SEG_MODES,
-                    value=initial.segmentation_mode,
-                    label="Segmentation mode",
-                    info="used by both Listen and Start dictation",
-                )
-                end_on_final_cb = gr.Checkbox(
-                    value=False,
-                    label="End dictation on first final segment",
-                )
-            with gr.Column():
-                with gr.Row():
-                    start_dict_btn = gr.Button("Start dictation")
-                    stop_dict_btn = gr.Button("Stop dictation")
-                with gr.Row():
-                    listen_btn = gr.Button("Listen (single-shot)")
-
-        message_box = gr.Textbox(
-            label="Last activity",
-            info="result of your most recent action",
+    with gr.Row():
+        state_box = gr.Textbox(
+            label="Session",
+            info="stopped · running · dictating · listening (single-shot)",
+            interactive=False,
+        )
+        module_box = gr.Textbox(
+            label="Module",
+            info="the session's, else the saved config's",
+            interactive=False,
+        )
+        connected_box = gr.Textbox(
+            label="Backend connected",
+            info="the module's connection, or its loaded model",
             interactive=False,
         )
 
+    with gr.Row():
+        vad_config_box = gr.Textbox(
+            label="Voice activity detection",
+            info="the gate in the config",
+            interactive=False,
+            scale=2,
+        )
+        voice_activity_box = gr.Textbox(
+            label="Voice activity",
+            info="is audio reaching the module right now?",
+            interactive=False,
+        )
+
+    with gr.Row():
         with gr.Row():
-            with gr.Column():
-                gr.Markdown("### Utterances (interim + final)")
-                utt_log = gr.Textbox(
-                    label="", lines=16, max_lines=16, autoscroll=True, interactive=False
-                )
-            with gr.Column():
-                gr.Markdown("### Segments (interim + closed)")
-                seg_log = gr.Textbox(
-                    label="", lines=16, max_lines=16, autoscroll=True, interactive=False
-                )
-        clear_btn = gr.Button("Clear utterances & segments")
-        last_listen = gr.Textbox(label="Last listen result", interactive=False)
+            seg_mode_dd = gr.Dropdown(
+                choices=_SEG_MODES,
+                value="trigger_word",
+                label="Segmentation mode",
+                info="used by both Listen and Start dictation",
+            )
+            end_on_final_cb = gr.Checkbox(
+                value=False,
+                label="End dictation on first final segment",
+            )
+        with gr.Column():
+            with gr.Row():
+                start_dict_btn = gr.Button("Start dictation")
+                stop_dict_btn = gr.Button("Stop dictation")
+            with gr.Row():
+                listen_btn = gr.Button("Listen (single-shot)")
 
-        outputs = [
-            device_dd,
-            module_dd,
-            seg_mode_dd,
-            start_btn,
-            stop_btn,
-            listen_btn,
-            start_dict_btn,
-            stop_dict_btn,
-            state_box,
-            connected_box,
-            vad_config_box,
-            voice_activity_box,
-            message_box,
-            utt_log,
-            seg_log,
-            last_listen,
-            trigger_words_tb,
-            initial_silence_num,
-            eos_num,
-            apply_params_btn,
-        ]
+    message_box = gr.Textbox(
+        label="Last activity",
+        info="the result of your most recent action",
+        interactive=False,
+        lines=2,
+    )
 
-        def render() -> list:
-            return _render(controller.state())
+    with gr.Row():
+        with gr.Column():
+            gr.Markdown("### Utterances (interim + final)")
+            utt_log = gr.Textbox(
+                label="", lines=16, max_lines=16, autoscroll=True, interactive=False
+            )
+        with gr.Column():
+            gr.Markdown("### Segments (interim + closed)")
+            seg_log = gr.Textbox(
+                label="", lines=16, max_lines=16, autoscroll=True, interactive=False
+            )
+    clear_btn = gr.Button("Clear utterances & segments")
+    last_listen = gr.Textbox(label="Last listen result", interactive=False)
 
-        def on_start() -> list:
-            controller.start()
-            return render()
+    outputs = [
+        start_btn,
+        stop_btn,
+        listen_btn,
+        start_dict_btn,
+        stop_dict_btn,
+        state_box,
+        module_box,
+        connected_box,
+        vad_config_box,
+        voice_activity_box,
+        message_box,
+        utt_log,
+        seg_log,
+        last_listen,
+    ]
 
-        def on_stop() -> list:
-            controller.stop()
-            return render()
+    def render() -> list:
+        return _render(controller.state(model))
 
-        def on_listen(mode: str) -> list:
-            controller.listen(mode)
-            return render()
+    def on_start() -> list:
+        controller.start(model)
+        return render()
 
-        def on_device(value: str | None) -> list:
-            controller.set_device(value)
-            return render()
+    def on_stop() -> list:
+        controller.stop()
+        return render()
 
-        def on_module(value: str) -> list:
-            controller.set_module(value)
-            return render()
+    def on_listen(mode: str) -> list:
+        controller.listen(model, mode)
+        return render()
 
-        def on_start_dictation(mode: str, end_on_final: bool) -> list:
-            controller.start_dictation(mode=mode, end_on_final_segment=end_on_final)
-            return render()
+    def on_start_dictation(mode: str, end_on_final: bool) -> list:
+        controller.start_dictation(mode=mode, end_on_final_segment=end_on_final)
+        return render()
 
-        def on_stop_dictation() -> list:
-            controller.stop_dictation()
-            return render()
+    def on_stop_dictation() -> list:
+        controller.stop_dictation()
+        return render()
 
-        def on_apply_params(words: str, ist: float, eost: float) -> list:
-            controller.set_segmentation_params(words, ist, eost)
-            return render()
+    def on_clear() -> list:
+        controller.clear_logs()
+        return render()
 
-        def on_clear() -> list:
-            controller.clear_logs()
-            return render()
-
-        start_btn.click(on_start, outputs=outputs)
-        stop_btn.click(on_stop, outputs=outputs)
-        listen_btn.click(on_listen, inputs=seg_mode_dd, outputs=outputs)
-        device_dd.change(on_device, inputs=device_dd, outputs=outputs)
-        module_dd.change(on_module, inputs=module_dd, outputs=outputs)
-        start_dict_btn.click(
-            on_start_dictation,
-            inputs=[seg_mode_dd, end_on_final_cb],
-            outputs=outputs,
-        )
-        stop_dict_btn.click(on_stop_dictation, outputs=outputs)
-        apply_params_btn.click(
-            on_apply_params,
-            inputs=[trigger_words_tb, initial_silence_num, eos_num],
-            outputs=outputs,
-        )
-        clear_btn.click(on_clear, outputs=outputs)
-
-        gr.Timer(_POLL_INTERVAL_S).tick(render, outputs=outputs)
-
-    return demo
+    start_btn.click(on_start, outputs=outputs)
+    stop_btn.click(on_stop, outputs=outputs)
+    listen_btn.click(on_listen, inputs=seg_mode_dd, outputs=outputs)
+    start_dict_btn.click(
+        on_start_dictation, inputs=[seg_mode_dd, end_on_final_cb], outputs=outputs
+    )
+    stop_dict_btn.click(on_stop_dictation, outputs=outputs)
+    clear_btn.click(on_clear, outputs=outputs)
+    gr.Timer(_POLL_INTERVAL_S).tick(render, outputs=outputs)
 
 
 def _render(state: ControllerState) -> list:
     """Map a ControllerState to gr.update()s for every output, in ``outputs`` order."""
-    # The segmentation-mode dropdown is a free user choice driving both Listen and
-    # Start-dictation, so it stays editable and its value is NEVER overwritten by
-    # the timer (that would clobber the user's selection). Params behave the same.
-    params_enabled = state.phase != "listening"
     # Show the active mode alongside the phase while it differs from the resting
     # utterance mode, so the user can see what dictation/listen is running.
     phase_display = state.phase
     if state.phase in ("dictating", "listening"):
         phase_display = f"{state.phase} · {state.segmentation_mode}"
     return [
-        gr.update(interactive=state.config_enabled),  # device_dd
-        gr.update(interactive=state.config_enabled),  # module_dd
-        gr.update(interactive=True),  # seg_mode_dd — always editable, value kept
         gr.update(interactive=state.can_start),  # start_btn
         gr.update(interactive=state.can_stop),  # stop_btn
         gr.update(interactive=state.can_listen),  # listen_btn
-        gr.update(
-            interactive=state.can_dictate and not state.dictating
-        ),  # start_dict_btn
+        gr.update(interactive=state.can_dictate and not state.dictating),
         gr.update(interactive=state.dictating),  # stop_dict_btn
         gr.update(value=phase_display),  # state_box
+        gr.update(value=state.module_type),
         gr.update(value="yes" if state.connected else "no"),
         gr.update(value=state.vad),
         gr.update(value=state.voice_activity),
@@ -248,42 +217,58 @@ def _render(state: ControllerState) -> list:
         gr.update(value="\n".join(state.utterance_log)),
         gr.update(value="\n".join(state.segment_log)),
         gr.update(value=state.last_listen),
-        # Param inputs: toggle enablement only — never overwrite the value, or the
-        # timer would clobber what the user is typing.
-        gr.update(interactive=params_enabled),  # trigger_words_tb
-        gr.update(interactive=params_enabled),  # initial_silence_num
-        gr.update(interactive=params_enabled),  # eos_num
-        gr.update(interactive=params_enabled),  # apply_params_btn
     ]
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Gradio demo for the ASR engine.")
-    # Required: a built-in fallback would have to pick an ASR module, making it the
-    # implicit default. The user chooses the module (and installs its extra).
-    parser.add_argument(
-        "--config",
-        required=True,
-        help="Path to a JSON config file (only its `engine` block is used).",
-    )
-    parser.add_argument("--host", default="127.0.0.1", help="Host to bind the UI to.")
-    parser.add_argument(
-        "--port", type=int, default=7860, help="Port to bind the UI to."
-    )
-    args = parser.parse_args()
+def build_page(model: AppModel, controller: DemoController) -> gr.Blocks:
+    """The demo's page: its Listen tab, then module-setup's Setup and Secrets
+    panels. It opens on Setup."""
+    with gr.Blocks(title=model.title) as page:
+        gr.Markdown(f"# {model.title}")
+        with gr.Tabs(selected="setup"):
+            with gr.Tab("Listen", id="listen"):
+                _listen_tab(model, controller)
+            with gr.Tab("Setup", id="setup"):
+                setup = setup_panel(model)
+            with gr.Tab("Secrets", id="secrets"):
+                secrets_panel(model, setup.draft)
+    return page
 
+
+def _arguments(argv: Sequence[str] | None) -> argparse.Namespace:
+    folder = default_folder(APP.name)
+    parser = argparse.ArgumentParser(description=APP.title)
+    parser.add_argument(
+        "--folder",
+        type=Path,
+        default=folder,
+        help=f"the demo's folder: its config and its keys (default: {folder})",
+    )
+    parser.add_argument("--host", default="127.0.0.1", help="the address to serve on")
+    parser.add_argument("--port", type=int, default=None, help="the port to serve on")
+    return parser.parse_args(argv)
+
+
+def main(argv: Sequence[str] | None = None) -> None:
+    options = _arguments(argv)
     # This example is an application entry point, so it configures logging itself
     # (deliberately not importing the library's private _logging.setup_logging).
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
-
-    config = MCPServerConfig.from_json_file(args.config).engine
-
-    with DemoController(config) as controller:
-        ui = build_ui(controller)
-        ui.launch(server_name=args.host, server_port=args.port)
+    with DemoController() as controller:
+        # Building the model makes the folder ready and loads its .env. The
+        # config is locked while a session runs.
+        model = AppModel(
+            APP,
+            ConfigFolder(options.folder, APP.default_config),
+            locked=controller.locked,
+        )
+        log.info("folder: %s", model.path)
+        build_page(model, controller).launch(
+            server_name=options.host, server_port=options.port
+        )
 
 
 if __name__ == "__main__":

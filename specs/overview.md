@@ -32,7 +32,7 @@ The three components below are **not part of the library** — they live in `exa
 
 | Example | Description |
 |---|---|
-| **Gradio demo** (`examples/gradio_demo/`) | Direct-import UI driving an in-process `ASREngine` (see [gradio-demo.md](gradio-demo.md)) |
+| **Gradio demo** (`examples/gradio_demo/`) | A setup page (module-setup's panels over `asr_engine.setup`) and a direct-import session on an in-process `ASREngine` (see [gradio-demo.md](gradio-demo.md)) |
 | **Demo client** (`examples/mcp_client/`) | MCP subscription SDK + a CLI that subscribes and logs ASR results (see [demo-client.md](demo-client.md)) |
 | **asr-to-terminal** (`examples/asr_to_terminal/`) | Subscribes to `asr://segment` and types transcripts into the active terminal (see [asr-to-terminal.md](asr-to-terminal.md)) |
 

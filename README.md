@@ -185,7 +185,7 @@ The runnable consumers under [examples/](examples/README.md) are not part of the
 
 | Example | Integration | Demonstrates |
 |---|---|---|
-| [gradio_demo](examples/gradio_demo/) | Direct engine import | A browser UI over an in-process engine: devices, modules, start, listen, dictation, live utterances and segments |
+| [gradio_demo](examples/gradio_demo/) | Direct engine import | A page to set the engine up (module, device, extras, models, keys) and try it: start, listen, dictation, live utterances and segments |
 | [mcp_client](examples/mcp_client/) | MCP resources | Subscribing to the server's rolling transcription resources |
 | [asr_to_terminal](examples/asr_to_terminal/) | MCP resources | Typing what is said into the focused terminal |
 

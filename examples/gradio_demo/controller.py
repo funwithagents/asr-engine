@@ -1,9 +1,12 @@
 """UI-agnostic controller for the Gradio ASR demo (see specs/gradio-demo.md).
 
 ``DemoController`` owns a dedicated asyncio event loop on a background thread and
-drives an in-process ``ASREngine`` directly (no MCP, no ``AsrTools``). Gradio
-handlers call its synchronous methods; engine callbacks fire on the loop thread
-and update thread-safe rolling state that ``state()`` snapshots for the UI.
+runs one listening session at a time on an in-process ``ASREngine`` (no MCP, no
+``AsrTools``). A session is built from the app's **saved** config when it starts
+(Start, or a single-shot Listen) and released when it stops; while it runs the
+config is locked (``locked()``), so the Setup panel cannot change it under the
+session. Gradio handlers call the synchronous methods; engine callbacks fire on
+the loop thread and update thread-safe rolling state that ``state()`` snapshots.
 """
 
 from __future__ import annotations
@@ -13,18 +16,23 @@ import copy
 import logging
 import threading
 from collections import deque
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Literal
+from pathlib import Path
+from typing import Any, Literal
 
-from asr_engine.audio import AudioCapture
-from asr_engine.config import ASREngineConfig, VadConfig
+from module_setup.app import AppModel
+
+from asr_engine.config import ASREngineConfig, ConfigError, VadConfig
 from asr_engine.engine import ASREngine
-from asr_engine.modules import REGISTRY
 from asr_engine.modules.base import SpeechUtterance
 from asr_engine.segmenter import SpeechSegment
 from asr_engine.vad.gate import VadState
 
 log = logging.getLogger(__name__)
+
+# The section of the app's config this demo runs: the engine block.
+SECTION = "asr"
 
 # Internal lifecycle phases the controller tracks directly.
 Phase = Literal["stopped", "running", "listening"]
@@ -53,7 +61,7 @@ def format_segment(segment: SpeechSegment) -> str:
 def format_vad_config(vad: VadConfig | None) -> str:
     """The configured VAD gate, in one line (or why there is none)."""
     if vad is None:
-        return "off (no engine.vad in the config): all audio is sent"
+        return "off (no voice activity detection in the config): all audio is sent"
     return (
         f"{vad.type} · threshold {vad.threshold:g} · opens after "
         f"{vad.min_speech_duration_ms} ms of speech · closes after "
@@ -75,6 +83,25 @@ def format_voice_activity(state: VadState | None, capturing: bool) -> str:
     return "silence: audio is held back"
 
 
+def resolve_paths(section: Mapping[str, Any], folder: Path) -> dict[str, Any]:
+    """The engine block with its relative file paths (an audio file source, a
+    local VAD model) resolved against the app's folder, as a person writing them
+    in the Setup panel means them."""
+    block = copy.deepcopy(dict(section))
+    for parent, key in (("audio_source", "audio_file"), ("vad", "model_path")):
+        holder = block.get(parent)
+        if not isinstance(holder, dict):
+            continue
+        value = holder.get(key)
+        if (
+            isinstance(value, str)
+            and value
+            and not Path(value).expanduser().is_absolute()
+        ):
+            holder[key] = str(folder / value)
+    return block
+
+
 @dataclass(frozen=True)
 class ControllerState:
     """Immutable snapshot the UI renders. Built by ``DemoController.state()``."""
@@ -82,11 +109,7 @@ class ControllerState:
     phase: DisplayPhase
     connected: bool
     segmentation_mode: str
-    trigger_words: str  # comma-separated, for the UI textbox
-    initial_silence_timeout_s: float
-    end_of_speech_timeout_s: float
-    device: str | None
-    module_type: str
+    module_type: str  # the session's module, else the saved config's
     vad: str  # the configured gate, one line
     voice_activity: str  # what the gate is doing right now
     utterance_log: list[str]
@@ -100,24 +123,24 @@ class ControllerState:
     can_start: bool
     can_stop: bool
     can_listen: bool
-    config_enabled: bool
     can_dictate: bool
 
 
 class DemoController:
-    """Owns the loop thread, one live ``ASREngine``, and rolling event state.
+    """Owns the loop thread, at most one running session, and rolling event state.
 
-    Config-changing methods (``set_device`` / ``set_module``) are only valid
-    while stopped and force the engine to be rebuilt from the pending config on
-    the next ``start`` / ``listen``. ``listen`` runs a single-shot capture in the
-    background (so the UI stays responsive) and can be cancelled with ``stop``.
-    Usable as a context manager so the loop thread is torn down cleanly.
+    ``start`` and ``listen`` read the app's saved config: with blockers (its
+    problems, what the machine is missing) they say why instead of starting;
+    else they build an ``ASREngine`` from its ``asr`` section. ``stop`` stops
+    the session and releases the engine, so the next start reads the saved
+    config again. ``locked()`` is true from a start until the engine is
+    released. Usable as a context manager so the loop thread is torn down
+    cleanly.
     """
 
-    def __init__(self, base_config: ASREngineConfig) -> None:
-        # Own a private copy so UI edits never mutate the caller's config.
-        self._config = copy.deepcopy(base_config)
+    def __init__(self) -> None:
         self._engine: ASREngine | None = None
+        self._config: ASREngineConfig | None = None  # the session's
         self._phase: Phase = "stopped"
         self._listen_task: asyncio.Task | None = None
 
@@ -144,7 +167,7 @@ class DemoController:
         self.close()
 
     def close(self) -> None:
-        """Cancel any capture and shut the loop thread down."""
+        """Stop any session and shut the loop thread down."""
         try:
             if self._phase == "listening" and self._listen_task is not None:
                 # Cancel and await on the loop so the task (and engine.listen's
@@ -154,6 +177,8 @@ class DemoController:
                 self._run(self._engine.stop(), timeout=_LIFECYCLE_TIMEOUT_S)
         except Exception:  # noqa: BLE001 — best-effort teardown
             log.exception("error stopping engine during close()")
+        self._phase = "stopped"
+        self._release()
         self._loop.call_soon_threadsafe(self._loop.stop)
         self._thread.join(timeout=_LIFECYCLE_TIMEOUT_S)
         self._loop.close()
@@ -175,50 +200,65 @@ class DemoController:
         """Run *coro* on the loop thread and block until it completes."""
         return asyncio.run_coroutine_threadsafe(coro, self._loop).result(timeout)
 
-    # -- discovery ---------------------------------------------------------
+    # -- the session's config ----------------------------------------------
 
-    def available_devices(self) -> list[str]:
+    def locked(self) -> bool:
+        """Whether a session uses the saved config: from a start until its
+        engine is released. The Setup panel refuses to save meanwhile."""
+        return self._phase != "stopped" or self._engine is not None
+
+    def _build(self, model: AppModel) -> ASREngine | None:
+        """The session's engine, from the saved config; None (with the reason
+        as the message) when it cannot run yet."""
+        saved = model.saved_config()
+        blockers = model.blockers(saved)
+        if blockers:
+            self._set_message(
+                "The saved config cannot run yet:\n"
+                + "\n".join(f"- {reason}" for reason in blockers)
+            )
+            return None
+        section = model.used_config(saved)[SECTION]
         try:
-            return AudioCapture.list_devices()
-        except Exception:  # noqa: BLE001 — device query is best-effort in a demo
-            log.exception("could not list audio input devices")
-            return []
+            config = ASREngineConfig.from_dict(resolve_paths(section, model.path))
+            engine = ASREngine(
+                config,
+                on_speech_utterance=self._on_utterance,
+                on_speech_segment=self._on_segment,
+            )
+        except (ConfigError, ImportError) as exc:
+            self._set_message(f"The engine could not be built: {exc}")
+            return None
+        self._config = config
+        self._engine = engine
+        return engine
 
-    def available_modules(self) -> list[str]:
-        return sorted(REGISTRY)
-
-    # -- configuration (only while stopped) --------------------------------
-
-    def set_device(self, device: str | None) -> None:
-        self._require_stopped("change the input device")
-        self._config.audio_source.device = device or None
-        self._engine = None  # rebuild from the new config on next start
-
-    def set_module(self, module_type: str) -> None:
-        self._require_stopped("change the ASR module")
-        self._config.module.type = module_type
+    def _release(self) -> None:
+        """Drop the session's engine: the next start builds one from the saved
+        config again, and the config is unlocked."""
         self._engine = None
-
-    def _require_stopped(self, action: str) -> None:
-        if self._phase != "stopped":
-            raise RuntimeError(f"Stop the engine before trying to {action}.")
+        self._config = None
 
     # -- lifecycle ---------------------------------------------------------
 
-    def start(self) -> None:
+    def start(self, model: AppModel) -> None:
+        """Start always-on capture with the saved config."""
         if self._phase != "stopped":
             return  # idempotent from the UI's perspective
+        engine = self._build(model)
+        if engine is None:
+            return
         try:
-            engine = self._ensure_engine()
             self._run(engine.start(), timeout=_LIFECYCLE_TIMEOUT_S)
         except Exception as exc:  # noqa: BLE001 — surface to the UI, don't crash
+            self._release()
             self._set_message(f"Start failed: {exc}")
             return
         self._phase = "running"
         self._set_message("Running (always-on).")
 
     def stop(self) -> None:
-        """Stop always-on capture, or cancel an in-progress ``listen``."""
+        """Stop always-on capture and release the engine, or cancel a ``listen``."""
         if self._phase == "running" and self._engine is not None:
             try:
                 self._run(self._engine.stop(), timeout=_LIFECYCLE_TIMEOUT_S)
@@ -226,6 +266,7 @@ class DemoController:
                 self._set_message(f"Stop failed: {exc}")
                 return
             self._phase = "stopped"
+            self._release()
             self._set_message("Stopped.")
         elif self._phase == "listening" and self._listen_task is not None:
             # Message first: the loop thread may cancel the task and set "Listen
@@ -233,19 +274,17 @@ class DemoController:
             self._set_message("Stopping listen…")
             self._loop.call_soon_threadsafe(self._listen_task.cancel)
 
-    def listen(self, mode: str | None = None) -> None:
-        """Start a single-shot capture in the background (cancelable via ``stop``).
+    def listen(self, model: AppModel, mode: str | None = None) -> None:
+        """Start a single-shot capture with the saved config, in the background
+        (cancelable via ``stop``).
 
         Non-blocking: the segment result and end-of-listen are reflected in
         ``state()`` once the capture completes (or is cancelled).
         """
         if self._phase != "stopped":
-            self._set_message("Stop the always-on engine before using listen.")
+            self._set_message("Stop the always-on session before using listen.")
             return
-        try:
-            self._ensure_engine()
-        except Exception as exc:  # noqa: BLE001
-            self._set_message(f"Listen failed: {exc}")
+        if self._build(model) is None:
             return
         self._phase = "listening"
         self._set_message("Listening… (Stop to cancel)")
@@ -270,6 +309,7 @@ class DemoController:
                 self._last_listen = segment
             self._set_message(f"Heard: {segment.transcript!r}")
         finally:
+            self._release()
             self._phase = "stopped"
             self._listen_task = None
 
@@ -280,7 +320,7 @@ class DemoController:
     ) -> None:
         """Start a dictation session on the running engine (aggregating mode)."""
         if self._phase != "running":
-            self._set_message("Start the engine before dictation.")
+            self._set_message("Start the session before dictation.")
             return
         try:
             self._run(
@@ -300,7 +340,7 @@ class DemoController:
         )
 
     def stop_dictation(self) -> None:
-        """End the active dictation; the engine keeps running."""
+        """End the active dictation; the session keeps running."""
         if self._engine is None or not self._engine.dictating:
             self._set_message("No dictation in progress.")
             return
@@ -313,62 +353,6 @@ class DemoController:
     async def _apply_stop_dictation(self) -> None:
         assert self._engine is not None
         await self._engine.stop_dictation()
-
-    # -- segmentation params -----------------------------------------------
-
-    def set_segmentation_params(
-        self,
-        trigger_words: str,
-        initial_silence_timeout_s: float,
-        end_of_speech_timeout_s: float,
-    ) -> None:
-        """Update trigger words (comma-separated) and timeouts; safe while running."""
-        if self._phase == "listening":
-            self._set_message("Cannot change segmentation params while listening.")
-            return
-        words = [w.strip() for w in trigger_words.split(",") if w.strip()]
-        try:
-            ist = float(initial_silence_timeout_s)
-            eost = float(end_of_speech_timeout_s)
-        except (TypeError, ValueError):
-            self._set_message("Timeouts must be numbers.")
-            return
-        if ist <= 0 or eost <= 0:
-            self._set_message("Timeouts must be greater than 0.")
-            return
-        try:
-            if self._engine is not None:
-                self._run(
-                    self._apply_params(words, ist, eost), timeout=_LIFECYCLE_TIMEOUT_S
-                )
-        except ValueError as exc:
-            self._set_message(str(exc))
-            return
-        seg = self._config.segmentation
-        seg.trigger_words = words
-        seg.initial_silence_timeout_s = ist
-        seg.end_of_speech_timeout_s = eost
-        self._set_message("Segmentation params updated.")
-
-    async def _apply_params(self, words: list[str], ist: float, eost: float) -> None:
-        assert self._engine is not None
-        await self._engine.set_segmentation_params(
-            trigger_words=words,
-            initial_silence_timeout_s=ist,
-            end_of_speech_timeout_s=eost,
-        )
-
-    # -- engine construction ----------------------------------------------
-
-    def _ensure_engine(self) -> ASREngine:
-        """Build the engine from the pending config if one isn't live yet."""
-        if self._engine is None:
-            self._engine = ASREngine(
-                self._config,
-                on_speech_utterance=self._on_utterance,
-                on_speech_segment=self._on_segment,
-            )
-        return self._engine
 
     def clear_logs(self) -> None:
         """Empty the utterance and segment logs."""
@@ -393,17 +377,27 @@ class DemoController:
         with self._lock:
             self._message = message
 
-    def _current_mode(self) -> str:
-        if self._engine is not None:
-            return self._engine.segmentation_mode
-        return "utterance"  # the always-on mode at rest
+    def _shown_config(self, model: AppModel) -> tuple[str, VadConfig | None]:
+        """The module and the gate shown: the session's, else the saved config's."""
+        if self._config is not None:
+            return self._config.module.type, self._config.vad
+        section = model.saved_config().get(SECTION)
+        try:
+            config = ASREngineConfig.from_dict(section)  # type: ignore[arg-type]
+        except ConfigError:
+            module = section.get("module") if isinstance(section, dict) else None
+            module_type = module.get("type") if isinstance(module, dict) else None
+            return str(module_type or "?"), None
+        return config.module.type, config.vad
 
-    def state(self) -> ControllerState:
-        connected = self._engine.status()["connected"] if self._engine else False
-        dictating = bool(self._engine and self._engine.dictating)
-        vad_state = self._engine.vad_state if self._engine else None
-        if self._engine is None and self._config.vad is not None:
-            vad_state = VadState()  # configured, but no engine built yet
+    def state(self, model: AppModel) -> ControllerState:
+        engine = self._engine
+        connected = engine.status()["connected"] if engine else False
+        dictating = bool(engine and engine.dictating)
+        module_type, vad = self._shown_config(model)
+        vad_state = engine.vad_state if engine else None
+        if engine is None and vad is not None:
+            vad_state = VadState()  # configured, but no session yet
         with self._lock:
             last_listen = self._last_listen
             message = self._message
@@ -414,17 +408,12 @@ class DemoController:
         # A running engine with an active dictation displays as "dictating"; the
         # engine flips dictating off on its own when an end-on-final session ends.
         display_phase = "dictating" if (phase == "running" and dictating) else phase
-        seg = self._config.segmentation
         return ControllerState(
             phase=display_phase,
             connected=connected,
-            segmentation_mode=self._current_mode(),
-            trigger_words=", ".join(seg.trigger_words),
-            initial_silence_timeout_s=seg.initial_silence_timeout_s,
-            end_of_speech_timeout_s=seg.end_of_speech_timeout_s,
-            device=self._config.audio_source.device,
-            module_type=self._config.module.type,
-            vad=format_vad_config(self._config.vad),
+            segmentation_mode=engine.segmentation_mode if engine else "utterance",
+            module_type=module_type,
+            vad=format_vad_config(vad),
             voice_activity=format_voice_activity(vad_state, capturing=not stopped),
             utterance_log=utterance_log,
             segment_log=segment_log,
@@ -434,6 +423,5 @@ class DemoController:
             can_start=stopped,
             can_stop=phase in ("running", "listening"),
             can_listen=stopped,
-            config_enabled=stopped,
             can_dictate=phase == "running",
         )

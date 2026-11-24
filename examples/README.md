@@ -11,7 +11,7 @@ MCP:            application ──▶ MCP server ──▶ ASREngine
 
 | Example | Integration | Purpose |
 |---|---|---|
-| [Gradio demo](gradio_demo/) | Direct import | Control an in-process engine and inspect live utterances and segments in a browser |
+| [Gradio demo](gradio_demo/) | Direct import | Set the engine up in a browser (module, device, extras, models, keys), then listen and inspect live utterances and segments: `uv run python -m examples.gradio_demo` |
 | [MCP client](mcp_client/) | MCP resources | Subscribe to a rolling ASR resource and print its updates |
 | [ASR to terminal](asr_to_terminal/) | MCP resources | Type the current server-owned segment into the focused terminal |
 

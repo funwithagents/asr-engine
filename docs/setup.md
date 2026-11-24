@@ -21,6 +21,14 @@ for item in items:  # one call per item; several may run at the same time
 setup.probe(config)
 ```
 
+## Try it: the demo page
+
+```
+uv run python -m examples.gradio_demo
+```
+
+from a checkout opens a page built on these functions: choose a module and an input device, fill their fields, install their extras and download their models with a click, set the key, then listen. Its folder (saved config, keys) is `~/.config/asr-engine-demo` unless `--folder` names another ([examples/gradio_demo](../examples/gradio_demo/README.md)).
+
 ## The functions
 
 | Function | What it gives | Needs |
