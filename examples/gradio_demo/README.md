@@ -8,7 +8,7 @@ The page has three tabs:
 - **Secrets**: the keys the config names (`DEEPGRAM_API_KEY`, …), where each comes from, and a place to save one in the demo's own `.env`.
 - **Listen**: start a session with the saved config, run a single-shot `listen`, start and stop a dictation, and watch the utterances and segments arrive.
 
-It starts on the `fake` module, which needs nothing installed and no key: Start replays a short script on your microphone's audio clock, so you can see the pipeline work before choosing a real module.
+It starts on the `fake` module ([default_config.json](default_config.json), written into the folder at the first launch), which needs nothing installed and no key: Start replays a short script on your microphone's audio clock, so you can see the pipeline work before choosing a real module.
 
 ## Run
 

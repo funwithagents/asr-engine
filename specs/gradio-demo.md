@@ -4,6 +4,7 @@ code:
   - examples/gradio_demo/__main__.py
   - examples/gradio_demo/controller.py
   - examples/gradio_demo/app.py
+  - examples/gradio_demo/default_config.json
   - pyproject.toml
 tests:
   - tests/examples/test_gradio_demo.py
@@ -39,7 +40,7 @@ uv run python -m examples.gradio_demo [--folder PATH] [--host ADDRESS] [--port N
 
 - **One section, `asr`**, whose document is the engine block (`ASREngineConfig.from_dict`'s), described by `asr_engine.setup`, titled "Speech recognition".
 - **The host is `asr-engine` itself**, so "Install missing extras" installs this project's own extras (`deepgram`, `silero`, …) from its lock.
-- **The default config** is the `fake` module with a two-utterance script, so Start shows the pipeline working on the microphone's audio clock before any choice: `{"asr": {"module": {"type": "fake", "utterances": [...]}}}`.
+- **The default config** is a committed file, `examples/gradio_demo/default_config.json` (one field per line, for review), loaded into `App(default_config=...)`; module-setup writes it into an empty folder at the first launch. It is the `fake` module with a two-utterance script, so Start shows the pipeline working on the microphone's audio clock before any choice.
 - **The page**: three tabs, **Listen** first, then module-setup's Setup panel and its Secrets panel, which follows the Setup panel's draft (a key a newly chosen module needs appears before saving). It opens on Setup.
 - **The model**: `AppModel(APP, ConfigFolder(folder, APP.default_config), locked=controller.locked)`. Building it creates the folder, writes the default config there when there is none, and loads the folder's `.env` under the shell's variables.
 
@@ -101,7 +102,7 @@ A listen can be **cancelled**: `stop()` cancels the listen task, which unwinds `
 
 | Field | Source |
 |---|---|
-| `phase: str` | `"stopped"` / `"running"` / `"dictating"` / `"listening"` |
+| `phase: str` | `"stopped"` / `"starting"` / `"running"` / `"dictating"` / `"stopping"` / `"listening"` |
 | `connected: bool` | `engine.status()["connected"]` (False without a session) |
 | `segmentation_mode: str` | `engine.segmentation_mode` while a session runs, else `utterance` |
 | `module_type: str` | the session's module, else the saved config's |
@@ -117,12 +118,14 @@ A listen can be **cancelled**: `stop()` cancels the listen task, which unwinds `
 
 Top to bottom: a line saying the session runs the saved config; **Start** and **Stop**; read-only fields for the **session** phase (with the active mode while `dictating`/`listening`), the **module**, and whether the backend is **connected**; the **voice activity detection** gate in one line and what it is doing right now (`SPEECH`, `silence`, `FAILED OPEN`, `idle`, `no VAD`); the **Segmentation mode** dropdown and the "end dictation on first final segment" checkbox beside Start-dictation / Stop-dictation and **Listen (single-shot)**; the **last activity** message; the utterance and segment logs with a **Clear** button; the last listen result.
 
-Live results refresh by polling `controller.state(model)` every 0.25 s (`gr.Timer`), which also lets the voice-activity field show a short utterance. The poll never rewrites the dropdown's value.
+Start and Stop are greyed by the session's status: a click greys both at once (an unqueued first step), the handler then renders the state it left, and the timer keeps them in step with a session started or stopped from another tab. Live results refresh by polling `controller.state(model)` every 0.25 s (`gr.Timer`), which also lets the voice-activity field show a short utterance. The poll never rewrites the dropdown's value.
 
 | State | Start | Stop | Listen | Dictation |
 |---|---|---|---|---|
 | stopped | on | off | on | off |
+| starting | off | off | off | off |
 | running | off | on | off | **Start** on |
+| stopping | off | off | off | off |
 | dictating | off | on | off | **Stop** on |
 | listening | off | **on** (cancels) | off | off |
 
@@ -142,9 +145,11 @@ Live results refresh by polling `controller.state(model)` every 0.25 s (`gr.Time
 - Listen runs locked, and Stop cancels it and releases the engine; Listen is refused while a session runs;
 - the enablement of each phase; a dictation round trip; dictation refused without a session;
 - the gate's view without a gate, from the saved config, then following the session's;
-- relative paths resolved against the app's folder.
+- relative paths resolved against the app's folder;
+- the default config is the committed file, written into a new folder;
+- Start and Stop both greyed while the session starts and while it stops.
 
-The page was also run and driven through its own endpoints (gradio's client): on the default config, Start replayed the fake module's script on the microphone's clock (interims, finals, `utterance` segments), and Stop released it.
+The page was also run and driven through its own endpoints (gradio's client): on the default config, Start replayed the fake module's script on the microphone's clock (interims, finals, `utterance` segments), and Stop released it. It was then driven in headless Chromium (Playwright): Check on the Setup tab, Start (Start greyed, Stop enabled), the script's finals in the log, Save disabled on the Setup tab while running, Stop (Start enabled, Stop greyed), Save enabled again. No request of the page was refused (no response at 400 or above, no console error). The `StarletteDeprecationWarning: 'HTTP_422_UNPROCESSABLE_ENTITY'` line gradio prints is not a rejection: gradio reads that deprecated constant on every queued event to build its error map; `main` filters it.
 
 ## Open questions (deferred)
 

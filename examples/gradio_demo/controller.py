@@ -35,9 +35,11 @@ log = logging.getLogger(__name__)
 SECTION = "asr"
 
 # Internal lifecycle phases the controller tracks directly.
-Phase = Literal["stopped", "running", "listening"]
+Phase = Literal["stopped", "starting", "running", "stopping", "listening"]
 # What the UI displays: "dictating" is derived from engine.dictating while running.
-DisplayPhase = Literal["stopped", "running", "dictating", "listening"]
+DisplayPhase = Literal[
+    "stopped", "starting", "running", "stopping", "dictating", "listening"
+]
 
 _LOG_MAXLEN = 200
 _LIFECYCLE_TIMEOUT_S = 30.0
@@ -245,13 +247,17 @@ class DemoController:
         """Start always-on capture with the saved config."""
         if self._phase != "stopped":
             return  # idempotent from the UI's perspective
+        # Starting until it runs: Start and Stop are both greyed meanwhile.
+        self._phase = "starting"
         engine = self._build(model)
         if engine is None:
+            self._phase = "stopped"
             return
         try:
             self._run(engine.start(), timeout=_LIFECYCLE_TIMEOUT_S)
         except Exception as exc:  # noqa: BLE001 — surface to the UI, don't crash
             self._release()
+            self._phase = "stopped"
             self._set_message(f"Start failed: {exc}")
             return
         self._phase = "running"
@@ -260,9 +266,11 @@ class DemoController:
     def stop(self) -> None:
         """Stop always-on capture and release the engine, or cancel a ``listen``."""
         if self._phase == "running" and self._engine is not None:
+            self._phase = "stopping"
             try:
                 self._run(self._engine.stop(), timeout=_LIFECYCLE_TIMEOUT_S)
             except Exception as exc:  # noqa: BLE001
+                self._phase = "running"
                 self._set_message(f"Stop failed: {exc}")
                 return
             self._phase = "stopped"

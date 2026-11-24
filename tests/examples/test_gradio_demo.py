@@ -12,6 +12,7 @@ an audio device, network or browser. See specs/gradio-demo.md.
 from __future__ import annotations
 
 import asyncio
+import threading
 import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
@@ -150,6 +151,19 @@ def test_the_demo_s_default_config_is_ready_on_any_machine(tmp_path: Path) -> No
     assert model.blockers(model.saved_config()) == []
 
 
+def test_the_default_config_is_the_committed_file_written_into_a_new_folder(
+    tmp_path: Path,
+) -> None:
+    import json
+
+    from examples.gradio_demo.app import DEFAULT_CONFIG_FILE
+
+    model = _model(tmp_path / "new")
+
+    assert model.saved_config() == json.loads(DEFAULT_CONFIG_FILE.read_text())
+    assert model.saved_config()["asr"]["module"]["type"] == "fake"
+
+
 def test_the_page_puts_listen_first_and_opens_on_setup(tmp_path: Path) -> None:
     with DemoController() as controller:
         page = build_page(_model(tmp_path, controller), controller)
@@ -271,6 +285,42 @@ def test_what_can_be_pressed_follows_the_session(tmp_path: Path) -> None:
         assert _enablement(controller.state(model)) == (True, False, True, False)
         controller.start(model)
         assert _enablement(controller.state(model)) == (False, True, False, True)
+
+
+def test_start_and_stop_are_greyed_while_the_session_starts_and_stops(
+    tmp_path: Path,
+) -> None:
+    gate = threading.Event()
+
+    class SlowEngine(FakeEngine):
+        async def start(self) -> None:
+            await asyncio.to_thread(gate.wait, 5)
+            await super().start()
+
+        async def stop(self) -> None:
+            await asyncio.to_thread(gate.wait, 5)
+            await super().stop()
+
+    with DemoController() as controller:
+        model = _model(tmp_path, controller)
+        with patch("examples.gradio_demo.controller.ASREngine", SlowEngine):
+            starting = threading.Thread(target=controller.start, args=(model,))
+            starting.start()
+            wait_until(lambda: controller.state(model).phase == "starting")
+            during_start = controller.state(model)
+            gate.set()
+            starting.join(5)
+            gate.clear()
+            stopping = threading.Thread(target=controller.stop)
+            stopping.start()
+            wait_until(lambda: controller.state(model).phase == "stopping")
+            during_stop = controller.state(model)
+            gate.set()
+            stopping.join(5)
+
+        assert (during_start.can_start, during_start.can_stop) == (False, False)
+        assert (during_stop.can_start, during_stop.can_stop) == (False, False)
+        assert controller.state(model).phase == "stopped"
 
 
 def test_dictation_round_trip_flips_the_displayed_phase(tmp_path: Path) -> None:

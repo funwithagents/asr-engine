@@ -8,6 +8,8 @@ Implements [specs/gradio-demo.md](../specs/gradio-demo.md), rewritten (`Implemen
 
 - `examples/gradio_demo/app.py` — `APP` (one section, `asr`; host `asr-engine`; the `fake` module with a script as the default config), `build_page` (Listen, Setup, Secrets; opens on Setup), `main` with `--folder`, `--host`, `--port` in place of `--config`
 - `examples/gradio_demo/__main__.py` — new: `python -m examples.gradio_demo`
+- `examples/gradio_demo/default_config.json` — new: the default config, a committed file
+- Start and Stop greyed by status (`starting` / `stopping` phases; a click greys both at once); gradio's 422-constant deprecation warning filtered in `main` after a headless-browser run showed no rejected request
 - `examples/gradio_demo/controller.py` — `DemoController` without a config of its own: `start(model)` / `listen(model, mode)` read the saved config, refuse with its blockers, build the engine (relative paths resolved against the folder) and release it at Stop; `locked()`; the device and module pickers and the segmentation params are gone (they are the Setup panel's)
 - `examples/gradio_demo/README.md`, `examples/README.md`, `README.md`, `docs/setup.md`, `AGENTS.md`, `specs/overview.md`
 - `tests/examples/test_gradio_demo.py` — replaces `test_gradio_controller.py`

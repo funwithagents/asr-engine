@@ -15,7 +15,9 @@ Run it from the repo root::
 from __future__ import annotations
 
 import argparse
+import json
 import logging
+import warnings
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -28,23 +30,15 @@ import asr_engine.setup
 
 from .controller import SECTION, ControllerState, DemoController
 
-__all__ = ["APP", "DEFAULT_CONFIG", "build_page", "main"]
+__all__ = ["APP", "DEFAULT_CONFIG", "DEFAULT_CONFIG_FILE", "build_page", "main"]
 
 log = logging.getLogger(__name__)
 
-# The fake module needs nothing installed and no key, so the page works before
-# any choice: it replays this script on the microphone's audio clock.
-DEFAULT_CONFIG = {
-    SECTION: {
-        "module": {
-            "type": "fake",
-            "utterances": [
-                {"text": "hello from the fake module", "start_s": 1.0, "end_s": 2.5},
-                {"text": "choose a real one in setup", "start_s": 4.0, "end_s": 5.5},
-            ],
-        },
-    },
-}
+# The first config of a new folder, a committed file (one field per line, for
+# review): the fake module needs nothing installed and no key, so the page works
+# before any choice; it replays its script on the microphone's audio clock.
+DEFAULT_CONFIG_FILE = Path(__file__).with_name("default_config.json")
+DEFAULT_CONFIG = json.loads(DEFAULT_CONFIG_FILE.read_text(encoding="utf-8"))
 
 APP = App(
     name="asr-engine-demo",
@@ -73,7 +67,7 @@ def _listen_tab(model: AppModel, controller: DemoController) -> None:
     with gr.Row():
         state_box = gr.Textbox(
             label="Session",
-            info="stopped · running · dictating · listening (single-shot)",
+            info="stopped · starting · running · dictating · stopping · listening (single-shot)",
             interactive=False,
         )
         module_box = gr.Textbox(
@@ -184,8 +178,17 @@ def _listen_tab(model: AppModel, controller: DemoController) -> None:
         controller.clear_logs()
         return render()
 
-    start_btn.click(on_start, outputs=outputs)
-    stop_btn.click(on_stop, outputs=outputs)
+    def busy() -> tuple[dict, dict]:
+        # Both buttons greyed at once, before the handler runs: a session is
+        # starting or stopping until the next render says otherwise.
+        return gr.update(interactive=False), gr.update(interactive=False)
+
+    start_btn.click(busy, outputs=[start_btn, stop_btn], queue=False).then(
+        on_start, outputs=outputs
+    )
+    stop_btn.click(busy, outputs=[start_btn, stop_btn], queue=False).then(
+        on_stop, outputs=outputs
+    )
     listen_btn.click(on_listen, inputs=seg_mode_dd, outputs=outputs)
     start_dict_btn.click(
         on_start_dictation, inputs=[seg_mode_dd, end_on_final_cb], outputs=outputs
@@ -257,6 +260,10 @@ def main(argv: Sequence[str] | None = None) -> None:
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
+    # gradio reads starlette's deprecated 422 constant on every queued event,
+    # rejected or not (it builds its error map each time): noise, not a
+    # rejection. A headless browser saw no request of the page refused.
+    warnings.filterwarnings("ignore", message=".*HTTP_422_UNPROCESSABLE_ENTITY.*")
     with DemoController() as controller:
         # Building the model makes the folder ready and loads its .env. The
         # config is locked while a session runs.
