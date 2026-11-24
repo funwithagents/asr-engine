@@ -40,6 +40,10 @@ The usual order is `check_config`, then `check_setup`; install what it says is m
 
 Deepgram is the exception for the model: its model list answers without a key and leaves Flux out, so its probe proves the key on the account's project list and leaves the model to the connection.
 
+## Relative paths
+
+`check_setup`, `prepare`, `options` and `probe` take `base_dir`, the folder the config's relative paths are relative to (an audio file, a local VAD model, a local `mlx-audio` model written as `./…`). Pass the folder your config lives in, and give the engine the same one (`ASREngineConfig.from_dict(block, base_dir=folder)`), so the checks and the engine look at the same file. Without it, both use the working directory.
+
 ## Keys
 
 A key never sits in the config. `check_setup` lists the variable each module reads, `api_key_env` or its default (`DEEPGRAM_API_KEY`, `MISTRAL_API_KEY`), as `ready` once it is set. The environment read is the process's own: an application keeping keys in a file loads them first. `probe` also takes `secrets={"VARIABLE": key}`, looked up before the environment, as `ASREngine` does ([configuration.md](configuration.md#credentials)).

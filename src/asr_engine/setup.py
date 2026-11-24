@@ -34,6 +34,7 @@ from asr_engine.config import (
     ConfigError,
     Problem,
     engine_problems,
+    resolve_paths,
 )
 from asr_engine.modules import REGISTRY, RENAMED_MODULE_TYPES
 from asr_engine.modules.base import ASRModule, Declared, format_for
@@ -329,12 +330,15 @@ def _selected(config: dict[str, Any]) -> list[tuple[type[Declared], dict[str, An
     return selected
 
 
-def check_setup(config: dict[str, Any]) -> list[dict[str, Any]]:
+def check_setup(
+    config: dict[str, Any], *, base_dir: str | None = None
+) -> list[dict[str, Any]]:
     """What this machine is missing to run this config: the module's extra, its
-    key, its model files, then the VAD's extra and model file. Local and fast:
-    no network. Never raises."""
+    key, its model files, then the VAD's extra and model file. A relative path is
+    looked up against *base_dir* (the working directory when None), as the loader
+    resolves it. Local and fast: no network. Never raises."""
     items: list[dict[str, Any]] = []
-    for cls, block in _selected(config):
+    for cls, block in _selected(resolve_paths(config, base_dir)):
         items += cls.check_setup(block)
     return items
 
@@ -342,16 +346,21 @@ def check_setup(config: dict[str, Any]) -> list[dict[str, Any]]:
 def prepare(
     config: dict[str, Any],
     on_progress: Callable[[dict[str, Any]], None] | None = None,
+    *,
+    base_dir: str | None = None,
 ) -> None:
     """Download what `check_setup` reports missing and preparable: the module's
     model, the VAD's. Needs the extras installed; blocking and idempotent."""
-    for cls, block in _selected(config):
+    for cls, block in _selected(resolve_paths(config, base_dir)):
         cls.prepare(block, on_progress)
 
 
-def options(name: str, config: dict[str, Any]) -> list[dict[str, Any]]:
+def options(
+    name: str, config: dict[str, Any], *, base_dir: str | None = None
+) -> list[dict[str, Any]]:
     """The choices of a named list: `"input-devices"`, the machine's input
-    devices after the system default. An unknown name is empty."""
+    devices after the system default. An unknown name is empty. *base_dir* is
+    taken for the contract; no list depends on a path."""
     if name != "input-devices":
         return []
     from asr_engine.audio import AudioCapture
@@ -365,7 +374,10 @@ def options(name: str, config: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def probe(
-    config: dict[str, Any], *, secrets: Mapping[str, str] | None = None
+    config: dict[str, Any],
+    *,
+    base_dir: str | None = None,
+    secrets: Mapping[str, str] | None = None,
 ) -> dict[str, Any]:
     """Try this config for real, lightly: a hosted module makes one authenticated,
     free listing call (and finds its model there), a local one loads its model and
@@ -378,7 +390,7 @@ def probe(
         problems = check_config(config)
         if problems:
             raise ConfigError(problems[0]["message"])
-        for cls, block in _selected(config):
+        for cls, block in _selected(resolve_paths(config, base_dir)):
             said.append(cls.probe(block, secrets))
         ok, message = True, " ".join(said)
     except Exception as exc:  # noqa: BLE001 - a probe reports, it never raises

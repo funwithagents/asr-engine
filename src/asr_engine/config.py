@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import copy
 import json
+import os
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 from asr_engine.errors import ConfigError, MissingSecretError
@@ -20,6 +23,7 @@ __all__ = [
     "SoundFeedbackConfig",
     "VadConfig",
     "engine_problems",
+    "resolve_paths",
 ]
 
 _DEFAULT_TRIGGER_WORDS: list[str] = [
@@ -477,6 +481,35 @@ def engine_problems(engine_block: Any) -> list[Problem]:
     return found
 
 
+def resolve_paths(engine_block: Any, base_dir: str | os.PathLike[str] | None) -> Any:
+    """The engine block with its relative file paths resolved against *base_dir*:
+    ``audio_source.audio_file``, ``vad.model_path``, and a ``module.model`` written
+    as a relative path (``./models/parakeet``; a bare ``org/name`` is a Hugging
+    Face repository, not a path). ``None`` leaves them relative to the working
+    directory. A copy; anything not an object is returned as is, for the checks
+    to report (specs/configuration.md "Relative paths")."""
+    if base_dir is None or not isinstance(engine_block, dict):
+        return engine_block
+    block = copy.deepcopy(engine_block)
+
+    def resolve(holder: Any, key: str, *, explicit: bool = False) -> None:
+        if not isinstance(holder, dict):
+            return
+        value = holder.get(key)
+        if not isinstance(value, str) or not value:
+            return
+        if explicit and not value.startswith(("./", "../", ".\\", "..\\")):
+            return
+        path = Path(value).expanduser()
+        if not path.is_absolute():
+            holder[key] = str(Path(base_dir) / path)
+
+    resolve(block.get("audio_source"), "audio_file")
+    resolve(block.get("vad"), "model_path")
+    resolve(block.get("module"), "model", explicit=True)
+    return block
+
+
 def _raise_first(problems: list[Problem]) -> None:
     if problems:
         raise ConfigError(problems[0][1])
@@ -623,7 +656,12 @@ class ASREngineConfig:
     vad: VadConfig | None = None  # None: no VAD stage (specs/vad.md)
 
     @classmethod
-    def from_dict(cls, engine_block: dict[str, Any]) -> ASREngineConfig:
+    def from_dict(
+        cls,
+        engine_block: dict[str, Any],
+        *,
+        base_dir: str | os.PathLike[str] | None = None,
+    ) -> ASREngineConfig:
         """Build (and validate) an ``ASREngineConfig`` from a raw ``engine`` block dict.
 
         This is the public in-memory constructor for direct importers of the
@@ -644,6 +682,9 @@ class ASREngineConfig:
         credentials still builds here.
         """
         _raise_first(engine_problems(engine_block))
+        # Relative file paths are relative to base_dir (the folder of the config
+        # file), as the setup checks read them (specs/configuration.md).
+        engine_block = resolve_paths(engine_block, base_dir)
         # Valid from here on: each part is read with its defaults.
         from asr_engine.modules import canonical_module_type
 
@@ -679,25 +720,39 @@ class ASREngineConfig:
         )
 
     @classmethod
-    def from_json(cls, text: str) -> ASREngineConfig:
+    def from_json(
+        cls, text: str, *, base_dir: str | os.PathLike[str] | None = None
+    ) -> ASREngineConfig:
         """Build an ``ASREngineConfig`` from a JSON string holding an ``engine`` block.
 
         The JSON's top-level object is the ``engine`` block itself (the shape found
         under a config file's ``"engine"`` key) — **not** a whole MCP server config
         file. Parses the string and delegates to :meth:`from_dict` (same validation).
         """
-        return cls.from_dict(_parse_config_json(text))
+        return cls.from_dict(_parse_config_json(text), base_dir=base_dir)
 
     @classmethod
-    def from_json_file(cls, path: str) -> ASREngineConfig:
+    def from_json_file(
+        cls, path: str, *, base_dir: str | os.PathLike[str] | None = None
+    ) -> ASREngineConfig:
         """Build an ``ASREngineConfig`` from a JSON *file* holding an ``engine`` block.
 
         The file's top-level object is the ``engine`` block itself (``module``,
         ``segmentation``, …) — **not** an MCP ``config.json`` with ``server``/``engine``
         wrappers. To load a whole server config file and take its engine, use
-        :meth:`MCPServerConfig.from_json_file` and read ``.engine`` instead.
+        :meth:`MCPServerConfig.from_json_file` and read ``.engine`` instead. Its
+        relative paths are relative to the file's folder unless *base_dir* names
+        another.
         """
-        return cls.from_dict(_parse_config_json(_read_file(path), source=path))
+        return cls.from_dict(
+            _parse_config_json(_read_file(path), source=path),
+            base_dir=_folder_of(path) if base_dir is None else base_dir,
+        )
+
+
+def _folder_of(path: str) -> str:
+    """The folder a config file's relative paths are relative to: its own."""
+    return str(Path(path).resolve().parent)
 
 
 @dataclass
@@ -713,7 +768,9 @@ class MCPServerConfig:
     engine: ASREngineConfig = field(default_factory=ASREngineConfig)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> MCPServerConfig:
+    def from_dict(
+        cls, data: dict[str, Any], *, base_dir: str | os.PathLike[str] | None = None
+    ) -> MCPServerConfig:
         """Build an ``MCPServerConfig`` from a whole-file dict (``server`` + ``engine``).
 
         Parses the optional ``server`` block (host/port) and delegates the ``engine``
@@ -730,18 +787,28 @@ class MCPServerConfig:
             )
         server = _parse_server(data.get("server"))
         engine_block = data.get("engine")
-        engine = ASREngineConfig.from_dict({} if engine_block is None else engine_block)
+        engine = ASREngineConfig.from_dict(
+            {} if engine_block is None else engine_block, base_dir=base_dir
+        )
         return cls(server=server, engine=engine)
 
     @classmethod
-    def from_json(cls, text: str) -> MCPServerConfig:
+    def from_json(
+        cls, text: str, *, base_dir: str | os.PathLike[str] | None = None
+    ) -> MCPServerConfig:
         """Build an ``MCPServerConfig`` from a whole-file JSON string."""
-        return cls.from_dict(_parse_config_json(text))
+        return cls.from_dict(_parse_config_json(text), base_dir=base_dir)
 
     @classmethod
-    def from_json_file(cls, path: str) -> MCPServerConfig:
-        """Load and parse the MCP server JSON config file at *path*."""
-        return cls.from_dict(_parse_config_json(_read_file(path), source=path))
+    def from_json_file(
+        cls, path: str, *, base_dir: str | os.PathLike[str] | None = None
+    ) -> MCPServerConfig:
+        """Load and parse the MCP server JSON config file at *path*; its relative
+        paths are relative to the file's folder unless *base_dir* names another."""
+        return cls.from_dict(
+            _parse_config_json(_read_file(path), source=path),
+            base_dir=_folder_of(path) if base_dir is None else base_dir,
+        )
 
 
 def validate_asr_type(config: ASREngineConfig, registry: dict) -> None:

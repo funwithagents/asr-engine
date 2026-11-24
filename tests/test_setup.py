@@ -870,3 +870,35 @@ def test_a_module_that_reads_no_key_keeps_its_one_argument_constructor() -> None
     )
 
     ASREngine(config, secrets={"ANY": "x"})  # the fake module is not handed them
+
+
+# --- Relative paths: base_dir ---------------------------------------------------------
+
+
+@pytest.mark.skipif(not _installs_here("silero"), reason="no onnxruntime here")
+def test_a_relative_vad_model_is_looked_up_against_base_dir_not_the_working_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    folder, elsewhere = tmp_path / "app", tmp_path / "cwd"
+    folder.mkdir()
+    elsewhere.mkdir()
+    (folder / "silero.onnx").write_bytes(b"onnx")
+    monkeypatch.chdir(elsewhere)
+    config = {
+        "module": {"type": "fake"},
+        "vad": {"type": "silero", "model_path": "silero.onnx"},
+    }
+
+    in_folder = [i for i in setup.check_setup(config, base_dir=str(folder))]
+    in_cwd = [i for i in setup.check_setup(config)]
+
+    assert in_folder[-1]["status"] == "ready"
+    assert in_cwd[-1]["status"] == "missing"
+    assert str(folder / "silero.onnx") in in_folder[-1]["id"]
+
+
+def test_every_function_that_looks_at_the_machine_takes_base_dir() -> None:
+    for function in (setup.check_setup, setup.prepare, setup.options, setup.probe):
+        parameter = inspect.signature(function).parameters["base_dir"]
+        assert parameter.kind is inspect.Parameter.KEYWORD_ONLY
+        assert parameter.default is None

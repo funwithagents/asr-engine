@@ -13,8 +13,8 @@ Implements [specs/setup.md](../specs/setup.md) and the changes it brings to [con
 - `src/asr_engine/modules/__init__.py`, `src/asr_engine/vad/__init__.py` — registries of classes; `LazyModule` / `LazyVAD` removed
 - every module (`fake`, `deepgram` (`_config.py` now `DeepgramModule`), `mistral`, `openai_realtime_compatible`, `openai_transcriptions_compatible`, `mlx_audio`, `kyutai`, `batch.py` with `batch_fields`, `vad/silero`) — declarations, `validated` first in `__init__`, provider imports moved into `imports()` and the methods using them, `secrets` for the modules that read a key, `probe`, and `check_files` / `prepare` for the local ones
 - `src/asr_engine/engine.py` — `secrets`, `takes_secrets`, `gating_problem`, `ConfigError`
-- `src/asr_engine/setup.py` — new: the seven functions
-- `pyproject.toml`, `uv.lock` — `module-setup` in `dev`, from git `main`
+- `src/asr_engine/setup.py` — new: the seven functions; `check_setup`, `prepare`, `options`, `probe` take `base_dir`, and the loader (`from_dict` / `from_json` / `from_json_file`, the file's folder by default) resolves relative paths with the same `config.resolve_paths`
+- `pyproject.toml`, `uv.lock` — `module-setup` in `dev`, from git, on its `base-dir` branch until module-setup #7 is merged (then `main`)
 - `examples/config/` → `examples/configs/`
 - `tests/test_setup.py` (new), `tests/modules/test_fields.py` (new), `tests/conftest.py` (`provider_keys`), `tests/test_docs.py` (spec fields against the declarations), and the module, registry, config, engine and CLI tests updated for the new messages and for keys taken from the environment
 - `docs/setup.md` (new), `docs/configuration.md`, `docs/troubleshooting.md`, `docs/modules/*`, `docs/index.md`, `README.md`, `examples/README.md`, `AGENTS.md`

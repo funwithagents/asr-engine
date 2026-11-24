@@ -33,15 +33,25 @@ These functions implement the **module contract** of the `module-setup` project 
 def config_schema() -> dict: ...
 def required_extras(config: dict) -> list[str]: ...
 def check_config(config: dict) -> list[dict]: ...
-def check_setup(config: dict) -> list[dict]: ...
+def check_setup(config: dict, *, base_dir: str | None = None) -> list[dict]: ...
 def prepare(
-    config: dict, on_progress: Callable[[dict], None] | None = None
+    config: dict,
+    on_progress: Callable[[dict], None] | None = None,
+    *,
+    base_dir: str | None = None,
 ) -> None: ...
-def options(name: str, config: dict) -> list[dict]: ...
-def probe(config: dict, *, secrets: Mapping[str, str] | None = None) -> dict: ...
+def options(name: str, config: dict, *, base_dir: str | None = None) -> list[dict]: ...
+def probe(
+    config: dict,
+    *,
+    base_dir: str | None = None,
+    secrets: Mapping[str, str] | None = None,
+) -> dict: ...
 ```
 
 They take and return JSON-compatible data only, are synchronous, and import no provider library at module level: importing `asr_engine.setup` (or `asr_engine`) imports no `deepgram`, `websockets`, `httpx`, `onnxruntime`, `mlx_audio` or `moshi`. `config_schema`, `required_extras` and `check_config` read nothing but the config; `check_setup` also tries the selected modules' imports and reads the environment; `prepare` and `probe` need the extras and may use the network.
+
+**Relative paths: `base_dir`.** The four functions that look at the machine take `base_dir`, the folder the config's relative paths are relative to: `audio_source.audio_file`, `vad.model_path`, and a `module.model` written as a relative path (`./models/parakeet`; a bare `org/name` is a Hugging Face repository). They resolve them with `config.resolve_paths`, the function `ASREngineConfig.from_dict(..., base_dir=...)` applies, so the checks and the engine look at the same file. `None` means the working directory. An application passes the folder its config lives in (module-setup passes the app's folder), and builds the engine with the same one. `options` takes it for the contract; no list depends on a path. The three functions that only read the config take none.
 
 Each is the engine's own part (the audio source, segmentation, sound feedback, the scalar settings, the module choice, the VAD gate's parameters) plus the method of the same name on the selected ASR module, then on the selected VAD module.
 
@@ -226,7 +236,8 @@ A refused key reads `"<Service> refused the key (HTTP 401)."`, an unlisted model
 - `check_setup`: each extra `ready` where it installs and `missing` with its hint elsewhere; a key variable `missing` until set (empty counts as unset); the default variables; no key item for a compatible server; the Silero model `missing`, prepared, then `ready`; a local model path never downloaded; kyutai's model prepared once;
 - `options("input-devices")` and an unknown list;
 - `probe`: the fixture; the Deepgram key proven on the projects list; a refused key; Mistral's model found or not; a compatible server listed without a key, hosted OpenAI with one; a config with a problem; keys given in code;
-- `ASREngine(config, secrets=...)` hands them to a module that reads a key, not to the fixture.
+- `ASREngine(config, secrets=...)` hands them to a module that reads a key, not to the fixture;
+- a relative `vad.model_path` is found against `base_dir`, not the working directory, and the four machine functions take `base_dir` as a keyword defaulting to `None`.
 
 `tests/conftest.py` sets every provider's default variable to `"k"` for each test, so a test gives a key the way a person does and the shell's real keys never reach the fast tier.
 

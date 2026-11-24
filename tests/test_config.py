@@ -837,3 +837,76 @@ def test_an_engine_config_that_is_not_an_object_is_refused():
 def test_the_server_block_is_validated(data, message):
     with pytest.raises(ValueError, match=message):
         MCPServerConfig.from_dict({"engine": _FAKE, **data})
+
+
+# --- Relative paths: base_dir ---------------------------------------------------------
+
+
+def test_relative_paths_are_resolved_against_base_dir(tmp_path: Path) -> None:
+    from asr_engine.config import ASREngineConfig
+
+    block = {
+        "module": {"type": "mlx-audio", "model": "./models/parakeet"},
+        "audio_source": {"type": "file", "audio_file": "speech.wav"},
+        "vad": {"type": "silero", "model_path": "vad/silero.onnx"},
+    }
+
+    config = ASREngineConfig.from_dict(block, base_dir=tmp_path)
+    untouched = ASREngineConfig.from_dict(block)
+
+    assert config.audio_source.audio_file == str(tmp_path / "speech.wav")
+    assert config.vad is not None
+    assert config.vad.extra["model_path"] == str(tmp_path / "vad" / "silero.onnx")
+    assert config.module.extra["model"] == str(tmp_path / "models" / "parakeet")
+    assert untouched.audio_source.audio_file == "speech.wav"
+    assert block["audio_source"]["audio_file"] == "speech.wav"  # not mutated
+
+
+def test_a_hub_repository_and_an_absolute_path_are_left_alone(tmp_path: Path) -> None:
+    from asr_engine.config import ASREngineConfig
+
+    absolute = str(tmp_path / "speech.wav")
+    config = ASREngineConfig.from_dict(
+        {
+            "module": {"type": "mlx-audio", "model": "mlx-community/parakeet"},
+            "audio_source": {"type": "file", "audio_file": absolute},
+            "vad": {"type": "silero"},
+        },
+        base_dir=tmp_path / "elsewhere",
+    )
+
+    assert config.module.extra["model"] == "mlx-community/parakeet"
+    assert config.audio_source.audio_file == absolute
+
+
+def test_a_config_file_s_relative_paths_are_relative_to_its_folder(
+    tmp_path: Path, monkeypatch
+) -> None:
+    from asr_engine.config import ASREngineConfig
+
+    folder = tmp_path / "conf"
+    folder.mkdir()
+    path = folder / "engine.json"
+    path.write_text(
+        '{"module": {"type": "fake"}, '
+        '"audio_source": {"type": "file", "audio_file": "speech.wav"}}',
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+
+    whole = write_config(
+        folder,
+        {
+            "engine": {
+                "module": {"type": "fake"},
+                "audio_source": {"type": "file", "audio_file": "a.wav"},
+            }
+        },
+    )
+
+    assert ASREngineConfig.from_json_file(str(path)).audio_source.audio_file == str(
+        (folder / "speech.wav").resolve()
+    )
+    assert MCPServerConfig.from_json_file(whole).engine.audio_source.audio_file == str(
+        (Path(whole).resolve().parent / "a.wav")
+    )

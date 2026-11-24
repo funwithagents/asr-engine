@@ -52,6 +52,8 @@ config = ASREngineConfig(
 
 Direct dataclass construction expects trusted values. The `from_*` constructors normalize and validate configuration that comes from outside: a value of the wrong type (`"false"` for a boolean, a negative timeout) or a field the block does not define (a misspelling) raises a `ConfigError` naming the field, such as `engine.segmentation 'end_of_speech_timeout_s' must be a finite number > 0`. `ConfigError` is a `ValueError`, so code catching `ValueError` keeps working. Only the `module` and `vad` blocks take other fields, which the module validates itself, with the same error type.
 
+A relative file path in the configuration (`audio_source.audio_file`, `vad.model_path`, an `mlx-audio` `model` written as `./models/…`) is relative to the folder of the file it is loaded from (`from_json_file`), or to the `base_dir` given to `from_dict(block, base_dir=...)`; without one, to the working directory.
+
 An application that draws a form or checks a config before running it uses `asr_engine.setup` instead: it reports every problem at once, each with a pointer to its field, and says what the machine is missing ([setup.md](setup.md)).
 
 ## The engine block

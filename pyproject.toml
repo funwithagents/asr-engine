@@ -184,4 +184,6 @@ demo = [
 ]
 
 [tool.uv.sources]
-module-setup = { git = "https://github.com/funwithagents/module-setup", rev = "main" }
+# On module-setup's `base-dir` branch (its contract's `base_dir` keyword) until
+# module-setup #7 is merged: then back to rev = "main".
+module-setup = { git = "https://github.com/funwithagents/module-setup", rev = "base-dir" }
