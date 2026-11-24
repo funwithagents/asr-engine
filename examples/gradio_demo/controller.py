@@ -106,6 +106,13 @@ class ControllerState:
     can_dictate: bool
 
 
+def _blocked(blockers: list[str]) -> str:
+    """The message of a start refused for *blockers*."""
+    return "The saved config cannot run yet:\n" + "\n".join(
+        f"- {reason}" for reason in blockers
+    )
+
+
 class DemoController:
     """Owns the loop thread, at most one running session, and rolling event state.
 
@@ -129,6 +136,9 @@ class DemoController:
         self._segment_log: deque[str] = deque(maxlen=_LOG_MAXLEN)
         self._last_listen: SpeechSegment | None = None
         self._message: str = ""
+        # Whether the message is the saved config's blockers from a refused start:
+        # `refresh_blockers` keeps it current instead of showing a stale reason.
+        self._refused = False
 
         # Dedicated event loop on a daemon thread; every engine call is marshaled
         # onto it so the engine lives on exactly one loop ("asyncio throughout").
@@ -193,10 +203,7 @@ class DemoController:
         saved = model.saved_config()
         blockers = model.blockers(saved)
         if blockers:
-            self._set_message(
-                "The saved config cannot run yet:\n"
-                + "\n".join(f"- {reason}" for reason in blockers)
-            )
+            self._set_message(_blocked(blockers), refused=True)
             return None
         section = model.used_config(saved)[SECTION]
         try:
@@ -361,9 +368,26 @@ class DemoController:
 
     # -- state snapshot ----------------------------------------------------
 
-    def _set_message(self, message: str) -> None:
+    def _set_message(self, message: str, *, refused: bool = False) -> None:
         with self._lock:
             self._message = message
+            self._refused = refused
+
+    def refresh_blockers(self, model: AppModel) -> None:
+        """When the message is the blockers of a refused start, make them the
+        saved config's current ones: the page calls it when the Listen tab is
+        selected, after a save, and when a key changes. Any other message is
+        left alone."""
+        with self._lock:
+            if not self._refused:
+                return
+        blockers = model.blockers(model.saved_config())
+        if blockers:
+            self._set_message(_blocked(blockers), refused=True)
+        else:
+            self._set_message(
+                "The saved config has nothing missing any more: Start can run it."
+            )
 
     def _shown_config(self, model: AppModel) -> tuple[str, VadConfig | None]:
         """The module and the gate shown: the session's, else the saved config's."""

@@ -54,6 +54,11 @@ Something keeps running between two uses (a microphone stream, a connection), so
 - **Stop** stops the session and **releases** the engine: the next Start builds one from the saved config again, so a change saved in between is what the next session runs. A Listen releases its engine when its capture ends or is cancelled.
 - **`locked()`** is true from a Start (or Listen) until the engine is released. The Setup panel polls it and disables Save and Reset meanwhile; `model.save` raises `RuntimeError`.
 
+### What the Listen tab says about the Setup tab
+
+- **Unsaved changes.** Above Start, a line says "The Setup tab has unsaved changes: Start uses the saved config." while the Setup panel's draft differs from the saved config, and nothing otherwise: app-setup's `unsaved_notice(model, setup.draft)`, on `setup.draft.change` and `setup.saved.change`.
+- **A refused start's reasons stay current.** When the last message is the blockers of a refused Start or Listen, `controller.refresh_blockers(model)` replaces them with the saved config's current blockers, or with "The saved config has nothing missing any more: Start can run it." when there are none; any other message is left as it is. The page calls it when the Listen tab is selected, on `setup.saved.change`, and when a key changes: each tick compares the store's `model.secrets.revision` with the one this browser tab last saw (a `gr.State`) and refreshes only when it moved, so the blockers are not worked out on every tick.
+
 ## Concurrency model
 
 The `ASREngine` is async and expects a running event loop; Gradio callbacks are synchronous. The controller owns a **dedicated asyncio event loop running in a background thread** and marshals every engine call onto it with `asyncio.run_coroutine_threadsafe(...)`, blocking the calling handler until it completes (with a timeout). Engine callbacks (`on_speech_utterance`, `on_speech_segment`) fire on that loop thread; the controller appends to thread-safe buffers that the UI reads. This keeps the engine on one loop (the "asyncio throughout" invariant) while Gradio stays synchronous.
@@ -81,6 +86,9 @@ class DemoController:
         self, mode: str | None = None, end_on_final_segment: bool = False
     ) -> None: ...
     def stop_dictation(self) -> None: ...
+
+    # A refused start's message made the saved config's current blockers.
+    def refresh_blockers(self, model: AppModel) -> None: ...
 
     def clear_logs(self) -> None: ...
     def state(self, model: AppModel) -> ControllerState: ...
@@ -147,7 +155,9 @@ Start and Stop are greyed by the session's status: a click greys both at once (a
 - the gate's view without a gate, from the saved config, then following the session's;
 - a relative path runs against the app's folder;
 - the default config is the committed file, written into a new folder;
-- Start and Stop both greyed while the session starts and while it stops.
+- Start and Stop both greyed while the session starts and while it stops;
+- a refused start's reasons follow the saved config (a problem fixed and saved leaves the key it names) and the keys (a key saved bumps the store's revision, and nothing is missing any more); a refresh leaves any other message alone;
+- the unsaved-changes line: empty for the saved config, said for an edited draft, empty again once it is saved.
 
 The page was also run and driven through its own endpoints (gradio's client): on the default config, Start replayed the fake module's script on the microphone's clock (interims, finals, `utterance` segments), and Stop released it. It was then driven in headless Chromium (Playwright): Check on the Setup tab, Start (Start greyed, Stop enabled), the script's finals in the log, Save disabled on the Setup tab while running, Stop (Start enabled, Stop greyed), Save enabled again. No request of the page was refused (no response at 400 or above, no console error). The `StarletteDeprecationWarning: 'HTTP_422_UNPROCESSABLE_ENTITY'` line gradio prints is not a rejection: gradio reads that deprecated constant on every queued event to build its error map; `main` filters it.
 

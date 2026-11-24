@@ -232,6 +232,77 @@ def test_a_config_with_problems_says_why_and_starts_nothing(tmp_path: Path) -> N
         assert not controller.locked()
 
 
+def test_a_refused_start_s_reasons_follow_the_saved_config_and_the_keys(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The reasons a start was refused are the saved config's current blockers
+    once the page refreshes them (a save, the tab selected, a key changed), not
+    the ones kept from the attempt."""
+    monkeypatch.setenv("DEMO_ASR_KEY", "")  # recorded, so the key saved below is undone
+    monkeypatch.delenv("DEMO_ASR_KEY")
+    with session(tmp_path) as (controller, _):
+        # Keys saved on the Secrets tab reach the process's environment, where
+        # the engine's checks read them (monkeypatch takes the variable out again).
+        folder = ConfigFolder(tmp_path, APP.default_config)
+        model = AppModel(
+            APP, folder, SecretStore(folder.env_path), locked=controller.locked
+        )
+        model.save(
+            _with(
+                module={"type": "deepgram-v1", "api_key_env": "DEMO_ASR_KEY"},
+                segmentation={"end_of_speech_timeout_s": 0},
+            )
+        )
+        controller.start(model)
+        refused = controller.state(model).message
+        # A config with a problem is not asked about the machine yet.
+        assert "end_of_speech_timeout_s" in refused and "DEMO_ASR_KEY" not in refused
+
+        # The problem fixed and saved: the key it names is what is left.
+        model.save(_with(module={"type": "deepgram-v1", "api_key_env": "DEMO_ASR_KEY"}))
+        assert controller.state(model).message == refused  # until refreshed
+        controller.refresh_blockers(model)
+        left = controller.state(model).message
+        assert left.startswith("The saved config cannot run yet:")
+        assert "DEMO_ASR_KEY" in left and "end_of_speech_timeout_s" not in left
+
+        # The key saved on the Secrets tab: nothing is missing any more.
+        revision = model.secrets.revision
+        model.secrets.set("DEMO_ASR_KEY", "a-key")
+        assert model.secrets.revision != revision  # what the page's tick watches
+        controller.refresh_blockers(model)
+        assert controller.state(model).message == (
+            "The saved config has nothing missing any more: Start can run it."
+        )
+        assert FakeEngine.instances == []
+
+
+def test_a_refresh_leaves_any_other_message_alone(tmp_path: Path) -> None:
+    with session(tmp_path) as (controller, model):
+        controller.start(model)
+        controller.stop()
+        model.save(_with(segmentation={"end_of_speech_timeout_s": 0}))
+
+        controller.refresh_blockers(model)
+
+        assert controller.state(model).message == "Stopped."
+
+
+def test_the_listen_tab_says_when_the_setup_tab_has_unsaved_changes(
+    tmp_path: Path,
+) -> None:
+    from app_setup.ui import unsaved_notice
+
+    model = _model(tmp_path)
+    saved = model.saved_config()
+
+    assert unsaved_notice(model, saved) == ""
+    edited = _with(module={"type": "fake", "utterances": []})
+    assert "Start uses the saved config" in unsaved_notice(model, edited)
+    model.save(edited)
+    assert unsaved_notice(model, edited) == ""
+
+
 def test_an_engine_that_cannot_be_built_is_said_and_unlocks(tmp_path: Path) -> None:
     def refuse(*args: Any, **kwargs: Any) -> None:
         raise ImportError("an extra is missing")

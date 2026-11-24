@@ -18,13 +18,14 @@ import argparse
 import json
 import logging
 import warnings
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass
 from pathlib import Path
 
 import gradio as gr
 from app_setup.app import App, AppModel, Section
 from app_setup.folder import ConfigFolder, default_folder
-from app_setup.ui import secrets_panel, setup_panel
+from app_setup.ui import SetupPanel, secrets_panel, setup_panel, unsaved_notice
 
 import asr_engine.setup
 
@@ -54,12 +55,24 @@ _SEG_MODES = ["utterance", "trigger_word", "timeout"]
 _POLL_INTERVAL_S = 0.25
 
 
-def _listen_tab(model: AppModel, controller: DemoController) -> None:
+@dataclass
+class _ListenTab:
+    """What the page wires to the Setup panel: the unsaved-changes line, and the
+    tab's outputs with the step that refreshes a refused start's blockers."""
+
+    notice: gr.Markdown
+    outputs: list
+    refresh: Callable[[], list]
+
+
+def _listen_tab(model: AppModel, controller: DemoController) -> _ListenTab:
     """Start/Stop, Listen, dictation, and what the engine heard."""
     gr.Markdown(
         "Start a session with the **saved** config (the Setup tab changes it while "
         "nothing runs). Listen captures one segment, then stops."
     )
+    # "The Setup tab has unsaved changes: Start uses the saved config."
+    notice = gr.Markdown()
     with gr.Row():
         start_btn = gr.Button("Start", variant="primary")
         stop_btn = gr.Button("Stop")
@@ -195,7 +208,42 @@ def _listen_tab(model: AppModel, controller: DemoController) -> None:
     )
     stop_dict_btn.click(on_stop_dictation, outputs=outputs)
     clear_btn.click(on_clear, outputs=outputs)
-    gr.Timer(_POLL_INTERVAL_S).tick(render, outputs=outputs)
+
+    def refresh() -> list:
+        controller.refresh_blockers(model)
+        return render()
+
+    # The keys this browser tab last saw: a key saved on the Secrets tab (or in
+    # the folder's .env) changes the store's revision, and a refused start's
+    # blockers are worked out again then, not on every tick.
+    key_revision = gr.State(model.secrets.revision)
+
+    def tick(seen: int) -> list:
+        revision = model.secrets.revision
+        if revision != seen:
+            controller.refresh_blockers(model)
+        return [*render(), revision]
+
+    gr.Timer(_POLL_INTERVAL_S).tick(
+        tick, inputs=[key_revision], outputs=[*outputs, key_revision]
+    )
+    return _ListenTab(notice=notice, outputs=outputs, refresh=refresh)
+
+
+def _wire(
+    model: AppModel, listen_tab: gr.Tab, tab: _ListenTab, setup: SetupPanel
+) -> None:
+    """The Listen tab follows the Setup panel: the unsaved-changes line on each
+    draft change and save; a refused start's blockers on a save and when the tab
+    is selected."""
+
+    def notice(draft: dict) -> str:
+        return unsaved_notice(model, draft)
+
+    setup.draft.change(notice, inputs=[setup.draft], outputs=[tab.notice])
+    setup.saved.change(notice, inputs=[setup.draft], outputs=[tab.notice])
+    setup.saved.change(tab.refresh, outputs=tab.outputs)
+    listen_tab.select(tab.refresh, outputs=tab.outputs)
 
 
 def _render(state: ControllerState) -> list:
@@ -229,12 +277,13 @@ def build_page(model: AppModel, controller: DemoController) -> gr.Blocks:
     with gr.Blocks(title=model.title) as page:
         gr.Markdown(f"# {model.title}")
         with gr.Tabs(selected="setup"):
-            with gr.Tab("Listen", id="listen"):
-                _listen_tab(model, controller)
+            with gr.Tab("Listen", id="listen") as listen_tab:
+                tab = _listen_tab(model, controller)
             with gr.Tab("Setup", id="setup"):
                 setup = setup_panel(model)
             with gr.Tab("Secrets", id="secrets"):
                 secrets_panel(model, setup.draft)
+        _wire(model, listen_tab, tab, setup)
     return page
 
 
