@@ -134,15 +134,17 @@ This seam does triple duty: it is the MLX/PyTorch split, it is where a scripted 
 
 `backend: "auto"` resolves to `mlx` when `sys.platform == "darwin"` and `platform.machine() == "arm64"`, unless only the torch backend (`moshi`) is installed there; otherwise `torch`. So on a Mac with neither installed, which is the default dev environment since the Kyutai extras left it, the install hint names `kyutai-mlx`. `"mlx"` / `"torch"` force one and raise if unavailable.
 
-Because the registry's `LazyModule` carries a single `extra`, `kyutai` is registered with `extra=None` and `modules/kyutai/module.py` imports **neither** backend at top level. The module resolves the backend in `__init__` and raises its own `ImportError` naming the right extra:
+One registry key over two extras: `KyutaiModule` declares `extra = None` and overrides `required_extras`, which names `kyutai-mlx` for `backend: "mlx"`, `kyutai-torch` for `"torch"`, and for `"auto"` the one for the platform (MLX on Apple Silicon), from the config alone ([setup.md](../setup.md)). `modules/kyutai/module.py` imports **neither** backend at top level. Its `imports(config)` resolves the backend and tries its package, raising an `ImportError` naming the right extra; `__init__` resolves it the same way:
 
 ```
-ASR module 'kyutai' with backend 'mlx' requires the optional dependency
+Kyutai module with backend 'mlx' requires the optional dependency
 'kyutai-mlx' which is not installed. Install it with:
 pip install 'asr-engine[kyutai-mlx]' (from source: uv sync --extra kyutai-mlx)
 ```
 
-This deliberately mirrors the registry's own message so the two read alike.
+This deliberately mirrors the other modules' install hint so they read alike.
+
+For the setup checks, its `check_files` reports the model (`kyutai:<hf_repo>`) from `download.is_cached`, `prepare` fetches it with `download.download`, and `probe` builds the backend, loads it once and closes it ([setup.md](../setup.md)).
 
 ## Audio contract
 
@@ -281,7 +283,7 @@ Text for audio at time *t* arrives at *t + audio_delay_seconds*. On the VAD path
 
 **No `api_key` / `api_key_env`** — the module authenticates with nothing. This matters for e2e: `helpers.require_api_key` never skips a keyless module (see [Testing](#testing)).
 
-Validation in `__init__` (per the [constructor contract](../asr-module-interface.md#module-constructor-contract)): unknown `backend`; unavailable backend (→ the `ImportError` above); empty `hf_repo`; non-boolean `vad`; non-integer or non-positive `max_steps`; `vad_threshold` outside `(0, 1)`; negative `finalize_after_silence_s`; unknown `device`; non-positive `lag_warn_s`; `lag_drop_s <= lag_warn_s`.
+Validation in `__init__` (per the [constructor contract](../asr-module-interface.md#module-constructor-contract)), from the declared `fields` (title "Kyutai") and `config_rules`, each a `ConfigError` naming the field: unknown `backend`; empty `hf_repo`; non-boolean `vad`; non-integer or non-positive `max_steps`; `vad_threshold` outside `(0, 1)`; negative `finalize_after_silence_s`; unknown `device`; non-positive `lag_warn_s`; `lag_drop_s <= lag_warn_s`. Then an unavailable backend raises the `ImportError` above.
 
 ## Installation
 
@@ -363,7 +365,7 @@ Its `silence_s` is 4.0 s: it must exceed `audio_delay_seconds + finalize_after_s
 | `scripts/benchmark_kyutai.py` | Real-time-factor benchmark (MLX) |
 | `tests/modules/test_kyutai.py` | Fast tier, on the scripted fake backend |
 | `tests-e2e/fixtures/sample_24000_*.wav` | 24 kHz conformance fixtures |
-| `examples/config/kyutai.json` | A complete server config for this module (`engine.vad` left `null`) |
+| `examples/configs/kyutai.json` | A complete server config for this module (`engine.vad` left `null`) |
 
 ## Non-goals
 

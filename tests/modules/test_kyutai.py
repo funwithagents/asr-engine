@@ -811,7 +811,7 @@ def test_unavailable_backend_raises_the_install_hint(
         KyutaiModule({"backend": backend})
 
     message = str(exc_info.value)
-    assert "ASR module 'kyutai' with backend" in message
+    assert "Kyutai module with backend" in message
     assert f"pip install 'asr-engine[{extra}]'" in message
     assert f"uv sync --extra {extra}" in message
 
@@ -837,17 +837,20 @@ def test_registered_and_importable_without_loading_a_backend_package():
 @pytest.mark.parametrize(
     ("config", "message"),
     [
-        ({"backend": "onnx"}, "unknown backend 'onnx'"),
+        ({"backend": "onnx"}, "'backend' must be one of 'auto', 'mlx', 'torch'"),
         ({"hf_repo": ""}, "'hf_repo' must be a non-empty string"),
         ({"vad": "yes"}, "'vad' must be a boolean"),
-        ({"max_steps": 0}, "'max_steps' must be > 0"),
+        ({"max_steps": 0}, "'max_steps' must be an integer >= 1"),
         ({"max_steps": 12.5}, "'max_steps' must be an integer"),
-        ({"vad_threshold": 0}, "'vad_threshold' must be between 0 and 1"),
-        ({"vad_threshold": 1.0}, "'vad_threshold' must be between 0 and 1"),
+        ({"vad_threshold": 0}, "'vad_threshold' must be a number between 0 and 1"),
+        ({"vad_threshold": 1.0}, "'vad_threshold' must be a number between 0 and 1"),
         ({"vad_threshold": "high"}, "'vad_threshold' must be a number"),
-        ({"finalize_after_silence_s": -0.1}, "'finalize_after_silence_s' must be >= 0"),
-        ({"device": "tpu"}, "unknown device 'tpu'"),
-        ({"lag_warn_s": 0}, "'lag_warn_s' must be > 0"),
+        (
+            {"finalize_after_silence_s": -0.1},
+            "'finalize_after_silence_s' must be a finite number >= 0",
+        ),
+        ({"device": "tpu"}, "'device' must be one of 'auto', 'cuda', 'mps', 'cpu'"),
+        ({"lag_warn_s": 0}, "'lag_warn_s' must be a finite number > 0"),
         ({"lag_warn_s": 5, "lag_drop_s": 5}, "must be greater than 'lag_warn_s'"),
     ],
 )

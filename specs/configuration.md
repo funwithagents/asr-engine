@@ -1,6 +1,7 @@
 ---
 code:
   - src/asr_engine/config.py
+  - src/asr_engine/errors.py
 tests:
   - tests/test_config.py
   - tests/examples/test_configs.py
@@ -83,7 +84,7 @@ Consumed by the MCP entry point, not by `ASREngine`.
 
 The whole `engine` block maps to one `ASREngineConfig` dataclass, the single argument to `ASREngine(config=...)` (see [engine.md](engine.md)). It carries the scalar engine settings plus five nested sub-blocks and the optional `vad` block.
 
-**`ASREngineConfig.from_dict(engine_block)`** is the public, in-memory constructor for direct importers: it takes the raw `engine` block (the object under the top-level `"engine"` key, **not** the whole file) and returns a validated `ASREngineConfig`, running exactly the same validation as file loading (see [Validation](#validation)). This is the "build from the `engine` block alone" path — no `server` block, no environment reads (module `api_key`/`api_key_env` are carried through as extra fields and resolved later at engine construction, so a config with unset credentials still builds). `from_json`/`from_json_file` (see [Constructors](#constructors)) layer JSON string and file loading over it; `from_json_file` reads a file whose top-level object *is* an `engine` block, not a whole `config.json`. `MCPServerConfig.from_dict` delegates its `engine` block here, so the direct and MCP entry points produce identical engine configs.
+**`ASREngineConfig.from_dict(engine_block)`** is the public, in-memory constructor for direct importers: it takes the raw `engine` block (the object under the top-level `"engine"` key, **not** the whole file) and returns a validated `ASREngineConfig`, running exactly the same validation as file loading (see [Validation](#validation)). This is the "build from the `engine` block alone" path — no `server` block, no environment reads (a module's `api_key_env` is carried through as an extra field and the key resolved later at engine construction, so a config with unset credentials still builds). `from_json`/`from_json_file` (see [Constructors](#constructors)) layer JSON string and file loading over it; `from_json_file` reads a file whose top-level object *is* an `engine` block, not a whole `config.json`. `MCPServerConfig.from_dict` delegates its `engine` block here, so the direct and MCP entry points produce identical engine configs.
 
 | Field | Type | Default | Description |
 |---|---|---|---|
@@ -213,7 +214,7 @@ envoyer, valider, confirmer, soumettre, entree, entrée
 
 All three modes are valid for `listen` and dictation. In `utterance` mode a `listen` returns after exactly one final utterance, and a dictation with `end_on_final_segment=true` ends after one — coherent, if degenerate.
 
-Complete server configs for every ASR module ship in `examples/config/` (`deepgram-v1.json`, `deepgram-v2.json`, `mistral-realtime.json`, `openai-realtime-compatible.json`, `openai-transcriptions-compatible.json`, `kyutai.json`, `mlx-audio.json`), each with the `engine.vad` setting recommended for its module ([vad.md](vad.md) "Which modules to use with VAD"). `tests/examples/test_configs.py` checks they parse and that their module and VAD combination is accepted.
+Complete server configs for every ASR module ship in `examples/configs/` (`deepgram-v1.json`, `deepgram-v2.json`, `mistral-realtime.json`, `openai-realtime-compatible.json`, `openai-transcriptions-compatible.json`, `kyutai.json`, `mlx-audio.json`), each with the `engine.vad` setting recommended for its module ([vad.md](vad.md) "Which modules to use with VAD"). `tests/examples/test_configs.py` checks they parse and that their module and VAD combination is accepted.
 
 ## Example: Deepgram config
 
@@ -241,7 +242,7 @@ Requires the `deepgram` extra (`pip install 'asr-engine[deepgram]'`), plus `sile
 
 ## Example: Voxtral config
 
-Requires the `mistral` extra (`pip install 'asr-engine[mistral]'`). See [modules/mistral.md](modules/mistral.md) for the module fields. A complete file ships as `examples/config/mistral-realtime.json`, with `"vad": {"type": "silero"}` (needs the `silero` extra).
+Requires the `mistral` extra (`pip install 'asr-engine[mistral]'`). See [modules/mistral.md](modules/mistral.md) for the module fields. A complete file ships as `examples/configs/mistral-realtime.json`, with `"vad": {"type": "silero"}` (needs the `silero` extra).
 
 ```json
 {
@@ -265,7 +266,7 @@ Requires the `mistral` extra (`pip install 'asr-engine[mistral]'`). See [modules
 
 ## Example: OpenAI Realtime config (24 kHz)
 
-Requires the `openai-compatible` extra (`pip install 'asr-engine[openai-compatible]'`). See [modules/openai-realtime-compatible.md](modules/openai-realtime-compatible.md) for the module fields, and for pointing `url` at another compatible server. The module is fed 24 kHz, the only rate hosted OpenAI accepts: the microphone is opened at that rate, and a source at another rate is resampled. No `audio_format` is needed. A complete file ships as `examples/config/openai-realtime-compatible.json`, with `"vad": {"type": "silero"}` (needs the `silero` extra).
+Requires the `openai-compatible` extra (`pip install 'asr-engine[openai-compatible]'`). See [modules/openai-realtime-compatible.md](modules/openai-realtime-compatible.md) for the module fields, and for pointing `url` at another compatible server. The module is fed 24 kHz, the only rate hosted OpenAI accepts: the microphone is opened at that rate, and a source at another rate is resampled. No `audio_format` is needed. A complete file ships as `examples/configs/openai-realtime-compatible.json`, with `"vad": {"type": "silero"}` (needs the `silero` extra).
 
 ```json
 {
@@ -290,7 +291,7 @@ Requires the `openai-compatible` extra (`pip install 'asr-engine[openai-compatib
 
 ## Example: OpenAI transcriptions config (batch over HTTP)
 
-Requires the `openai-compatible` extra, plus `silero`: **`engine.vad` is mandatory**, as for every batch module ([batch-asr-module.md](batch-asr-module.md)). See [modules/openai-transcriptions-compatible.md](modules/openai-transcriptions-compatible.md) for the module fields, and for pointing `url` at Groq or a local server. A complete file ships as `examples/config/openai-transcriptions-compatible.json`.
+Requires the `openai-compatible` extra, plus `silero`: **`engine.vad` is mandatory**, as for every batch module ([batch-asr-module.md](batch-asr-module.md)). See [modules/openai-transcriptions-compatible.md](modules/openai-transcriptions-compatible.md) for the module fields, and for pointing `url` at Groq or a local server. A complete file ships as `examples/configs/openai-transcriptions-compatible.json`.
 
 ```json
 {
@@ -309,7 +310,7 @@ Requires the `openai-compatible` extra, plus `silero`: **`engine.vad` is mandato
 
 ## Example: mlx-audio config (local batch model, Apple Silicon)
 
-Requires the `mlx-audio` extra (Apple Silicon), plus `silero`: **`engine.vad` is mandatory**, since a batch module has no end-of-utterance signal of its own ([batch-asr-module.md](batch-asr-module.md)). A complete file ships as `examples/config/mlx-audio.json`.
+Requires the `mlx-audio` extra (Apple Silicon), plus `silero`: **`engine.vad` is mandatory**, since a batch module has no end-of-utterance signal of its own ([batch-asr-module.md](batch-asr-module.md)). A complete file ships as `examples/configs/mlx-audio.json`.
 
 ```json
 {
@@ -327,7 +328,7 @@ Requires the `mlx-audio` extra (Apple Silicon), plus `silero`: **`engine.vad` is
 
 ## Example: Kyutai config (local model, 24 kHz)
 
-Requires the `kyutai-mlx` (Apple Silicon) or `kyutai-torch` extra, in an environment without `mlx-audio` ([modules/kyutai.md](modules/kyutai.md) "Installation"). No key: the model runs on-device (see [modules/kyutai.md](modules/kyutai.md) for the module fields). A complete file ships as `examples/config/kyutai.json`, with `"vad": null`: the model is local and free and has its own end-of-turn head, so the gate is rarely worth it. Do not confuse `module.vad` (that head) with `engine.vad` (the gate).
+Requires the `kyutai-mlx` (Apple Silicon) or `kyutai-torch` extra, in an environment without `mlx-audio` ([modules/kyutai.md](modules/kyutai.md) "Installation"). No key: the model runs on-device (see [modules/kyutai.md](modules/kyutai.md) for the module fields). A complete file ships as `examples/configs/kyutai.json`, with `"vad": null`: the model is local and free and has its own end-of-turn head, so the gate is rarely worth it. Do not confuse `module.vad` (that head) with `engine.vad` (the gate).
 
 ```json
 {
@@ -377,12 +378,12 @@ For tests only — a keyless, deterministic scripted module (see [modules/fake.m
   - `engine.segmentation.trigger_words` is not a list of non-empty strings, or one of the two timeouts is not a finite, positive number
   - `engine.sound_feedback.output_device` is not a string, an integer or `null`; `engine.audio_source.device` is not a string or `null`; `engine.audio_source.audio_file` is not a string; `engine.audio_source.trailing_silence_s` is not a finite, non-negative number
   - `server.host` is not a non-empty string, or `server.port` is not an integer from 0 to 65535
-  - Each of these errors is a `ValueError` naming the field by its path (`engine.segmentation.end_of_speech_timeout_s`)
+  - Each of these errors is a `ConfigError` naming the field, by its block and its name (`engine.segmentation 'end_of_speech_timeout_s' must be a finite number > 0`)
   - `engine.audio_source.type` is not one of `input-device` / `file` / `custom`, the block holds a field its type does not take, or `audio_file` is missing with type `file`
   - The old `engine.audio` block is present
   - The specified `engine.module.type` is unknown
   - The specified module's optional dependencies (its extra) are not installed — checked at engine construction, not at config parsing, with an `ImportError` naming the extra to install
-  - Module-specific required fields (e.g. `api_key` / `api_key_env`) are missing
+  - A module's own field is invalid, or a module that reads a key is given `api_key` (a key is never written in a config), or its key variable is unset (`MissingSecretError`) — checked at engine construction
   - `engine.listen_default_segmentation_mode` is not one of `utterance` / `trigger_word` / `timeout`
   - `engine.dictation_default_segmentation_mode` is not one of `utterance` / `trigger_word` / `timeout`
   - `engine.auto_start_dictation` is `true` while `engine.auto_start` is `false`
@@ -397,4 +398,6 @@ For tests only — a keyless, deterministic scripted module (see [modules/fake.m
   - the `audio_file` is missing or unreadable
   - the source's channels cannot be converted to the module's (neither side is mono)
 - A source format the module does not support is **not** an error: the engine converts it.
+- Every config error is a **`ConfigError`**, a `ValueError` subclass (so code that caught `ValueError` keeps working), defined in `asr_engine/errors.py` and re-exported by `asr_engine.config`. **`MissingSecretError(ConfigError)`** is the one for a key: no key under the variable a module's `api_key_env` names (or its default), in the `secrets` given in code or the environment; it carries `.variable` and `.label`. A missing file stays `FileNotFoundError`, and a missing extra `ImportError`.
+- The engine block's own fields are declared once, as `Field`s (`ENGINE_FIELDS`, `SEGMENTATION_FIELDS`, `SOUND_FEEDBACK_FIELDS`, `AUDIO_FORMAT_FIELDS`, `INPUT_DEVICE_FIELDS`, `FILE_SOURCE_FIELDS`, `VAD_GATE_FIELDS`, `SERVER_FIELDS`), with the rules a `Field` cannot state beside them. **`engine_problems(engine_block)`** returns every problem of the engine's own part as `(JSON Pointer, message)`; `from_dict` raises the first, and `asr_engine.setup.check_config` reports them all, with the module's and the VAD's ([setup.md](setup.md)).
 - The specified audio device is verified when audio capture first starts, and an unknown device raises a clear error there — at startup when `engine.auto_start` is `true`, or on the first `start`/`listen` call when it is `false`.

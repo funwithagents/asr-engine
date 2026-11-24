@@ -111,3 +111,16 @@ def exporter(monkeypatch):
     provider.add_span_processor(SimpleSpanProcessor(spans))
     monkeypatch.setattr(trace, "get_tracer_provider", lambda: provider)
     return spans
+
+
+# The variable each module that reads a key takes it from by default (`api_key_env`).
+PROVIDER_KEYS = ("DEEPGRAM_API_KEY", "MISTRAL_API_KEY", "OPENAI_API_KEY")
+
+
+@pytest.fixture(autouse=True)
+def provider_keys(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every provider's default key variable set to "k": a config never holds a key,
+    so the tests give one the way a user does, and the shell's real keys never reach
+    them (specs/setup.md "Keys")."""
+    for name in PROVIDER_KEYS:
+        monkeypatch.setenv(name, "k")

@@ -137,9 +137,7 @@ class Harness:
         self, config: dict[str, Any], *script: FakeConnection | BaseException
     ) -> None:
         self.connector = FakeConnector(*script)
-        self.module = MistralRealtimeModule(
-            {"api_key": "test-key", **config}, connect=self.connector
-        )
+        self.module = MistralRealtimeModule({**config}, connect=self.connector)
         self.module._BACKOFF_S = (0.01,)
         self.queue: AudioQueue = asyncio.Queue()
         self.utterances: list[SpeechUtterance] = []
@@ -220,7 +218,7 @@ async def test_session_update_is_first_and_carries_defaults(harnesses) -> None:
     assert parse_qs(urlparse(url).query) == {
         "model": ["voxtral-mini-transcribe-realtime-3"]
     }
-    assert headers == {"Authorization": "Bearer test-key"}
+    assert headers == {"Authorization": "Bearer k"}
 
 
 async def test_session_update_carries_configured_fields(harnesses) -> None:
@@ -526,15 +524,14 @@ async def test_server_error_event_does_not_end_the_session(harnesses) -> None:
 )
 def test_invalid_config_raises_naming_the_field(config: dict, field: str) -> None:
     with pytest.raises(ValueError, match=field):
-        MistralRealtimeModule({"api_key": "k", **config})
+        MistralRealtimeModule({**config})
 
 
 def test_valid_edge_values_are_accepted() -> None:
     for delay in (80, 1200, 2400):
-        MistralRealtimeModule({"api_key": "k", "streaming_delay_ms": delay})
+        MistralRealtimeModule({"streaming_delay_ms": delay})
     MistralRealtimeModule(
         {
-            "api_key": "k",
             "language": "EN",
             "final_margin_ms": 0,
             "idle_close_s": 29.5,

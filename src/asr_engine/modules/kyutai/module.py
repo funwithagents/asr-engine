@@ -22,19 +22,22 @@ import platform
 import queue
 import sys
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 
 from asr_engine.audio import DEFAULT_AUDIO_FORMAT, AudioFormat, EndOfSpeech
+from asr_engine.errors import ConfigError
 from asr_engine.modules.base import (
     ASRModule,
     AudioQueue,
     ConnectedCallback,
+    ProgressCallback,
     SpeechUtterance,
     UtteranceCallback,
 )
+from asr_engine.modules.fields import Field
 from asr_engine.modules.kyutai import download
 from asr_engine.modules.kyutai.backend import KyutaiBackend, StepResult
 
@@ -74,37 +77,38 @@ def _is_importable(package: str) -> bool:
     return importlib.util.find_spec(package) is not None
 
 
+def _on_apple_silicon() -> bool:
+    return sys.platform == "darwin" and platform.machine() == "arm64"
+
+
+def _install_hint(name: str) -> str:
+    _, extra, _ = _BACKEND_IMPLS[name]
+    return (
+        f"Kyutai module with backend '{name}' requires the optional "
+        f"dependency '{extra}' which is not installed. Install it with: "
+        f"pip install 'asr-engine[{extra}]' (from source: uv sync --extra {extra}), "
+        f"in an environment without mlx-audio or [all]: the two cannot be "
+        f'installed together (see specs/project.md "Exclusive extras")'
+    )
+
+
 def _resolve_backend_name(requested: str) -> str:
     """Resolve ``"auto"`` to a concrete backend and check the choice is installed."""
     if requested == "auto":
-        on_apple_silicon = sys.platform == "darwin" and platform.machine() == "arm64"
         # On Apple Silicon, MLX unless only the torch backend is installed — so a
         # Mac with neither gets the kyutai-mlx install hint, not kyutai-torch's.
         name = (
             "mlx"
-            if on_apple_silicon
+            if _on_apple_silicon()
             and (_is_importable("moshi_mlx") or not _is_importable("moshi"))
             else "torch"
         )
     else:
         name = requested
-    package, extra, _ = _BACKEND_IMPLS[name]
+    package, _, _ = _BACKEND_IMPLS[name]
     if not _is_importable(package):
-        raise ImportError(
-            f"ASR module 'kyutai' with backend '{name}' requires the optional "
-            f"dependency '{extra}' which is not installed. Install it with: "
-            f"pip install 'asr-engine[{extra}]' (from source: uv sync --extra {extra}), "
-            f"in an environment without mlx-audio or [all]: the two cannot be "
-            f'installed together (see specs/project.md "Exclusive extras")'
-        )
+        raise ImportError(_install_hint(name))
     return name
-
-
-def _number(config: dict, key: str, default: float) -> float:
-    value = config.get(key, default)
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        raise ValueError(f"kyutai module: '{key}' must be a number, got {value!r}")
-    return float(value)
 
 
 class _Recycled:
@@ -141,61 +145,178 @@ class KyutaiModule(ASRModule):
     _LAG_WARN_INTERVAL_S = 5.0
     _STOP_TIMEOUT_S = 10.0
 
+    kind = "local"
+    title = "Kyutai"
+    # The extra follows the backend and the platform: `required_extras` picks it.
+    extra = None
+    fields = (
+        Field(
+            "backend",
+            "string",
+            "What runs the model: 'mlx' (Apple Silicon), 'torch', or 'auto' to "
+            "pick the one for this machine.",
+            default="auto",
+            choices=("auto", *_BACKENDS),
+        ),
+        Field(
+            "hf_repo",
+            "string",
+            "The Hugging Face repository of the model.",
+            default=download.DEFAULT_REPO,
+        ),
+        Field(
+            "vad",
+            "boolean",
+            "End each utterance on the model's own end-of-turn detection.",
+            default=True,
+        ),
+        Field(
+            "vad_threshold",
+            "number",
+            "How sure the model must be that a turn ended, strictly between 0 and 1.",
+            default=0.5,
+            exclusive_minimum=0,
+            maximum=1,
+            advanced=True,
+            message="Kyutai module 'vad_threshold' must be a number between 0 and 1 "
+            "(exclusive)",
+        ),
+        Field(
+            "finalize_after_silence_s",
+            "number",
+            "The final sent after this much silence, in seconds of audio.",
+            default=2.0,
+            minimum=0,
+            advanced=True,
+        ),
+        Field(
+            "max_steps",
+            "integer",
+            "The model steps (80 ms each) after which the session is reset.",
+            default=4096,
+            minimum=1,
+            advanced=True,
+        ),
+        Field(
+            "device",
+            "string",
+            "Where the torch backend runs the model.",
+            default="auto",
+            choices=_DEVICES,
+            advanced=True,
+        ),
+        Field(
+            "lag_warn_s",
+            "number",
+            "Warn when the model runs this far behind the audio, in seconds.",
+            default=2.0,
+            exclusive_minimum=0,
+            advanced=True,
+        ),
+        Field(
+            "lag_drop_s",
+            "number",
+            "Drop audio when the model runs this far behind, in seconds; above "
+            "'lag_warn_s'.",
+            default=10.0,
+            exclusive_minimum=0,
+            advanced=True,
+        ),
+    )
+
+    @classmethod
+    def config_rules(cls, values: dict, config: dict) -> None:
+        if values["vad_threshold"] >= 1:
+            raise ConfigError(
+                "Kyutai module 'vad_threshold' must be a number between 0 and 1 "
+                "(exclusive)"
+            )
+        if values["lag_drop_s"] <= values["lag_warn_s"]:
+            raise ConfigError(
+                f"Kyutai module 'lag_drop_s' ({values['lag_drop_s']}) must be "
+                f"greater than 'lag_warn_s' ({values['lag_warn_s']})"
+            )
+
+    @staticmethod
+    def _backend_for_extras(config: dict) -> str:
+        backend = config.get("backend", "auto")
+        if backend in _BACKENDS:
+            return backend
+        return "mlx" if _on_apple_silicon() else "torch"
+
+    @classmethod
+    def required_extras(cls, config: dict) -> list[str]:
+        """``kyutai-mlx`` for the MLX backend, ``kyutai-torch`` for torch; with
+        ``auto``, the one for this platform (MLX on Apple Silicon)."""
+        _, extra, _ = _BACKEND_IMPLS[cls._backend_for_extras(config)]
+        return [f"asr-engine[{extra}]"]
+
+    @classmethod
+    def imports(cls, config: dict) -> None:
+        name = _resolve_backend_name(config.get("backend", "auto"))
+        package, _, _ = _BACKEND_IMPLS[name]
+        try:
+            importlib.import_module(package)
+        except ImportError as exc:
+            raise ImportError(_install_hint(name)) from exc
+
+    @classmethod
+    def check_files(cls, config: dict) -> list[dict]:
+        repo = config.get("hf_repo", download.DEFAULT_REPO)
+        ready = download.is_cached(repo)
+        return [
+            {
+                "id": f"kyutai:{repo}",
+                "title": f"Model {repo}",
+                "status": "ready" if ready else "missing",
+                "detail": (
+                    "In the Hugging Face cache."
+                    if ready
+                    else "Not downloaded yet: Prepare fetches it."
+                ),
+                "preparable": not ready,
+            }
+        ]
+
+    @classmethod
+    def prepare(cls, config: dict, on_progress: ProgressCallback | None = None) -> None:
+        repo = config.get("hf_repo", download.DEFAULT_REPO)
+        if download.is_cached(repo):
+            return
+        item = f"kyutai:{repo}"
+        if on_progress is not None:
+            on_progress(
+                {"id": item, "fraction": None, "message": f"Downloading {repo}"}
+            )
+        download.download(repo)
+        if on_progress is not None:
+            on_progress({"id": item, "fraction": 1.0, "message": f"{repo} is ready"})
+
+    @classmethod
+    def probe(cls, config: dict, secrets: Mapping[str, str] | None = None) -> str:
+        module = cls(config)
+        backend = module._backend_factory()
+        try:
+            backend.load()
+        finally:
+            backend.close()
+        return f"Loaded the model {module._hf_repo} and released it."
+
     def __init__(
         self, config: dict, *, backend_factory: BackendFactory | None = None
     ) -> None:
         super().__init__(config)
-        backend = config.get("backend", "auto")
-        if backend != "auto" and backend not in _BACKENDS:
-            raise ValueError(
-                f"kyutai module: unknown backend {backend!r}; "
-                f"expected 'auto', 'mlx' or 'torch'"
-            )
-        self._hf_repo = config.get("hf_repo", download.DEFAULT_REPO)
-        if not isinstance(self._hf_repo, str) or not self._hf_repo:
-            raise ValueError("kyutai module: 'hf_repo' must be a non-empty string")
-        self._vad = config.get("vad", True)
-        if not isinstance(self._vad, bool):
-            raise ValueError("kyutai module: 'vad' must be a boolean")
-        self._vad_threshold = _number(config, "vad_threshold", 0.5)
-        if not 0.0 < self._vad_threshold < 1.0:
-            raise ValueError(
-                f"kyutai module: 'vad_threshold' must be between 0 and 1 "
-                f"(exclusive), got {self._vad_threshold}"
-            )
-        self._finalize_after_silence_s = _number(
-            config, "finalize_after_silence_s", 2.0
-        )
-        if self._finalize_after_silence_s < 0:
-            raise ValueError(
-                f"kyutai module: 'finalize_after_silence_s' must be >= 0, "
-                f"got {self._finalize_after_silence_s}"
-            )
-        max_steps = config.get("max_steps", 4096)
-        if isinstance(max_steps, bool) or not isinstance(max_steps, int):
-            raise ValueError(
-                f"kyutai module: 'max_steps' must be an integer, got {max_steps!r}"
-            )
-        if max_steps <= 0:
-            raise ValueError(f"kyutai module: 'max_steps' must be > 0, got {max_steps}")
+        values = self.validated(config)
+        backend = values["backend"]
+        self._hf_repo: str = values["hf_repo"]
+        self._vad: bool = values["vad"]
+        self._vad_threshold: float = values["vad_threshold"]
+        self._finalize_after_silence_s: float = values["finalize_after_silence_s"]
+        max_steps: int = values["max_steps"]
         self._max_steps = max_steps
-        self._device = config.get("device", "auto")
-        if self._device not in _DEVICES:
-            raise ValueError(
-                f"kyutai module: unknown device {self._device!r}; "
-                f"expected one of {', '.join(_DEVICES)}"
-            )
-        self._lag_warn_s = _number(config, "lag_warn_s", 2.0)
-        self._lag_drop_s = _number(config, "lag_drop_s", 10.0)
-        if self._lag_warn_s <= 0:
-            raise ValueError(
-                f"kyutai module: 'lag_warn_s' must be > 0, got {self._lag_warn_s}"
-            )
-        if self._lag_drop_s <= self._lag_warn_s:
-            raise ValueError(
-                f"kyutai module: 'lag_drop_s' ({self._lag_drop_s}) must be greater "
-                f"than 'lag_warn_s' ({self._lag_warn_s})"
-            )
+        self._device: str = values["device"]
+        self._lag_warn_s: float = values["lag_warn_s"]
+        self._lag_drop_s: float = values["lag_drop_s"]
 
         if backend_factory is None:
             backend_factory = self._factory_for(_resolve_backend_name(backend))

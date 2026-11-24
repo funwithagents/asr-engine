@@ -15,11 +15,10 @@ import base64
 import json
 import logging
 import re
+from collections.abc import Mapping
 from contextlib import AbstractAsyncContextManager
 from typing import Any, Callable, Literal, Protocol
-from urllib.parse import urlencode
-
-import websockets
+from urllib.parse import urlencode, urlsplit
 
 from asr_engine.audio import (
     DEFAULT_AUDIO_FORMAT,
@@ -27,18 +26,24 @@ from asr_engine.audio import (
     EndOfSpeech,
     _silence,
 )
+from asr_engine.errors import ConfigError
 from asr_engine.modules.base import (
     ASRModule,
     AudioQueue,
     ConnectedCallback,
     SpeechUtterance,
     UtteranceCallback,
-    resolve_api_key,
+    get_json,
+    key_env_field,
+    listed_model_ids,
 )
+from asr_engine.modules.fields import Field
 
 log = logging.getLogger(__name__)
 
 _LABEL = "mistral-realtime"
+_TITLE = "Mistral Voxtral Realtime"
+_MESSAGES = f"{_TITLE} module"  # the prefix of its config messages
 DEFAULT_URL = "wss://api.mistral.ai/v1/audio/transcriptions/realtime"
 DEFAULT_MODEL = "voxtral-mini-transcribe-realtime-3"
 
@@ -66,7 +71,7 @@ _HANDSHAKE_TIMEOUT_S = 10.0
 _CLOSE_TIMEOUT_S = 2.0
 _LANGUAGE_RE = re.compile(r"^[A-Za-z]{2}$")
 _HANDSHAKE_HINTS = {
-    401: "the API key was rejected: check api_key / api_key_env",
+    401: "the API key was rejected: check the variable named by api_key_env",
     403: "access was refused: check model",
 }
 
@@ -89,6 +94,8 @@ Connector = Callable[
 def _websockets_connect(
     url: str, headers: dict[str, str]
 ) -> AbstractAsyncContextManager[RealtimeConnection]:
+    import websockets
+
     return websockets.connect(
         url, additional_headers=headers, close_timeout=_CLOSE_TIMEOUT_S
     )
@@ -102,13 +109,6 @@ def _is_number(value: object) -> bool:
     return isinstance(value, (int, float)) and not isinstance(value, bool)
 
 
-def _positive_number(config: dict, key: str, default: float) -> float:
-    value = config.get(key, default)
-    if not _is_number(value) or value <= 0:
-        raise ValueError(f"{_LABEL} module: '{key}' must be a positive number")
-    return float(value)
-
-
 def _parse_turn_detection(value: object) -> dict[str, Any] | None:
     """``True`` → server defaults (``{}``); ``False`` → omitted; an object is
     validated against the server's documented ranges and constraints."""
@@ -117,24 +117,24 @@ def _parse_turn_detection(value: object) -> dict[str, Any] | None:
     if value is False:
         return None
     if not isinstance(value, dict):
-        raise ValueError(
-            f"{_LABEL} module: 'turn_detection' must be a boolean or an object"
+        raise ConfigError(
+            f"{_MESSAGES}: 'turn_detection' must be a boolean or an object"
         )
     unknown = sorted(set(value) - set(_TURN_DEFAULTS))
     if unknown:
-        raise ValueError(
-            f"{_LABEL} module: unknown 'turn_detection' key(s) {unknown}; "
+        raise ConfigError(
+            f"{_MESSAGES}: unknown 'turn_detection' key(s) {unknown}; "
             f"expected {sorted(_TURN_DEFAULTS)}"
         )
     for key in _TURN_THRESHOLDS:
         if key in value and (not _is_number(value[key]) or not 0 < value[key] < 1):
-            raise ValueError(
-                f"{_LABEL} module: turn_detection.{key} must be a number in (0, 1)"
+            raise ConfigError(
+                f"{_MESSAGES}: turn_detection.{key} must be a number in (0, 1)"
             )
     for key in _TURN_DURATIONS:
         if key in value and (not _is_int(value[key]) or value[key] <= 0):
-            raise ValueError(
-                f"{_LABEL} module: turn_detection.{key} must be a positive integer"
+            raise ConfigError(
+                f"{_MESSAGES}: turn_detection.{key} must be a positive integer"
             )
     merged = {**_TURN_DEFAULTS, **value}
     if not (
@@ -142,14 +142,14 @@ def _parse_turn_detection(value: object) -> dict[str, Any] | None:
         >= merged["eager_end_threshold"]
         > merged["end_threshold"]
     ):
-        raise ValueError(
-            f"{_LABEL} module: turn_detection needs start_threshold >= "
+        raise ConfigError(
+            f"{_MESSAGES}: turn_detection needs start_threshold >= "
             f"eager_end_threshold > end_threshold (server defaults fill omitted keys: "
             f"0.5 / 0.5 / 0.33)"
         )
     if merged["end_timeout_ms"] < merged["min_silence_ms"]:
-        raise ValueError(
-            f"{_LABEL} module: turn_detection needs end_timeout_ms >= min_silence_ms "
+        raise ConfigError(
+            f"{_MESSAGES}: turn_detection needs end_timeout_ms >= min_silence_ms "
             f"(server defaults fill omitted keys: 3000 / 500)"
         )
     return dict(value)
@@ -187,61 +187,166 @@ class MistralRealtimeModule(ASRModule):
 
     _BACKOFF_S: tuple[float, ...] = (1.0, 2.0, 4.0, 8.0)
 
-    def __init__(self, config: dict, *, connect: Connector | None = None) -> None:
-        super().__init__(config)
-        self._api_key = resolve_api_key(config, _LABEL)
+    kind = "hosted"
+    title = _TITLE
+    extra = "mistral"
+    fields = (
+        key_env_field("Mistral", "MISTRAL_API_KEY"),
+        Field("model", "string", "The Voxtral realtime model.", default=DEFAULT_MODEL),
+        Field(
+            "language",
+            "string",
+            "The language, as a two-letter ISO 639-1 code ('en'). Absent, it is "
+            "detected.",
+        ),
+        Field(
+            "streaming_delay_ms",
+            "integer",
+            "How far the text runs behind the audio, in milliseconds: 80 to 1200, "
+            "or 2400. Lower is faster, higher is more accurate.",
+            default=480,
+            minimum=80,
+            maximum=2400,
+        ),
+        Field(
+            "url",
+            "string",
+            "The realtime endpoint, a ws:// or wss:// URL.",
+            default=DEFAULT_URL,
+            advanced=True,
+        ),
+        Field(
+            "final_margin_ms",
+            "integer",
+            "The wait between the server's end of turn and the final, in milliseconds.",
+            default=100,
+            minimum=0,
+            advanced=True,
+        ),
+        Field(
+            "finalize_after_silence_s",
+            "number",
+            "The final sent when no new text came for this long, in seconds.",
+            default=2.0,
+            exclusive_minimum=0,
+            advanced=True,
+        ),
+        Field(
+            "idle_close_s",
+            "number",
+            "Close the session after this long without audio, in seconds; below "
+            "the server's own idle timeout (30 s).",
+            default=20.0,
+            exclusive_minimum=0,
+            advanced=True,
+        ),
+        Field(
+            "stop_timeout_s",
+            "number",
+            "How long ending a session waits for the server, in seconds.",
+            default=5.0,
+            exclusive_minimum=0,
+            advanced=True,
+        ),
+    )
+    schema_extras = {
+        "context_bias": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "Words and phrases to favour (the trigger words, for "
+            "instance).",
+            "default": [],
+        },
+        "turn_detection": {
+            "type": "boolean",
+            "description": "Let the server detect the end of each turn. An object "
+            "of the server's turn-detection settings is also accepted, in the raw "
+            "config.",
+            "default": True,
+            "x-advanced": True,
+        },
+    }
 
-        self._model = config.get("model", DEFAULT_MODEL)
-        if not isinstance(self._model, str) or not self._model:
-            raise ValueError(f"{_LABEL} module: 'model' must be a non-empty string")
-        self._url = config.get("url", DEFAULT_URL)
-        if not isinstance(self._url, str) or not self._url.startswith(
-            ("ws://", "wss://")
-        ):
-            raise ValueError(
-                f"{_LABEL} module: 'url' must be a ws:// or wss:// URL string"
+    @classmethod
+    def config_rules(cls, values: dict[str, Any], config: dict) -> None:
+        url = values["url"]
+        if not url.startswith(("ws://", "wss://")):
+            raise ConfigError(
+                f"{_MESSAGES}: 'url' must be a ws:// or wss:// URL string"
             )
-        self._language = config.get("language")
-        if self._language is not None and (
-            not isinstance(self._language, str)
-            or not _LANGUAGE_RE.match(self._language)
-        ):
-            raise ValueError(
-                f"{_LABEL} module: 'language' must be null or a two-letter "
+        language = values["language"]
+        if language is not None and not _LANGUAGE_RE.match(language):
+            raise ConfigError(
+                f"{_MESSAGES}: 'language' must be null or a two-letter "
                 f"ISO 639-1 code (e.g. 'en')"
             )
-        self._delay_ms = config.get("streaming_delay_ms", 480)
-        if not _is_int(self._delay_ms) or not (
-            80 <= self._delay_ms <= 1200 or self._delay_ms == 2400
-        ):
-            raise ValueError(
-                f"{_LABEL} module: 'streaming_delay_ms' must be an integer in "
+        delay = values["streaming_delay_ms"]
+        if not (80 <= delay <= 1200 or delay == 2400):
+            raise ConfigError(
+                f"{_MESSAGES}: 'streaming_delay_ms' must be an integer in "
                 f"80-1200, or 2400"
             )
         context_bias = config.get("context_bias", [])
         if not isinstance(context_bias, list) or not all(
             isinstance(p, str) and p for p in context_bias
         ):
-            raise ValueError(
-                f"{_LABEL} module: 'context_bias' must be a list of non-empty strings"
+            raise ConfigError(
+                f"{_MESSAGES}: 'context_bias' must be a list of non-empty strings"
             )
-        self._context_bias: list[str] = list(context_bias)
-        self._turn_detection = _parse_turn_detection(config.get("turn_detection", True))
-
-        final_margin_ms = config.get("final_margin_ms", 100)
-        if not _is_int(final_margin_ms) or final_margin_ms < 0:
-            raise ValueError(
-                f"{_LABEL} module: 'final_margin_ms' must be a non-negative integer"
-            )
-        self._final_margin_s = final_margin_ms / 1000
-        self._silence_s = _positive_number(config, "finalize_after_silence_s", 2.0)
-        self._stop_timeout_s = _positive_number(config, "stop_timeout_s", 5.0)
-        self._idle_close_s = _positive_number(config, "idle_close_s", 20.0)
-        if self._idle_close_s >= _SERVER_IDLE_KILL_S:
-            raise ValueError(
-                f"{_LABEL} module: 'idle_close_s' must be below "
+        _parse_turn_detection(config.get("turn_detection", True))
+        if values["idle_close_s"] >= _SERVER_IDLE_KILL_S:
+            raise ConfigError(
+                f"{_MESSAGES}: 'idle_close_s' must be below "
                 f"{_SERVER_IDLE_KILL_S:.0f} (the server's idle timeout)"
             )
+
+    @classmethod
+    def imports(cls, config: dict) -> None:
+        try:
+            import websockets  # noqa: F401
+        except ImportError as exc:
+            raise ImportError(cls.install_hint("mistral")) from exc
+
+    @classmethod
+    def probe(cls, config: dict, secrets: Mapping[str, str] | None = None) -> str:
+        values = cls.validated(config)
+        key = cls.resolve_api_key(config, secrets)
+        parts = urlsplit(values["url"])
+        scheme = "https" if parts.scheme == "wss" else "http"
+        body = get_json(
+            f"{scheme}://{parts.netloc}/v1/models",
+            {"Authorization": f"Bearer {key}"},
+            what="Mistral",
+        )
+        model = values["model"]
+        if model not in listed_model_ids(body):
+            raise RuntimeError(
+                f"Mistral accepted the key but does not list the model {model!r}."
+            )
+        return f"Mistral accepted the key and lists the model {model!r}."
+
+    def __init__(
+        self,
+        config: dict,
+        *,
+        secrets: Mapping[str, str] | None = None,
+        connect: Connector | None = None,
+    ) -> None:
+        super().__init__(config)
+        values = self.validated(config)
+        if connect is None:
+            self.imports(config)
+        self._api_key = self.resolve_api_key(config, secrets)
+        self._model: str = values["model"]
+        self._url: str = values["url"]
+        self._language: str | None = values["language"]
+        self._delay_ms: int = values["streaming_delay_ms"]
+        self._context_bias: list[str] = list(config.get("context_bias", []))
+        self._turn_detection = _parse_turn_detection(config.get("turn_detection", True))
+        self._final_margin_s = values["final_margin_ms"] / 1000
+        self._silence_s: float = values["finalize_after_silence_s"]
+        self._stop_timeout_s: float = values["stop_timeout_s"]
+        self._idle_close_s: float = values["idle_close_s"]
 
         self._connect: Connector = connect or _websockets_connect
 

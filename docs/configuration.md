@@ -50,7 +50,9 @@ config = ASREngineConfig(
 )
 ```
 
-Direct dataclass construction expects trusted values. The `from_*` constructors normalize and validate configuration that comes from outside: a value of the wrong type (`"false"` for a boolean, a negative timeout) or a field the block does not define (a misspelling) raises a `ValueError` naming the field, such as `engine.segmentation.end_of_speech_timeout_s`. Only the `module` and `vad` blocks take other fields, which the module validates itself.
+Direct dataclass construction expects trusted values. The `from_*` constructors normalize and validate configuration that comes from outside: a value of the wrong type (`"false"` for a boolean, a negative timeout) or a field the block does not define (a misspelling) raises a `ConfigError` naming the field, such as `engine.segmentation 'end_of_speech_timeout_s' must be a finite number > 0`. `ConfigError` is a `ValueError`, so code catching `ValueError` keeps working. Only the `module` and `vad` blocks take other fields, which the module validates itself, with the same error type.
+
+An application that draws a form or checks a config before running it uses `asr_engine.setup` instead: it reports every problem at once, each with a pointer to its field, and says what the machine is missing ([setup.md](setup.md)).
 
 ## The engine block
 
@@ -106,7 +108,7 @@ For every field, default and validation rule, see the [configuration specificati
 
 ## Credentials
 
-A hosted module takes either a literal API key or the name of an environment variable holding it:
+A key is never written in a configuration: a module that authenticates takes the name of the environment variable holding it, `api_key_env`, which defaults to the provider's usual one (`DEEPGRAM_API_KEY`, `MISTRAL_API_KEY`). A config holding `api_key` is refused, so a configuration can be shared or committed as it is.
 
 ```json
 {
@@ -115,7 +117,15 @@ A hosted module takes either a literal API key or the name of an environment var
 }
 ```
 
-`api_key_env` keeps secrets out of configuration files. If both `api_key` and `api_key_env` are present, the literal `api_key` wins. Credentials are resolved when the engine constructs the module, not when `ASREngineConfig.from_dict()` parses the configuration, so a missing key fails at `ASREngine(config)`.
+The two OpenAI-protocol modules have no default variable: a local server usually needs no key, and none is sent unless `api_key_env` names one. Pointed at `api.openai.com`, they need it named, usually `"OPENAI_API_KEY"`.
+
+A program that holds the key itself passes it next to the config, by variable name; it is looked up there first, then in the environment:
+
+```python
+engine = ASREngine(config, secrets={"DEEPGRAM_API_KEY": key})
+```
+
+Keys are resolved when the engine constructs the module, not when `ASREngineConfig.from_dict()` parses the configuration, so a missing key fails at `ASREngine(config)`, with a `MissingSecretError` naming the variable.
 
 ## Logging
 

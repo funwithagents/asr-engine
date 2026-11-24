@@ -21,12 +21,19 @@ import os
 import sys
 import tempfile
 import urllib.request
+from collections.abc import Mapping
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
-import onnxruntime
 
+from asr_engine.errors import ConfigError
+from asr_engine.modules.base import ProgressCallback
+from asr_engine.modules.fields import Field
 from asr_engine.vad.base import VADModule
+
+if TYPE_CHECKING:
+    import onnxruntime
 
 log = logging.getLogger(__name__)
 
@@ -47,6 +54,7 @@ _DOWNLOAD_TIMEOUT_S = 30.0
 _FRAMING = {16000: (512, 64), 8000: (256, 32)}
 _STATE_SHAPE = (2, 1, 128)
 _CONFIG_FIELDS = ("model_path",)
+_MODEL_ITEM = f"silero:{MODEL_FILENAME}"
 
 
 def cache_dir() -> Path:
@@ -61,6 +69,14 @@ def cache_dir() -> Path:
     else:
         base = os.environ.get("XDG_CACHE_HOME") or str(Path.home() / ".cache")
     return Path(base) / "asr-engine"
+
+
+def cached_model() -> Path | None:
+    """The cached model file when it is there and its hash matches, else None."""
+    target = cache_dir() / MODEL_FILENAME
+    if target.is_file() and _sha256(target) == MODEL_SHA256:
+        return target
+    return None
 
 
 def _sha256(path: Path) -> str:
@@ -116,23 +132,92 @@ class SileroVAD(VADModule):
     SUPPORTED_SAMPLE_RATES = frozenset(_FRAMING)
     DEFAULT_SAMPLE_RATE = 16000
 
-    def __init__(self, config: dict) -> None:
-        super().__init__(config)
+    kind = "local"
+    title = "Silero"
+    extra = "silero"
+    fields = (
+        Field(
+            "model_path",
+            "string",
+            "A local copy of the Silero model file (silero_vad.onnx), for a machine "
+            "without network. Absent, it is downloaded once into the cache.",
+            advanced=True,
+        ),
+    )
+
+    @classmethod
+    def config_rules(cls, values: dict[str, Any], config: dict) -> None:
         unknown = sorted(set(config) - set(_CONFIG_FIELDS))
         if unknown:
-            raise ValueError(
-                f"silero VAD: unknown engine.vad field(s) {unknown}; beyond type, "
+            raise ConfigError(
+                f"Silero VAD: unknown engine.vad field(s) {unknown}; beyond type, "
                 f"threshold, min_speech_duration_ms, min_silence_duration_ms and "
                 f"speech_pad_ms it takes only model_path"
             )
+
+    @classmethod
+    def imports(cls, config: dict) -> None:
+        try:
+            import onnxruntime  # noqa: F401
+        except ImportError as exc:
+            raise ImportError(cls.install_hint("silero")) from exc
+
+    @classmethod
+    def check_files(cls, config: dict) -> list[dict[str, Any]]:
         model_path = config.get("model_path")
-        if model_path is not None and (
-            not isinstance(model_path, str) or not model_path
-        ):
-            raise ValueError(
-                "silero VAD: engine.vad.model_path must be a non-empty string "
-                "(the path of a local silero_vad.onnx) or null"
+        if model_path:
+            path = Path(model_path).expanduser()
+            present = path.is_file()
+            return [
+                {
+                    "id": f"silero:{model_path}",
+                    "title": "Silero VAD model",
+                    "status": "ready" if present else "missing",
+                    "detail": "On this machine." if present else f"No file at {path}.",
+                    "preparable": False,
+                }
+            ]
+        cached = cached_model()
+        return [
+            {
+                "id": _MODEL_ITEM,
+                "title": "Silero VAD model",
+                "status": "ready" if cached else "missing",
+                "detail": (
+                    f"In {cached}."
+                    if cached
+                    else "Not downloaded yet (about 2 MB): Prepare fetches it."
+                ),
+                "preparable": not cached,
+            }
+        ]
+
+    @classmethod
+    def prepare(cls, config: dict, on_progress: ProgressCallback | None = None) -> None:
+        if config.get("model_path") or cached_model() is not None:
+            return
+        if on_progress is not None:
+            on_progress(
+                {"id": _MODEL_ITEM, "fraction": None, "message": "Downloading Silero"}
             )
+        ensure_model()
+        if on_progress is not None:
+            on_progress(
+                {"id": _MODEL_ITEM, "fraction": 1.0, "message": "Silero is ready"}
+            )
+
+    @classmethod
+    def probe(cls, config: dict, secrets: Mapping[str, str] | None = None) -> str:
+        vad = cls(config)
+        vad.load()
+        vad._session = None
+        return "Loaded the Silero VAD model and released it."
+
+    def __init__(self, config: dict) -> None:
+        super().__init__(config)
+        values = self.validated(config)
+        self.imports(config)
+        model_path = values["model_path"]
         self._model_path = Path(model_path).expanduser() if model_path else None
         self._session: onnxruntime.InferenceSession | None = None
         self._state = np.zeros(_STATE_SHAPE, dtype=np.float32)
@@ -143,6 +228,8 @@ class SileroVAD(VADModule):
         return _FRAMING[sample_rate][0]
 
     def load(self) -> None:
+        import onnxruntime
+
         if self._session is not None:
             return
         if self._model_path is not None:

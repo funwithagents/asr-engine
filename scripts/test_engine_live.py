@@ -25,7 +25,7 @@ setup_logging()
 log = logging.getLogger("test_engine_live")
 
 
-async def run(version: str, module_config: dict, device: str | None) -> None:
+async def run(version: str, module_config: dict, device: str | None, key: str) -> None:
     from asr_engine.config import (
         ASREngineConfig,
         AudioSourceConfig,
@@ -49,7 +49,12 @@ async def run(version: str, module_config: dict, device: str | None) -> None:
         sound_feedback=SoundFeedbackConfig(enabled=False),
         module=ModuleConfig(type=module_type, extra=module_config),
     )
-    engine = ASREngine(config, on_speech_utterance=on_result)
+    # The key is given in code, never in the config (specs/setup.md "Keys").
+    engine = ASREngine(
+        config,
+        on_speech_utterance=on_result,
+        secrets={"DEEPGRAM_API_KEY": key},
+    )
 
     log.info("Starting engine (device=%s, version=%s)…", device or "default", version)
     await engine.start()
@@ -96,18 +101,16 @@ def main() -> None:
 
     if args.version == "v1":
         config = {
-            "api_key": args.api_key,
             "model": args.model or "nova-3",
             "language": args.language,
         }
     else:
         config = {
-            "api_key": args.api_key,
             "model": args.model or "flux-general-en",
         }
 
     async def _main():
-        task = asyncio.create_task(run(args.version, config, args.device))
+        task = asyncio.create_task(run(args.version, config, args.device, args.api_key))
         try:
             await task
         except asyncio.CancelledError:

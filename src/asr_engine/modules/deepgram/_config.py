@@ -1,47 +1,43 @@
-"""Validation of the Deepgram modules' own config fields (specs/modules/deepgram.md).
-
-Shared by ``deepgram-v1`` and ``deepgram-v2`` so both fail at construction, with a
-message naming the field, rather than as an SDK ``TypeError`` or a rejected
-connection once the engine starts. Imports nothing third-party.
+"""What the two Deepgram modules declare alike (specs/modules/deepgram.md): their
+extra, their key, the import of the SDK, and the probe. Imports nothing
+third-party.
 """
 
 from __future__ import annotations
 
-import math
+from collections.abc import Mapping
+from typing import Any
+
+from asr_engine.modules.base import ASRModule, get_json, key_env_field
+
+PROJECTS_URL = "https://api.deepgram.com/v1/projects"
+KEY_FIELD = key_env_field("Deepgram", "DEEPGRAM_API_KEY")
 
 
-def non_empty_str(config: dict, key: str, default: str, label: str) -> str:
-    value = config.get(key, default)
-    if not isinstance(value, str) or not value.strip():
-        raise ValueError(f"{label} module: '{key}' must be a non-empty string")
-    return value
+class DeepgramModule(ASRModule):
+    """The part of ``deepgram-v1`` and ``deepgram-v2`` that is the same."""
 
+    kind = "hosted"
+    extra = "deepgram"
 
-def boolean(config: dict, key: str, default: bool, label: str) -> bool:
-    value = config.get(key, default)
-    if not isinstance(value, bool):
-        raise ValueError(f"{label} module: '{key}' must be true or false")
-    return value
+    @classmethod
+    def imports(cls, config: dict) -> None:
+        try:
+            import deepgram  # noqa: F401
+        except ImportError as exc:
+            raise ImportError(cls.install_hint("deepgram")) from exc
 
-
-def number_in(
-    config: dict, key: str, default: float, low: float, high: float, label: str
-) -> float:
-    value = config.get(key, default)
-    if (
-        isinstance(value, bool)
-        or not isinstance(value, (int, float))
-        or not math.isfinite(value)
-        or not low <= value <= high
-    ):
-        raise ValueError(
-            f"{label} module: '{key}' must be a number from {low} to {high}"
+    @classmethod
+    def probe(cls, config: dict, secrets: Mapping[str, str] | None = None) -> str:
+        # Deepgram's model list answers without a key and leaves Flux out, so the
+        # key is proven on the projects list instead; the model is the
+        # connection's to accept.
+        key = cls.resolve_api_key(config, secrets)
+        body: Any = get_json(
+            PROJECTS_URL, {"Authorization": f"Token {key}"}, what="Deepgram"
         )
-    return float(value)
-
-
-def positive_int(config: dict, key: str, default: int, label: str) -> int:
-    value = config.get(key, default)
-    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
-        raise ValueError(f"{label} module: '{key}' must be a positive integer")
-    return value
+        count = len(body.get("projects", [])) if isinstance(body, dict) else 0
+        return (
+            f"Deepgram accepted the key ({count} project(s)); the model is checked "
+            "when a session connects."
+        )

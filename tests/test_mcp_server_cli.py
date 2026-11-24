@@ -10,7 +10,6 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from asr_engine import mcp_server_cli
-from asr_engine.modules import REGISTRY, LazyModule
 
 _SOURCE = {"audio_source": {"type": "input-device"}}
 
@@ -102,20 +101,15 @@ def test_cli_exits_with_install_hint_when_module_extra_missing(
 ) -> None:
     """A module whose optional dependency isn't installed fails fast at startup,
     through the real run_server/engine construction, naming the extra to install."""
-    (tmp_path / "needs_missing_sdk.py").write_text(
-        "import asr_engine_test_missing_sdk_xyz\n\nclass Module: ...\n"
-    )
-    monkeypatch.syspath_prepend(str(tmp_path))
     path = write_config(
-        tmp_path, {"engine": {**_SOURCE, "module": {"type": "acme_v1"}}}
+        tmp_path, {"engine": {**_SOURCE, "module": {"type": "deepgram-v1"}}}
     )
     sys.argv = ["asr-engine-mcp", "--config", path]
-    entry = LazyModule("needs_missing_sdk:Module", extra="acme")
-    with patch.dict(REGISTRY, {"acme_v1": entry}):
+    with patch.dict(sys.modules, {"deepgram": None}):  # None → not installed
         with pytest.raises(SystemExit) as exc_info:
             mcp_server_cli.main()
     assert exc_info.value.code == 1
-    assert "pip install 'asr-engine[acme]'" in capsys.readouterr().err
+    assert "pip install 'asr-engine[deepgram]'" in capsys.readouterr().err
 
 
 @pytest.mark.parametrize(

@@ -12,6 +12,8 @@ from typing import ClassVar
 
 import numpy as np
 
+from asr_engine.modules.base import Declared
+
 _REQUIRED_ATTRS = ("SUPPORTED_SAMPLE_RATES", "DEFAULT_SAMPLE_RATE")
 _ABSTRACT_METHODS = ("frame_samples", "load", "process_frame", "reset")
 
@@ -28,13 +30,16 @@ def _is_concrete(cls: type) -> bool:
     )
 
 
-class VADModule(ABC):
+class VADModule(Declared, ABC):
     # Analysis rates the model accepts, and the one the gate resamples to when the
     # pipeline rate is not among them. Every concrete module declares both
     # (enforced below); the gate only ever hands a module mono float32 at one of
     # its own rates, so there is no encoding or channel capability to declare.
     SUPPORTED_SAMPLE_RATES: ClassVar[frozenset[int]]
     DEFAULT_SAMPLE_RATE: ClassVar[int]
+
+    # Its messages read "Silero VAD 'model_path' …" (specs/setup.md "On a module").
+    noun = "VAD"
 
     def __init_subclass__(cls, **kwargs: object) -> None:
         super().__init_subclass__(**kwargs)

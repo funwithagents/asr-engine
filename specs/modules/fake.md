@@ -49,9 +49,9 @@ It exists so that everything *downstream* of a module — the engine, the `Segme
 
 No `api_key` / `api_key_env`: the module authenticates with nothing, so `tests-e2e/helpers.require_api_key` never skips it.
 
-### Validation (`ValueError` in `__init__`)
+### Validation (`ConfigError` in `__init__`)
 
-Per the [module constructor contract](../asr-module-interface.md#module-constructor-contract), each of these is its own error with a message naming the offending utterance index:
+The module declares `kind = "fixture"`, `title = "Fake"`, no extra, and one field, `utterances` (a list of objects, `[]` by default); its content is checked by `config_rules` ([setup.md](../setup.md) "On a module"). It is the module a demo starts on, since it needs nothing installed. Per the [module constructor contract](../asr-module-interface.md#module-constructor-contract), each of these is its own error with a message naming the offending utterance index:
 
 - `utterances` is not a list, or an entry is not an object;
 - `text` missing, not a string, or blank after stripping;

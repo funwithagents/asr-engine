@@ -65,7 +65,7 @@ The user-facing recipes are in [docs/local-speech-recognition.md](../../docs/loc
 | **Warm-up** | **`load()` uploads 0.5 s of silence once**, and discards the text | It checks `url`, key and model before `connected`, so a wrong key fails at start, not on the first utterance. A failure goes through the base class's load retry with backoff, and is logged with the server's message and a hint. It also opens the connection, which saves the first utterance about 0.6 s (measured). The cost is a fraction of a cent, once per module instance (the client stays loaded across `stop()`/`start()`). |
 | Short audio | **Under 0.1 s: not sent**, no final | Hosted OpenAI rejects it (measured), and the gate's `min_speech_duration_ms` rarely lets one through anyway. |
 | Failed request | **The utterance is dropped**, logged with the HTTP status, the server's `error.message` and a hint for 401 / 403 / 404 | The base class's decode-failure rule. There is no retry: a retry would arrive after later utterances' finals, out of order. Deferred (see Open questions). |
-| `api_key` | **Required for `api.openai.com`, optional elsewhere**; sent as `Authorization: Bearer` | Same rule as `openai-realtime-compatible`. Local servers usually take no key. |
+| The key | **Named by `api_key_env`, no default: required for `api.openai.com`, optional elsewhere**; sent as `Authorization: Bearer` | Same rule as `openai-realtime-compatible`. Local servers usually take no key, and none is sent unless a variable is named. |
 | Other request fields | **`extra_fields`**: an object sent as extra form fields | Servers add their own (`temperature`, Groq's options, …). The module adds no per-server knowledge. The fields it sets itself (`file`, `model`, `language`, `prompt`, `response_format`, `stream`) cannot be overridden. |
 | Sample rate | **16 kHz** (the base class's) | What batch speech models take, and what Silero analyses natively. Servers resample anything else anyway. |
 
@@ -74,7 +74,7 @@ The user-facing recipes are in [docs/local-speech-recognition.md](../../docs/loc
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `url` | string | `"https://api.openai.com/v1/audio/transcriptions"` | The full endpoint URL, used verbatim (`http://` or `https://`) |
-| `api_key` / `api_key_env` | string | — | Literal key, or the name of the environment variable holding it. Required for hosted OpenAI |
+| `api_key_env` | string | — | Name of the environment variable holding the key (usually `"OPENAI_API_KEY"`). Required for hosted OpenAI; absent, no key is sent. The key itself is never in the config |
 | `model` | string | `"gpt-4o-transcribe"` | The `model` form field. Required by the API; some local servers ignore it |
 | `language` | string or null | `null` | The `language` form field (ISO 639-1 on OpenAI, e.g. `"en"`); unset lets the server detect it |
 | `prompt` | string or null | `null` | The `prompt` form field: vocabulary or context hints |
@@ -83,7 +83,9 @@ The user-facing recipes are in [docs/local-speech-recognition.md](../../docs/loc
 | `interim_interval_s` | float | **`0`** | From [batch-asr-module.md](../batch-asr-module.md), with interims off by default here |
 | `max_utterance_s`, `stop_timeout_s` | | | From [batch-asr-module.md](../batch-asr-module.md) |
 
-Validation in `__init__`: `url` is an `http(s)://` string. A key is resolved when `api_key` or `api_key_env` is given, and one is required when the host is `api.openai.com`. `model` is a non-empty string. `language` and `prompt` are null or non-empty strings. `extra_fields` is an object of string keys to scalar values, and names none of the module's own fields. `request_timeout_s` is a positive number. Plus the base-class fields. Each failure raises `ValueError` naming the field.
+Validation in `__init__`, from the declared `fields` (title "OpenAI Transcriptions-compatible", then `batch_fields(0)`), `extra_fields` as a `schema_extras` free-form object, and `config_rules` ([setup.md](../setup.md) "On a module"): `url` is an `http(s)://` string. No `api_key` is written in the config; `api_key_env` is named when the host is `api.openai.com`, and the key resolves when it is named. `model` is a non-empty string. `language` and `prompt` are null or non-empty strings. `extra_fields` is an object of string keys to scalar values, and names none of the module's own fields. `request_timeout_s` is a positive number. Plus the base-class fields. Each failure raises `ConfigError` naming the field.
+
+The module file imports `httpx` only in `imports()` and when it loads, so its config is checked without the extra. Its `probe` lists `GET /v1/models` beside the `url`, with the key when one is named, and finds the configured `model` there; it never posts audio, unlike the warm-up `load()` makes ([setup.md](../setup.md) "probe").
 
 ### Examples
 
@@ -142,9 +144,9 @@ A `MODULES` row: type `openai-transcriptions-compatible`, `gpt-4o-transcribe` on
 - `src/asr_engine/modules/openai_transcriptions_compatible/__init__.py`: imports nothing
 - `src/asr_engine/modules/openai_transcriptions_compatible/module.py`: `OpenAITranscriptionsCompatibleModule(BatchASRModule)`
 - `src/asr_engine/modules/batch.py`: `DEFAULT_INTERIM_INTERVAL_S`
-- `src/asr_engine/modules/__init__.py`: the registry entry, `extra="openai-compatible"`
+- `src/asr_engine/modules/__init__.py`: the registry entry (the class declares `extra = "openai-compatible"`)
 - `pyproject.toml` / `uv.lock`: the extra, in `all` and `dev`
-- `examples/config/openai-transcriptions-compatible.json`, `tests/examples/test_configs.py`
+- `examples/configs/openai-transcriptions-compatible.json`, `tests/examples/test_configs.py`
 - `scripts/check_local_server.py`: runs the engine with this module against a local server ([Measured against local servers](#measured-against-local-servers-2026-11-16))
 - `tests/modules/test_openai_transcriptions_compatible.py`, `tests-e2e/helpers.py`
 - Doc touch-ups: [asr-module-interface.md](../asr-module-interface.md) (registry, extras table), [batch-asr-module.md](../batch-asr-module.md) (the interim default), [vad.md](../vad.md) (module tables), [e2e-testing.md](../e2e-testing.md) (rows), [configuration.md](../configuration.md), [ci.md](../ci.md) (expected skips), `README.md`, `examples/README.md`, `AGENTS.md`

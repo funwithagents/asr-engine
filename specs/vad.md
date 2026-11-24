@@ -129,7 +129,7 @@ class VADModule(ABC):
 - **Frame size depends on the rate** (Silero: 512 samples at 16 kHz, 256 at 8 kHz), hence a method rather than a constant.
 - **`process_frame` is synchronous and runs on the event loop.** That is a contract: it must cost well under its frame's duration (Silero: under 1 ms per 32 ms frame). A VAD that cannot meet it does not fit this interface.
 - **`load()` is blocking and idempotent**; the engine runs it in a thread on first start and keeps the module for its own lifetime, so `listen()`'s start/stop cycles do not reload it (the same reasoning as Kyutai's resident weights).
-- **Config contract** as for ASR modules: validate in `__init__`, raise `ValueError` naming the field.
+- **Config contract** as for ASR modules: `VADModule` is a `Declared` (`kind`, `title`, `extra`, `fields`, `imports`, `check_files`, `prepare`, `probe`; [setup.md](setup.md) "On a module"), its messages labelled `"<title> VAD"`; validate in `__init__` first, raise `ConfigError` naming the field, then `imports()` raises the install hint.
 
 ### Registry
 
@@ -144,7 +144,7 @@ REGISTRY: dict[str, LazyVAD | type[VADModule]] = {
 def resolve_vad_class(vad_type: str) -> type[VADModule]: ...
 ```
 
-`resolve_vad_class` behaves like `resolve_module_class`: an unknown type raises `ValueError("Unknown VAD type '<t>'. Available: …")`; a missing third-party package raises `ImportError` naming the extra and the install command. A test or a caller can register a class eagerly (`patch.dict(REGISTRY, {"scripted": ScriptedVAD})`).
+The registry holds the classes (`REGISTRY: dict[str, type[VADModule]]`), whose files import their backend only when the model loads. `resolve_vad_class` behaves like `resolve_module_class`: an unknown type raises `ConfigError("Unknown VAD type '<t>'. Available: …")`; a missing third-party package raises `ImportError` naming the extra and the install command when the module is built. A test or a caller registers its own class the same way (`patch.dict(REGISTRY, {"scripted": ScriptedVAD})`).
 
 One package per backend, as for ASR modules: `vad/silero/`.
 
@@ -276,8 +276,8 @@ class ASRModule(ABC):
 
 | Configuration | Result |
 |---|---|
-| VAD configured, module `"unsupported"` | `ValueError`: the module does not support VAD gating |
-| No VAD, module `"required"` | `ValueError`: the module needs `engine.vad` |
+| VAD configured, module `"unsupported"` | `ConfigError`: the module does not support VAD gating |
+| No VAD, module `"required"` | `ConfigError`: the module needs `engine.vad` |
 | VAD configured, module `"supported"` or `"required"` | gate built with `emit_end_of_speech=True` |
 | No VAD, module `"unsupported"` or `"supported"` | today's pipeline |
 
@@ -312,7 +312,7 @@ One visible difference: with VAD on, the number and boundaries of finals follow 
 
 ## Engine integration
 
-- **Construction.** When `config.vad` is set, the engine resolves the VAD class (unknown type → `ValueError`, missing extra → `ImportError` with the install hint), instantiates it (config validation), and applies the [checks above](#engine-checks-at-construction). It does not load the model.
+- **Construction.** When `config.vad` is set, the engine resolves the VAD class (unknown type → `ConfigError`), instantiates it (config validation, then a missing extra → `ImportError` with the install hint), and applies the [checks above](#engine-checks-at-construction). It does not load the model.
 - **Start.** In `_start_with_segmentation_mode`, after choosing the base source (and wrapping it in the format converter when the formats differ): load the VAD model in a thread on first use (`asyncio.to_thread(vad.load)`), wrap the base source in a `VadGate`, and start the gate in place of the source. The queue it returns goes to the module as today.
 - **Stop** and `listen()` teardown stop the gate, which stops the inner source. The VAD module stays loaded.
 - `engine.audio_format` and `engine.module_audio_format` are unchanged by VAD.
@@ -345,7 +345,7 @@ A new optional `engine.vad` block (also in [configuration.md](configuration.md))
 
 `ASREngineConfig` gains `vad: VadConfig | None = None`, where `VadConfig` carries `type`, the four gate parameters, and `extra`.
 
-**Validation** in `ASREngineConfig.from_dict`, so every constructor shares it: `type` is a non-empty string; `threshold` is a number (not a bool) strictly between 0 and 1; the three durations are ints (not bools) within the bounds above. Each failure raises `ValueError` naming `engine.vad.<field>`. As for `engine.module.type`, an unknown `type` or a missing extra surfaces at engine construction, not at parse time.
+**Validation** in `ASREngineConfig.from_dict`, so every constructor shares it: `type` is a non-empty string; `threshold` is a number (not a bool) strictly between 0 and 1; the three durations are ints (not bools) within the bounds above. Each failure raises `ConfigError` naming `engine.vad` and the field (declared once as `VAD_GATE_FIELDS`, [configuration.md](configuration.md)). As for `engine.module.type`, an unknown `type` or a missing extra surfaces at engine construction, not at parse time.
 
 Any pipeline `encoding` and `sample_rate` the ASR module supports is valid with VAD on.
 
@@ -362,7 +362,7 @@ Any pipeline `encoding` and `sample_rate` the ASR module supports is valid with 
   - The download happens in the thread that loads the model, once per machine. Later starts, and every later process, read the cached file.
 - `SUPPORTED_SAMPLE_RATES = {8000, 16000}`, `DEFAULT_SAMPLE_RATE = 16000`, `frame_samples` 256 / 512.
 - The inference session is created with one intra-op thread: the model is tiny and must not spin up a thread pool on the event loop's thread.
-- **Config:** one field beyond the gate's, `model_path` (below); any other unknown field raises `ValueError`, so a misspelt gate parameter is not silently ignored.
+- **Config:** one field beyond the gate's, `model_path` (below); any other unknown field raises `ConfigError`, so a misspelt gate parameter is not silently ignored. For the setup checks ([setup.md](setup.md)), Silero declares `kind = "local"`, `title = "Silero"`, `extra = "silero"`; `check_files` reports the pinned model in the cache (its SHA-256 checked) or the `model_path`, `prepare` runs `ensure_model`, and `probe` loads the model and releases it. `onnxruntime` is imported in `imports()` and `load()` only.
 - **Cost:** about 0.1 ms per 32 ms frame on the reference machine (Apple Silicon), far inside the `process_frame` contract.
 
 ### Installation

@@ -18,27 +18,32 @@ import base64
 import json
 import logging
 import re
+from collections.abc import Mapping
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
 from typing import Any, Callable, Protocol
 from urllib.parse import urlsplit
 
-import websockets
-
 from asr_engine.audio import DEFAULT_AUDIO_FORMAT, AudioFormat, EndOfSpeech
+from asr_engine.errors import ConfigError
 from asr_engine.modules.base import (
     ASRModule,
     AudioQueue,
     ConnectedCallback,
     SpeechUtterance,
     UtteranceCallback,
+    key_env_field,
+    openai_needs_a_key,
     parse_sample_rate_overrides,
-    resolve_api_key,
+    probe_listing,
 )
+from asr_engine.modules.fields import Field
 
 log = logging.getLogger(__name__)
 
 _LABEL = "openai-realtime-compatible"
+_TITLE = "OpenAI Realtime-compatible"
+_MESSAGES = f"{_TITLE} module"  # the prefix of its config messages
 DEFAULT_URL = "wss://api.openai.com/v1/realtime?intent=transcription"
 DEFAULT_MODEL = "gpt-4o-transcribe"
 _OPENAI_HOST = "api.openai.com"
@@ -52,7 +57,7 @@ _NOISE_TYPES = ("near_field", "far_field")
 _LANGUAGE_RE = re.compile(r"^[A-Za-z]{2}$")
 _COMMIT_EMPTY = "input_audio_buffer_commit_empty"
 _HANDSHAKE_HINTS = {
-    401: "the API key was rejected: check api_key / api_key_env",
+    401: "the API key was rejected: check the variable named by api_key_env",
     403: "access was refused: check url and model",
     404: "no realtime endpoint there: check url",
 }
@@ -82,6 +87,8 @@ class SessionRejected(ConnectionError):
 def _websockets_connect(
     url: str, headers: dict[str, str]
 ) -> AbstractAsyncContextManager[RealtimeConnection]:
+    import websockets
+
     return websockets.connect(
         url, additional_headers=headers, close_timeout=_CLOSE_TIMEOUT_S
     )
@@ -112,8 +119,8 @@ def _parse_turn_detection(value: object) -> dict[str, Any] | None:
     if value is False:
         return None
     if not isinstance(value, dict) or value.get("type") not in _TURN_TYPES:
-        raise ValueError(
-            f"{_LABEL} module: 'turn_detection' must be a boolean or an object "
+        raise ConfigError(
+            f"{_MESSAGES}: 'turn_detection' must be a boolean or an object "
             f"whose 'type' is one of {list(_TURN_TYPES)}"
         )
     return dict(value)
@@ -196,62 +203,137 @@ class OpenAIRealtimeCompatibleModule(ASRModule):
 
     _BACKOFF_S: tuple[float, ...] = (1.0, 2.0, 4.0, 8.0)
 
-    def __init__(self, config: dict, *, connect: Connector | None = None) -> None:
-        super().__init__(config)
-        self._url = config.get("url", DEFAULT_URL)
-        if not isinstance(self._url, str) or not self._url.startswith(
-            ("ws://", "wss://")
-        ):
-            raise ValueError(
-                f"{_LABEL} module: 'url' must be a ws:// or wss:// URL string"
-            )
-        self._api_key: str | None = None
-        if config.get("api_key") or config.get("api_key_env"):
-            self._api_key = resolve_api_key(config, _LABEL)
-        elif urlsplit(self._url).hostname == _OPENAI_HOST:
-            raise ValueError(
-                f"{_LABEL} module: hosted OpenAI ({_OPENAI_HOST}) requires "
-                f"'api_key' or 'api_key_env' in config"
-            )
+    kind = "hosted"
+    title = _TITLE
+    extra = "openai-compatible"
+    fields = (
+        key_env_field("OpenAI-compatible server", None),
+        Field(
+            "url",
+            "string",
+            "The server's realtime endpoint, a ws:// or wss:// URL.",
+            default=DEFAULT_URL,
+        ),
+        Field("model", "string", "The transcription model.", default=DEFAULT_MODEL),
+        Field(
+            "language",
+            "string",
+            "The language, as a two-letter ISO 639-1 code ('en'). Absent, it is "
+            "detected.",
+        ),
+        Field(
+            "prompt",
+            "string",
+            "A text to guide the transcription (vocabulary, spelling).",
+            allow_empty=True,
+            advanced=True,
+        ),
+        Field(
+            "noise_reduction",
+            "string",
+            "The server's noise reduction for a close or a distant microphone. "
+            "Absent, none.",
+            choices=_NOISE_TYPES,
+            advanced=True,
+        ),
+        Field(
+            "stop_timeout_s",
+            "number",
+            "How long ending a session waits for the server, in seconds.",
+            default=5.0,
+            exclusive_minimum=0,
+            advanced=True,
+        ),
+        Field(
+            "default_sample_rate",
+            "integer",
+            "The rate this server is fed by default, in Hz, when it is not "
+            "hosted OpenAI's 24000.",
+            exclusive_minimum=0,
+            advanced=True,
+        ),
+    )
+    schema_extras = {
+        "turn_detection": {
+            "type": "boolean",
+            "description": "Let the server detect the end of each turn. An object "
+            "with the server's turn-detection settings ('type': 'server_vad' or "
+            "'semantic_vad') is also accepted, in the raw config.",
+            "default": True,
+            "x-advanced": True,
+        },
+        "supported_sample_rates": {
+            "type": "array",
+            "items": {"type": "integer"},
+            "description": "The rates this server accepts, in Hz, when they are not "
+            "hosted OpenAI's (24000 only).",
+            "x-advanced": True,
+        },
+    }
 
-        self._model = config.get("model", DEFAULT_MODEL)
-        if not isinstance(self._model, str) or not self._model:
-            raise ValueError(f"{_LABEL} module: 'model' must be a non-empty string")
-        self._language = config.get("language")
-        if self._language is not None and (
-            not isinstance(self._language, str)
-            or not _LANGUAGE_RE.match(self._language)
-        ):
-            raise ValueError(
-                f"{_LABEL} module: 'language' must be null or a two-letter "
+    @classmethod
+    def config_rules(cls, values: dict[str, Any], config: dict) -> None:
+        url = values["url"]
+        if not url.startswith(("ws://", "wss://")):
+            raise ConfigError(
+                f"{_MESSAGES}: 'url' must be a ws:// or wss:// URL string"
+            )
+        if values["api_key_env"] is None and urlsplit(url).hostname == _OPENAI_HOST:
+            raise ConfigError(openai_needs_a_key(_MESSAGES))
+        language = values["language"]
+        if language is not None and not _LANGUAGE_RE.match(language):
+            raise ConfigError(
+                f"{_MESSAGES}: 'language' must be null or a two-letter "
                 f"ISO 639-1 code (e.g. 'en')"
             )
-        self._prompt = config.get("prompt")
-        if self._prompt is not None and not isinstance(self._prompt, str):
-            raise ValueError(f"{_LABEL} module: 'prompt' must be null or a string")
-        self._turn_detection = _parse_turn_detection(config.get("turn_detection", True))
-        self._noise_reduction = config.get("noise_reduction")
-        if self._noise_reduction is not None and self._noise_reduction not in (
-            _NOISE_TYPES
-        ):
-            raise ValueError(
-                f"{_LABEL} module: 'noise_reduction' must be null or one of "
-                f"{list(_NOISE_TYPES)}"
-            )
-        stop_timeout_s = config.get("stop_timeout_s", 5.0)
-        if (
-            not isinstance(stop_timeout_s, (int, float))
-            or isinstance(stop_timeout_s, bool)
-            or stop_timeout_s <= 0
-        ):
-            raise ValueError(
-                f"{_LABEL} module: 'stop_timeout_s' must be a positive number"
-            )
-        self._stop_timeout_s = float(stop_timeout_s)
+        _parse_turn_detection(config.get("turn_detection", True))
+        cls.sample_rates(config)
+
+    @classmethod
+    def sample_rates(cls, config: dict) -> tuple[frozenset[int] | None, int]:
         # The class attributes describe hosted OpenAI; another server may take
         # other rates (specs/modules/openai-realtime-compatible.md).
-        self._supported_sample_rates, self._default_sample_rate = (
-            parse_sample_rate_overrides(config, type(self), _LABEL)
+        return parse_sample_rate_overrides(config, cls, _MESSAGES)
+
+    @classmethod
+    def imports(cls, config: dict) -> None:
+        try:
+            import websockets  # noqa: F401
+        except ImportError as exc:
+            raise ImportError(cls.install_hint("openai-compatible")) from exc
+
+    @classmethod
+    def probe(cls, config: dict, secrets: Mapping[str, str] | None = None) -> str:
+        values = cls.validated(config)
+        return probe_listing(cls, config, secrets, values["url"], values["model"])
+
+    def __init__(
+        self,
+        config: dict,
+        *,
+        secrets: Mapping[str, str] | None = None,
+        connect: Connector | None = None,
+    ) -> None:
+        super().__init__(config)
+        values = self.validated(config)
+        if connect is None:
+            self.imports(config)
+        self._url: str = values["url"]
+        # No variable named: no key is sent (a local server); hosted OpenAI is
+        # refused that way by config_rules.
+        self._api_key: str | None = (
+            self.resolve_api_key(config, secrets)
+            if values["api_key_env"] is not None
+            else None
+        )
+        self._model: str = values["model"]
+        self._language: str | None = values["language"]
+        self._prompt: str | None = values["prompt"]
+        self._turn_detection = _parse_turn_detection(config.get("turn_detection", True))
+        self._noise_reduction: str | None = values["noise_reduction"]
+        self._stop_timeout_s: float = values["stop_timeout_s"]
+        self._supported_sample_rates, self._default_sample_rate = self.sample_rates(
+            config
         )
 
         self._connect: Connector = connect or _websockets_connect

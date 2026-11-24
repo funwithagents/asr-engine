@@ -53,7 +53,9 @@ It is a **batch** module, the first [`BatchASRModule`](../batch-asr-module.md): 
 | `generate_kwargs` | object | `{}` | Keyword arguments for `model.generate()`, e.g. `{"language": "en"}` for Whisper or `{"language": "English"}` for Qwen3-ASR |
 | `interim_interval_s`, `max_utterance_s`, `stop_timeout_s` | | | From [batch-asr-module.md](../batch-asr-module.md) |
 
-Validation in `__init__`: `model` is a non-empty string; `generate_kwargs` is an object with string keys; the base-class fields. Then, unless a test injects a loader: the platform is macOS on arm64, and `mlx-audio` is importable. Otherwise it raises `ImportError` with the install hint: *"ASR module 'mlx-audio' requires the optional dependency 'mlx-audio' (Apple Silicon only), which is not installed. Install it with: pip install 'asr-engine[mlx-audio]' (from source: uv sync --extra mlx-audio). It cannot share an environment with kyutai-mlx / kyutai-torch."*
+Validation in `__init__`, from the declared `fields` (title "mlx-audio", then `batch_fields(0.5)`), `generate_kwargs` as a `schema_extras` free-form object, and `config_rules`, each a `ConfigError`: `model` is a non-empty string; `generate_kwargs` is an object with string keys; the base-class fields. Then, unless a test injects a loader, `imports()`: the platform is macOS on arm64, and `mlx_audio` imports. Otherwise it raises `ImportError` with the install hint: *"mlx-audio module requires the optional dependency 'mlx-audio' which is not installed. Install it with: pip install 'asr-engine[mlx-audio]' (from source: uv sync --extra mlx-audio). It is for Apple Silicon only, and cannot share an environment with kyutai-mlx / kyutai-torch."*
+
+For the setup checks ([setup.md](../setup.md)): `extra = "mlx-audio"`; `check_files` reports the model (`mlx-audio:<model>`) from `download.is_cached`, a local path `ready` or `missing` and never downloaded; `prepare` fetches a missing repository with `download.download`; `probe` loads the model through the runner and drops it.
 
 ### Examples
 
@@ -107,9 +109,9 @@ A `MODULES` row: type `mlx-audio`, the default model, the 16 kHz WAV `ModuleAudi
 - `src/asr_engine/modules/mlx_audio/module.py`: `MlxAudioModule(BatchASRModule)`
 - `src/asr_engine/modules/mlx_audio/runner.py`: `MlxAudioRunner`
 - `src/asr_engine/modules/mlx_audio/download.py`: `python -m asr_engine.modules.mlx_audio.download [model]` fetches a model through mlx-audio's own `get_model_path`; `is_cached()` (no network) for the e2e gate. It reads the cache directly, because `snapshot_download(local_files_only=True)` treats mlx-audio's pattern-filtered snapshot as incomplete.
-- `src/asr_engine/modules/__init__.py`: `"mlx-audio": LazyModule("asr_engine.modules.mlx_audio.module:MlxAudioModule")`
+- `src/asr_engine/modules/__init__.py`: `"mlx-audio": MlxAudioModule`
 - `pyproject.toml` / `uv.lock`, `.gitignore` (`.venv-kyutai/`)
-- `examples/config/mlx-audio.json`, `tests/examples/test_configs.py`
+- `examples/configs/mlx-audio.json`, `tests/examples/test_configs.py`
 - `tests/modules/test_mlx_audio.py`, `tests-e2e/helpers.py`, `tests-e2e/test_engine_modules.py`
 - Doc touch-ups: [asr-module-interface.md](../asr-module-interface.md) (registry, extras table), [project.md](../project.md) (extras rule, layout), [vad.md](../vad.md) (module tables), [e2e-testing.md](../e2e-testing.md) (rows, `"required"` rule), [configuration.md](../configuration.md), [ci.md](../ci.md) (expected skips), `README.md`, `AGENTS.md`
 

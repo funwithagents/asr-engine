@@ -26,7 +26,7 @@ Hosted OpenAI takes 24 kHz only. There is nothing to set: the microphone is open
 
 | Field | Default | Description |
 |---|---|---|
-| `api_key_env` / `api_key` | — | Name of the environment variable holding the API key, or the literal key. Required for hosted OpenAI, optional for other servers |
+| `api_key_env` | — | Name of the environment variable holding the API key (usually `OPENAI_API_KEY`). Required for hosted OpenAI; for another server, absent sends no key. The key itself is never written in a config |
 | `url` | `wss://api.openai.com/v1/realtime?intent=transcription` | WebSocket URL, query included, used as is. Point it at any server speaking the protocol |
 | `model` | `gpt-4o-transcribe` | Transcription model: `gpt-4o-mini-transcribe`, `whisper-1`, `gpt-realtime-whisper`, or the server's own |
 | `language` | `null` | Two-letter ISO 639-1 code; `null` auto-detects |
@@ -49,10 +49,11 @@ Hosted OpenAI takes 24 kHz only. There is nothing to set: the microphone is open
 - The session is rejected with a message about the rate: the server does not take the rate it was sent. Fix `supported_sample_rates` / `default_sample_rate` to match it.
 - No final ever arrives with `turn_detection: false`: nothing ends the utterances. Add an `engine.vad` block.
 - `the server accepted the session but did not apply ...` in the log: the server answered the session setup but kept its own value for the settings named (turn detection, model or language). It usually implements an older version of the protocol. Transcription may still work with the server's settings; if the line names `turn_detection`, do not rely on `"turn_detection": false` or on the VAD gate with that server. speaches is one such server ([details](../local-speech-recognition.md#speaches-faster-whisper)).
-- A missing-key error against hosted OpenAI: set the variable named by `api_key_env` in the process running the engine. Against another server the key is optional and no `Authorization` header is sent without one.
+- `api.openai.com needs a key`: name the variable holding it in `api_key_env`, usually `OPENAI_API_KEY`. Against another server the key is optional and no `Authorization` header is sent without one.
+- `no key under 'OPENAI_API_KEY'`: set the variable named by `api_key_env` in the process running the engine, or pass the key in code (`ASREngine(config, secrets={"OPENAI_API_KEY": key})`).
 
 ## See also
 
 - [specs/modules/openai-realtime-compatible.md](../../specs/modules/openai-realtime-compatible.md): the module's contract and the protocol messages it uses.
-- [examples/config/openai-realtime-compatible.json](../../examples/config/openai-realtime-compatible.json): a complete server config, with the VAD gate on.
+- [examples/configs/openai-realtime-compatible.json](../../examples/configs/openai-realtime-compatible.json): a complete server config, with the VAD gate on.
 - [`openai-transcriptions-compatible`](openai-transcriptions-compatible.md): the batch HTTP endpoint, for servers that only implement `/v1/audio/transcriptions`.

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Mapping
 from dataclasses import replace
 from typing import TYPE_CHECKING, cast
 
@@ -18,10 +19,12 @@ from asr_engine.config import (
     AUDIO_SOURCE_TYPES,
     ASREngineConfig,
     AudioFormatConfig,
+    ConfigError,
 )
 from asr_engine.format_converter import ConvertedAudioSource, check_convertible
 from asr_engine.modules import RENAMED_MODULE_TYPES, resolve_module_class
 from asr_engine.modules.base import (
+    ASRModule,
     AudioQueue,
     SpeechUtterance,
     UtteranceCallback,
@@ -61,6 +64,32 @@ async def _noop_segment(segment: SpeechSegment) -> None:
     pass
 
 
+def takes_secrets(module_cls: type[ASRModule]) -> bool:
+    """Whether to hand this module the keys given in code: only a module that reads
+    one (an `api_key_env` field) takes them; any other keeps ``__init__(config)``."""
+    return isinstance(module_cls, type) and module_cls.takes_secrets()
+
+
+def gating_problem(
+    module_cls: type[ASRModule], module_name: str, has_vad: bool
+) -> str | None:
+    """Why this module cannot run with (or without) a VAD, or None when it can
+    (specs/vad.md "The module contract")."""
+    if not has_vad and module_cls.VAD_GATING == "required":
+        return (
+            f"ASR module '{module_name}' needs a VAD to know when an "
+            f"utterance ends: add an engine.vad block "
+            f'(e.g. "vad": {{"type": "silero"}}).'
+        )
+    if has_vad and module_cls.VAD_GATING == "unsupported":
+        return (
+            f"ASR module '{module_name}' does not support VAD gating "
+            f"(it does not handle the end-of-speech marker): remove the "
+            f"engine.vad block or use another module."
+        )
+    return None
+
+
 class ASREngine:
     """Wires AudioCapture to the ASR module, owns segmentation, sound feedback,
     and lifecycle. Constructed from a single ``ASREngineConfig`` so it is usable
@@ -83,12 +112,21 @@ class ASREngine:
         on_speech_utterance: UtteranceCallback | None = None,
         on_speech_segment: SegmentCallback | None = None,
         audio_source: AudioSource | None = None,
+        secrets: Mapping[str, str] | None = None,
     ) -> None:
         self._config = config
         self._audio_config = config.audio_source
-        # Raises ValueError (unknown type) or ImportError (provider extra missing).
+        # Raises ConfigError (unknown type, an invalid field, no key under the
+        # variable the config names) or ImportError (provider extra missing).
+        # Keys given in code go to a module that reads one (specs/setup.md "Keys").
         self._module_cls = resolve_module_class(config.module.type)
-        self._asr_module = self._module_cls(config=config.module.extra)
+        if takes_secrets(self._module_cls):
+            self._asr_module = self._module_cls(
+                config=config.module.extra,
+                secrets=secrets,  # pyright: ignore[reportCallIssue]
+            )
+        else:
+            self._asr_module = self._module_cls(config=config.module.extra)
         # The module's type under its current name, for the segment spans.
         self._module_type = RENAMED_MODULE_TYPES.get(
             config.module.type, config.module.type
@@ -160,7 +198,7 @@ class ASREngine:
         - ``custom``: what the injected source declares (its ``audio_format``
           attribute), else the module's format.
 
-        Raises ``ValueError`` on a source type that does not match how the engine
+        Raises ``ConfigError`` on a source type that does not match how the engine
         was built, a module field the module does not support, or a channel layout
         that cannot be converted.
         """
@@ -175,23 +213,23 @@ class ASREngine:
         source = self._config.audio_source
         injected = self._audio_source
         if source.type not in AUDIO_SOURCE_TYPES:
-            raise ValueError(
+            raise ConfigError(
                 f"Invalid engine.audio_source.type: {source.type!r}. Must be "
                 f"one of {', '.join(AUDIO_SOURCE_TYPES)}."
             )
         if source.type == "custom" and injected is None:
-            raise ValueError(
+            raise ConfigError(
                 "engine.audio_source.type is 'custom', but no source was given: "
                 "pass one as ASREngine(config, audio_source=...). The MCP server "
                 "cannot use a custom source; set the type to 'input-device' or 'file'."
             )
         if source.type != "custom" and injected is not None:
-            raise ValueError(
+            raise ConfigError(
                 f"An audio source was passed to ASREngine, but "
                 f"engine.audio_source.type is '{source.type}': set it to 'custom'."
             )
         if source.type != "input-device" and source.audio_format != AudioFormatConfig():
-            raise ValueError(
+            raise ConfigError(
                 f"engine.audio_source.audio_format applies to type 'input-device' "
                 f"only, not '{source.type}': a file has its own format, and a "
                 f"custom source declares its own."
@@ -206,7 +244,7 @@ class ASREngine:
             )
         elif source.type == "file":
             if not source.audio_file:
-                raise ValueError(
+                raise ConfigError(
                     "engine.audio_source.audio_file is required with type 'file'."
                 )
             # A file's rate and channel count are facts, read from its header.
@@ -233,26 +271,18 @@ class ASREngine:
         ``engine.vad`` nothing VAD-related is imported.
         """
         vad_config = self._config.vad
-        gating = self._module_cls.VAD_GATING
-        module_name = self._config.module.type
+        problem = gating_problem(
+            self._module_cls, self._config.module.type, vad_config is not None
+        )
+        if problem is not None:
+            raise ConfigError(problem)
         if vad_config is None:
-            if gating == "required":
-                raise ValueError(
-                    f"ASR module '{module_name}' needs a VAD to know when an "
-                    f"utterance ends: add an engine.vad block "
-                    f'(e.g. "vad": {{"type": "silero"}}).'
-                )
             return None
-        if gating == "unsupported":
-            raise ValueError(
-                f"ASR module '{module_name}' does not support VAD gating "
-                f"(it does not handle the end-of-speech marker): remove the "
-                f"engine.vad block or use another module."
-            )
 
         from asr_engine.vad import resolve_vad_class
 
-        # Raises ValueError (unknown type) or ImportError (extra missing).
+        # Raises ConfigError (unknown type, an invalid field) or ImportError
+        # (extra missing).
         vad_cls = resolve_vad_class(vad_config.type)
         return vad_cls(config=vad_config.extra)
 

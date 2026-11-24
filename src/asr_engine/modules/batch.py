@@ -26,6 +26,7 @@ from asr_engine.modules.base import (
     SpeechUtterance,
     UtteranceCallback,
 )
+from asr_engine.modules.fields import Field
 
 log = logging.getLogger(__name__)
 
@@ -40,6 +41,39 @@ async def _cancel(*tasks: asyncio.Future) -> None:
             pass
 
 
+def batch_fields(interim_interval_s: float) -> tuple[Field, ...]:
+    """The fields every batch module takes, after its own; *interim_interval_s*
+    is the module's default for the first (0 for a module billed per request)."""
+    return (
+        Field(
+            "interim_interval_s",
+            "number",
+            "How often the open utterance is decoded again for an interim, in "
+            "seconds of audio; 0 sends none.",
+            default=interim_interval_s,
+            minimum=0,
+            advanced=True,
+        ),
+        Field(
+            "max_utterance_s",
+            "number",
+            "The longest utterance decoded in one piece, in seconds; a longer one "
+            "is cut.",
+            default=30.0,
+            exclusive_minimum=0,
+            advanced=True,
+        ),
+        Field(
+            "stop_timeout_s",
+            "number",
+            "How long stopping waits for the decode in progress, in seconds.",
+            default=10.0,
+            exclusive_minimum=0,
+            advanced=True,
+        ),
+    )
+
+
 class BatchASRModule(ASRModule):
     """Base class for batch models: decode each VAD-delimited utterance as a whole."""
 
@@ -51,23 +85,26 @@ class BatchASRModule(ASRModule):
     DEFAULT_ENCODING = "linear16"
     VAD_GATING = "required"
 
-    LABEL: ClassVar[str] = "batch"  # the registry key, for messages
+    LABEL: ClassVar[str] = "batch"  # the registry key, for log messages
     # Default for the interim_interval_s field. A subclass whose decodes cost
-    # money (an HTTP API billed per request) defaults to 0: no interims.
+    # money (an HTTP API billed per request) defaults to 0: no interims, and
+    # declares its fields with `batch_fields(0)`.
     DEFAULT_INTERIM_INTERVAL_S: ClassVar[float] = 0.5
+
+    # A subclass declares its own fields followed by `batch_fields(...)`.
+    title = "Batch"
+    fields = batch_fields(DEFAULT_INTERIM_INTERVAL_S)
 
     _BACKOFF_S: tuple[float, ...] = (1.0, 2.0, 4.0, 8.0)
 
     def __init__(self, config: dict) -> None:
         super().__init__(config)
-        self._interim_interval_s = self._number(
-            config,
-            "interim_interval_s",
-            self.DEFAULT_INTERIM_INTERVAL_S,
-            allow_zero=True,
-        )
-        self._max_utterance_s = self._number(config, "max_utterance_s", 30.0)
-        self._stop_timeout_s = self._number(config, "stop_timeout_s", 10.0)
+        # Every field, the subclass's own included: the subclass reads its own
+        # from `_values` once this returns.
+        self._values = self.validated(config)
+        self._interim_interval_s: float = self._values["interim_interval_s"]
+        self._max_utterance_s: float = self._values["max_utterance_s"]
+        self._stop_timeout_s: float = self._values["stop_timeout_s"]
 
         self._executor: ThreadPoolExecutor | None = None
         self._load_future: asyncio.Future[None] | None = None
@@ -85,20 +122,6 @@ class BatchASRModule(ASRModule):
         self._interim_busy = False
         self._last_final: asyncio.Task[None] | None = None
         self._pending: set[asyncio.Task[None]] = set()
-
-    def _number(
-        self, config: dict, key: str, default: float, *, allow_zero: bool = False
-    ) -> float:
-        value = config.get(key, default)
-        if (
-            isinstance(value, bool)
-            or not isinstance(value, (int, float))
-            or value < 0
-            or (value == 0 and not allow_zero)
-        ):
-            bound = "a non-negative" if allow_zero else "a positive"
-            raise ValueError(f"{self.LABEL} module: '{key}' must be {bound} number")
-        return float(value)
 
     # ------------------------------------------------------- subclass interface
 

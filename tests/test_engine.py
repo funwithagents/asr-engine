@@ -110,7 +110,7 @@ def test_an_old_and_a_new_module_name_start_the_same_module():
             ASREngineConfig.from_dict(
                 {
                     "audio_source": {"type": "input-device"},
-                    "module": {"type": module_type, "api_key": "test-key"},
+                    "module": {"type": module_type},
                     "sound_feedback": {"enabled": False},
                 }
             )
@@ -121,9 +121,9 @@ def test_an_old_and_a_new_module_name_start_the_same_module():
     built: list[type] = []
     original_init = DeepgramV1Module.__init__
 
-    def recording_init(self, config: dict) -> None:
+    def recording_init(self, config: dict, **kwargs) -> None:
         built.append(type(self))
-        original_init(self, config)
+        original_init(self, config, **kwargs)
 
     with patch.object(DeepgramV1Module, "__init__", recording_init):
         engine_for("deepgram_v1")

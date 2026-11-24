@@ -168,7 +168,7 @@ class Harness:
     ) -> None:
         self.connector = FakeConnector(*script)
         self.module = OpenAIRealtimeCompatibleModule(
-            {"api_key": "test-key", **config}, connect=self.connector
+            {"api_key_env": "OPENAI_API_KEY", **config}, connect=self.connector
         )
         self.module._BACKOFF_S = (0.01,)
         self.queue: AudioQueue = asyncio.Queue()
@@ -251,7 +251,7 @@ async def test_session_update_is_first_and_carries_defaults(harnesses) -> None:
     }
     assert h.connector.calls[0] == (
         "wss://api.openai.com/v1/realtime?intent=transcription",
-        {"Authorization": "Bearer test-key"},
+        {"Authorization": "Bearer k"},
     )
 
 
@@ -720,7 +720,7 @@ async def test_a_failed_connect_retries(harnesses) -> None:
 )
 def test_invalid_config_is_rejected(config: dict[str, Any], field: str) -> None:
     with pytest.raises(ValueError, match=field):
-        OpenAIRealtimeCompatibleModule({"api_key": "k", **config})
+        OpenAIRealtimeCompatibleModule({"api_key_env": "OPENAI_API_KEY", **config})
 
 
 def test_hosted_openai_requires_a_key() -> None:

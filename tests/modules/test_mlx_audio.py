@@ -8,6 +8,8 @@ test_batch.py; these tests cover what the module adds on top.
 from __future__ import annotations
 
 import asyncio
+import sys
+import types
 from typing import Any
 
 import numpy as np
@@ -111,6 +113,8 @@ def test_the_install_hint_is_raised_without_the_package(monkeypatch) -> None:
 def test_the_module_builds_where_the_package_is_installed(monkeypatch) -> None:
     monkeypatch.setattr(mlx_module, "_on_apple_silicon", lambda: True)
     monkeypatch.setattr(mlx_module, "_mlx_audio_installed", lambda: True)
+    # The module tries the real import: a stand-in where mlx-audio cannot install.
+    monkeypatch.setitem(sys.modules, "mlx_audio", types.ModuleType("mlx_audio"))
     assert MlxAudioModule({}).VAD_GATING == "required"
 
 

@@ -1,4 +1,4 @@
-"""The example server configs in ``examples/config/`` stay valid.
+"""The example server configs in ``examples/configs/`` stay valid.
 
 Each file must parse as a whole server config, name a registered ASR module, and
 — when it enables a VAD — name a registered VAD and pair it with a module that
@@ -16,7 +16,7 @@ from asr_engine.config import MCPServerConfig
 from asr_engine.modules import resolve_module_class
 from asr_engine.vad import REGISTRY as VAD_REGISTRY
 
-CONFIG_DIR = Path(__file__).parents[2] / "examples" / "config"
+CONFIG_DIR = Path(__file__).parents[2] / "examples" / "configs"
 CONFIGS = sorted(CONFIG_DIR.glob("*.json"))
 
 

@@ -43,8 +43,9 @@ ASR module 'mlx-audio' needs a VAD to know when an utterance ends: add an engine
 
 ## An API key is missing
 
-- `environment variable '...' (api_key_env) is not set or is empty`: the variable named in the config is not set in the process running the engine. A variable exported in one terminal, or defined only in a shell profile, is not visible to a service started elsewhere.
-- `requires 'api_key' or 'api_key_env' in config`: the module block has neither field.
+- `no key under '...': set the environment variable, or pass it in secrets`: the variable named by `api_key_env` (or the module's default, such as `DEEPGRAM_API_KEY`) is not set in the process running the engine. A variable exported in one terminal, or defined only in a shell profile, is not visible to a service started elsewhere. The error is a `MissingSecretError`, whose `variable` names it.
+- `does not take 'api_key'`: a key written in the config is refused. Keep it in an environment variable named by `api_key_env`, or pass it in code.
+- `api.openai.com needs a key`: an OpenAI-protocol module pointed at hosted OpenAI has no default variable; set `"api_key_env": "OPENAI_API_KEY"`.
 
 ## The audio device is not found
 

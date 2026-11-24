@@ -29,7 +29,7 @@ pip install 'asr-engine[openai-compatible,silero]'
 | Field | Default | Description |
 |---|---|---|
 | `url` | `https://api.openai.com/v1/audio/transcriptions` | Endpoint URL, used as is. Point it at any server implementing it: Groq (`https://api.groq.com/openai/v1/audio/transcriptions`), or a local speaches, whisper.cpp or vLLM server |
-| `api_key_env` / `api_key` | — | Name of the environment variable holding the API key, or the literal key. Required for hosted OpenAI, optional for other servers |
+| `api_key_env` | — | Name of the environment variable holding the API key (usually `OPENAI_API_KEY`). Required for hosted OpenAI; for another server, absent sends no key. The key itself is never written in a config |
 | `model` | `gpt-4o-transcribe` | The server's model name: `gpt-4o-mini-transcribe`, `whisper-1`, `whisper-large-v3-turbo`, … |
 | `language` | `null` | Language code (ISO 639-1 on OpenAI); `null` lets the server detect it |
 | `prompt` | `null` | Vocabulary and style hints, such as your trigger words |
@@ -56,6 +56,6 @@ pip install 'asr-engine[openai-compatible,silero]'
 
 - [specs/modules/openai-transcriptions-compatible.md](../../specs/modules/openai-transcriptions-compatible.md): the module's contract.
 - [specs/batch-asr-module.md](../../specs/batch-asr-module.md): how batch modules buffer, decode and produce interims.
-- [examples/config/openai-transcriptions-compatible.json](../../examples/config/openai-transcriptions-compatible.json): a complete server config.
+- [examples/configs/openai-transcriptions-compatible.json](../../examples/configs/openai-transcriptions-compatible.json): a complete server config.
 - [local-speech-recognition.md](../local-speech-recognition.md): recipes for local servers.
 - [`openai-realtime-compatible`](openai-realtime-compatible.md): the streaming protocol, for servers that speak OpenAI's Realtime API.

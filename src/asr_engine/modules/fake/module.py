@@ -22,6 +22,7 @@ from asr_engine.audio import (
     AudioFormat,
     EndOfSpeech,
 )
+from asr_engine.errors import ConfigError
 from asr_engine.modules.base import (
     ASRModule,
     AudioQueue,
@@ -29,6 +30,7 @@ from asr_engine.modules.base import (
     SpeechUtterance,
     UtteranceCallback,
 )
+from asr_engine.modules.fields import Field
 
 log = logging.getLogger(__name__)
 
@@ -39,8 +41,8 @@ _CLOCK_EPSILON_S = 1e-9
 def _number(entry: dict, key: str, index: int) -> float:
     value = entry.get(key)
     if isinstance(value, bool) or not isinstance(value, (int, float)):
-        raise ValueError(
-            f"fake module: utterances[{index}].{key} is required and must be a number"
+        raise ConfigError(
+            f"Fake module: utterances[{index}].{key} is required and must be a number"
         )
     return float(value)
 
@@ -48,33 +50,33 @@ def _number(entry: dict, key: str, index: int) -> float:
 def _build_schedule(utterances: object) -> list[tuple[float, SpeechUtterance]]:
     """Validate the configured script and expand it into timed utterance events."""
     if not isinstance(utterances, list):
-        raise ValueError("fake module: 'utterances' must be a list")
+        raise ConfigError("Fake module: 'utterances' must be a list")
 
     schedule: list[tuple[float, SpeechUtterance]] = []
     previous_end = 0.0
     for index, entry in enumerate(utterances):
         if not isinstance(entry, dict):
-            raise ValueError(f"fake module: utterances[{index}] must be an object")
+            raise ConfigError(f"Fake module: utterances[{index}] must be an object")
         text = entry.get("text")
         if not isinstance(text, str) or not text.strip():
-            raise ValueError(
-                f"fake module: utterances[{index}].text is required and must be "
+            raise ConfigError(
+                f"Fake module: utterances[{index}].text is required and must be "
                 f"a non-blank string"
             )
         start_s = _number(entry, "start_s", index)
         end_s = _number(entry, "end_s", index)
         if start_s < 0:
-            raise ValueError(
-                f"fake module: utterances[{index}].start_s must be >= 0, got {start_s}"
+            raise ConfigError(
+                f"Fake module: utterances[{index}].start_s must be >= 0, got {start_s}"
             )
         if end_s <= start_s:
-            raise ValueError(
-                f"fake module: utterances[{index}].end_s ({end_s}) must be greater "
+            raise ConfigError(
+                f"Fake module: utterances[{index}].end_s ({end_s}) must be greater "
                 f"than start_s ({start_s})"
             )
         if start_s < previous_end:
-            raise ValueError(
-                f"fake module: utterances[{index}] starts at {start_s}, before the "
+            raise ConfigError(
+                f"Fake module: utterances[{index}] starts at {start_s}, before the "
                 f"previous utterance ends at {previous_end}; utterances must be in "
                 f"order and must not overlap"
             )
@@ -106,9 +108,28 @@ class FakeASRModule(ASRModule):
     # ignores the end-of-speech marker (the script, not the audio, decides finals).
     VAD_GATING = "supported"
 
+    kind = "fixture"
+    title = "Fake"
+    extra = None
+    fields = (
+        Field(
+            "utterances",
+            "objects",
+            "The script to replay, in order: each utterance's 'text', and the "
+            "audio time it spans, 'start_s' to 'end_s'. Empty, it never says "
+            "anything.",
+            default=[],
+        ),
+    )
+
+    @classmethod
+    def config_rules(cls, values: dict, config: dict) -> None:
+        _build_schedule(values["utterances"])
+
     def __init__(self, config: dict) -> None:
         super().__init__(config)
-        self._schedule = _build_schedule(config.get("utterances", []))
+        values = self.validated(config)
+        self._schedule = _build_schedule(values["utterances"])
         self._stop_event = asyncio.Event()
 
     async def start(

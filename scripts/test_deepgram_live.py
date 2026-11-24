@@ -24,18 +24,18 @@ setup_logging()
 log = logging.getLogger("test_deepgram_live")
 
 
-async def run(version: str, config: dict, device: str | None) -> None:
+async def run(version: str, config: dict, device: str | None, key: str) -> None:
     from asr_engine.audio import AudioCapture
     from asr_engine.modules.base import SpeechUtterance
 
     if version == "v1":
         from asr_engine.modules.deepgram.v1 import DeepgramV1Module
 
-        module = DeepgramV1Module(config=config)
+        module = DeepgramV1Module(config=config, secrets={"DEEPGRAM_API_KEY": key})
     else:
         from asr_engine.modules.deepgram.v2 import DeepgramV2Module
 
-        module = DeepgramV2Module(config=config)
+        module = DeepgramV2Module(config=config, secrets={"DEEPGRAM_API_KEY": key})
 
     loop = asyncio.get_running_loop()
     capture = AudioCapture(device=device, loop=loop)
@@ -97,18 +97,16 @@ def main() -> None:
 
     if args.version == "v1":
         config = {
-            "api_key": args.api_key,
             "model": args.model or "nova-3",
             "language": args.language,
         }
     else:
         config = {
-            "api_key": args.api_key,
             "model": args.model or "flux-general-en",
         }
 
     async def _main():
-        task = asyncio.create_task(run(args.version, config, args.device))
+        task = asyncio.create_task(run(args.version, config, args.device, args.api_key))
         try:
             await task
         except asyncio.CancelledError:

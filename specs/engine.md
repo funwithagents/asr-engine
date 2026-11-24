@@ -178,8 +178,11 @@ class ASREngine:
         on_speech_utterance: UtteranceCallback | None = None,
         on_speech_segment: SegmentCallback | None = None,
         audio_source: AudioSource | None = None,
+        secrets: Mapping[str, str] | None = None,
     ) -> None: ...
 ```
+
+`secrets` maps an environment variable's name to a key the program holds: the module that reads a key looks the variable its `api_key_env` names up there first, then in the environment; a module that reads none is not handed them ([setup.md](setup.md) "Keys").
 
 The engine is constructed from a single `ASREngineConfig` (see [configuration.md](configuration.md)), which carries the audio, module, `auto_start`, `auto_start_dictation`, `segmentation` params, `listen_default_segmentation_mode`, `dictation_default_segmentation_mode`, and `sound_feedback` settings. Both callbacks default to a no-op and are settable afterwards.
 
@@ -189,9 +192,9 @@ The engine **never configures logging** — it does not set levels, add handlers
 
 At construction the engine:
 
-- Instantiates the ASR module from `config.module` (raising `ValueError` on an unknown `type`).
+- Instantiates the ASR module from `config.module`, with `secrets` when it reads a key (raising `ConfigError`, a `ValueError`, on an unknown `type`, an invalid field or a missing key; `ImportError` on a missing extra).
 - **Resolves the two audio formats** ([format-conversion.md](format-conversion.md)): first the module format, from the module's defaults and `config.module.audio_format`; then the source format, by `config.audio_source.type` (the microphone's `audio_format`, each unset field following the module format; the file's header; or what a custom source declares). They are exposed as the read-only `audio_format` (source) and `module_audio_format` (module) properties. A source type that does not match how the engine is built (`"custom"` without an `audio_source`, or an `audio_source` with another type), a module format the module does not support, a missing file, or a channel layout that cannot be converted fails here.
-- **Resolves the optional VAD stage** when `config.vad` is set ([vad.md](vad.md) "Engine integration"): resolves the VAD class (unknown `type` → `ValueError`, missing extra → `ImportError` with the install hint), instantiates it (config validation; the model is **not** loaded here). Two combinations are configuration errors, raised here as `ValueError`: a VAD with a module whose `VAD_GATING` is `"unsupported"`, and no VAD with a module whose `VAD_GATING` is `"required"`. With no `config.vad`, nothing VAD-related is imported.
+- **Resolves the optional VAD stage** when `config.vad` is set ([vad.md](vad.md) "Engine integration"): resolves the VAD class (unknown `type` → `ConfigError`), instantiates it (config validation, then a missing extra → `ImportError` with the install hint; the model is **not** loaded here). Two combinations are configuration errors, raised here as `ConfigError` (`gating_problem`, which `asr_engine.setup.check_config` also reports): a VAD with a module whose `VAD_GATING` is `"unsupported"`, and no VAD with a module whose `VAD_GATING` is `"required"`. With no `config.vad`, nothing VAD-related is imported.
 - Builds its `Segmenter` in `utterance` mode from the `config.segmentation` params.
 - Constructs a `SoundFeedback` (or a no-op stub when `sound_feedback.enabled` is `false`) from `config.sound_feedback`; the engine plays cues itself inside `listen` (see [sound-feedback.md](sound-feedback.md)).
 

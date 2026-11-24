@@ -119,7 +119,7 @@ On the server-VAD path a final lands ≈ 1.1 s after speech end (measured, `gpt-
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `api_key` / `api_key_env` | string | — | Resolved via `resolve_api_key`. **Required when `url`'s host is `api.openai.com`**, optional elsewhere (no `Authorization` header is sent without one). |
+| `api_key_env` | string | — | Name of the env var holding the key; no default, since a compatible server often needs none. **Required when `url`'s host is `api.openai.com`** (usually `"OPENAI_API_KEY"`); elsewhere, absent sends no `Authorization` header. The key itself is never in the config ([setup.md](../setup.md) "Keys") |
 | `url` | string | `"wss://api.openai.com/v1/realtime?intent=transcription"` | The full WebSocket URL, query included, used verbatim. Each server documents its own query (LiteLLM: `?model=<name>&intent=transcription`, Dynamo: none). |
 | `model` | string | `"gpt-4o-transcribe"` | Sent as `transcription.model`. Hosted OpenAI also offers `gpt-4o-mini-transcribe`, `whisper-1`, `gpt-realtime-whisper`, … |
 | `language` | string \| null | `null` (auto-detect) | ISO 639-1 two-letter code, sent as `transcription.language` |
@@ -130,10 +130,10 @@ On the server-VAD path a final lands ≈ 1.1 s after speech end (measured, `gpt-
 | `supported_sample_rates` | list of integers \| null | `null` (`[24000]`) | The rates the server accepts, when not hosted OpenAI's: what `engine.module.audio_format.sample_rate` may be set to. |
 | `default_sample_rate` | integer \| null | `null` (`24000`) | The rate the module is fed unless `engine.module.audio_format.sample_rate` sets another. Alone, it is the only rate supported. Must be in `supported_sample_rates` when both are set. |
 
-**Validation in `__init__`** (per the [constructor contract](../asr-module-interface.md#module-constructor-contract)). Each failure raises `ValueError` naming the field:
+**Validation in `__init__`** (per the [constructor contract](../asr-module-interface.md#module-constructor-contract)): the fields are declared as `fields` (title "OpenAI Realtime-compatible"), `turn_detection` and `supported_sample_rates` as `schema_extras`, and the rules a `Field` cannot state are `config_rules` ([setup.md](../setup.md) "On a module"). Each failure raises `ConfigError` naming the field:
 
 - `url` is a string starting with `ws://` or `wss://`;
-- the API key resolves, when `api_key` or `api_key_env` is given, and one of them is given when `url`'s host is `api.openai.com`;
+- no `api_key` is written in the config; `api_key_env` is named when `url`'s host is `api.openai.com` (`"OpenAI Realtime-compatible module: api.openai.com needs a key: name its variable in 'api_key_env', usually 'OPENAI_API_KEY'"`), and the key resolves when it is named (`MissingSecretError` naming the variable otherwise);
 - `model` is a non-empty string;
 - `language` is null or two ASCII letters;
 - `prompt` is null or a string;
@@ -208,7 +208,7 @@ This server is fed 16 kHz: the microphone is opened at 16 kHz, and a source at a
 
 - **`start()`** connects, waits for `session.created`, sends `session.update`, waits for `session.updated`, calls `on_connected(True)`, then runs two tasks until the session ends: a **sender** draining `audio_queue` into `input_audio_buffer.append` (and calling `finalize()` on an `END_OF_SPEECH` marker), and a **receiver** applying the [utterance semantics](#utterance-semantics). With `turn_detection: false` it logs once at info level that finals need `engine.vad` or `stop()`.
 - **`stop()`** asks the running session to end and **returns only once it has**, so the last finals are delivered before the engine cancels the module task (as in `mistral-realtime`). Ending the session first applies `finalize()`'s commit-or-clear decision ([VAD gating](#vad-gating)), so a trailing utterance is committed and trailing silence is not. Then it waits up to `stop_timeout_s` for every open item to complete. Then it emits each remaining item's accumulated text as a final, in order, and closes the socket. `on_connected(False)` follows. A `stop()` while reconnecting returns at once.
-- **Reconnection** follows the [reconnection contract](../asr-module-interface.md#reconnection-contract) (1, 2, 4, 8 s backoff, draining `audio_queue` meanwhile). On connection loss, every open item's accumulated text is emitted as a final first, and `on_connected(False)` is called. A reconnect is a **new session**: the buffer and open items of the old one are gone. A rejected handshake logs at error level with the cause: HTTP 401 → "check `api_key` / `api_key_env`", HTTP 403/404 → "check `url` and `model`", a `session.update` `error` → the server's message.
+- **Reconnection** follows the [reconnection contract](../asr-module-interface.md#reconnection-contract) (1, 2, 4, 8 s backoff, draining `audio_queue` meanwhile). On connection loss, every open item's accumulated text is emitted as a final first, and `on_connected(False)` is called. A reconnect is a **new session**: the buffer and open items of the old one are gone. A rejected handshake logs at error level with the cause: HTTP 401 → "check the variable named by `api_key_env`", HTTP 403/404 → "check `url` and `model`", a `session.update` `error` → the server's message.
 
 ## VAD gating
 
@@ -236,7 +236,9 @@ all = ["asr-engine[deepgram,mcp,mistral,mlx-audio,openai-compatible,silero]"]  #
 dev = ["asr-engine[deepgram,mcp,mistral,openai-compatible,silero]", "mlx-audio[stt]>=0.6; …", ...]  # light: joins dev
 ```
 
-The module file imports `websockets` at top level, so without the extra the registry's `ImportError` names `openai-compatible`.
+The module file imports `websockets` only in `imports()` and when it connects, so without the extra its config is still checked, and building it raises the `ImportError` of `imports()`, naming `openai-compatible`.
+
+Its `probe` lists `GET /v1/models` beside the `url` (`wss://host/v1/realtime…` → `https://host/v1/models`), with the key when `api_key_env` names one, and finds the configured `model` there ([setup.md](../setup.md) "probe").
 
 ## Testing
 
@@ -260,13 +262,13 @@ A `MODULES` row: type `openai-realtime-compatible`, `api_key_env: OPENAI_API_KEY
 
 ## Files
 
-- `src/asr_engine/modules/openai_realtime_compatible/__init__.py`: imports nothing (keeps the registry lazy)
+- `src/asr_engine/modules/openai_realtime_compatible/__init__.py`: imports nothing
 - `src/asr_engine/modules/openai_realtime_compatible/module.py`: `OpenAIRealtimeCompatibleModule`
-- `src/asr_engine/modules/__init__.py`: `"openai-realtime-compatible": LazyModule("asr_engine.modules.openai_realtime_compatible.module:OpenAIRealtimeCompatibleModule", extra="openai-compatible")`
+- `src/asr_engine/modules/__init__.py`: `"openai-realtime-compatible": OpenAIRealtimeCompatibleModule`
 - `pyproject.toml`: the extra, `all`, `dev`
 - `scripts/probe_openai_realtime.py`: the live probe behind [Measured](#measured-live-probe-hosted-openai-2026-11-13)
 - `scripts/check_local_server.py`: runs the engine with this module (or `openai-transcriptions-compatible`) against a local server; behind [Measured against local servers](#measured-against-local-servers-2026-11-16)
-- `examples/config/openai-realtime-compatible.json`: a complete server config, with the VAD gate on
+- `examples/configs/openai-realtime-compatible.json`: a complete server config, with the VAD gate on
 - `tests/modules/test_openai_realtime_compatible.py`, `tests-e2e/helpers.py` (`MODULES` row), `.github/workflows/ci.yml` (secret mapping)
 - Spec and doc touch-ups: [asr-module-interface.md](../asr-module-interface.md) (registry snippet, extras table and naming rule), [configuration.md](../configuration.md), [ci.md](../ci.md), [e2e-testing.md](../e2e-testing.md), [vad.md](../vad.md) (module tables), [project.md](../project.md) (package and extras lists), `README.md`, `AGENTS.md`
 
