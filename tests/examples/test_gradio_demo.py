@@ -255,8 +255,8 @@ def test_a_refused_start_s_reasons_follow_the_saved_config_and_the_keys(
         )
         controller.start(model)
         refused = controller.state(model).message
-        # A config with a problem is not asked about the machine yet.
-        assert "end_of_speech_timeout_s" in refused and "DEMO_ASR_KEY" not in refused
+        # Both reasons at once: the problem, and the key the config names.
+        assert "end_of_speech_timeout_s" in refused and "DEMO_ASR_KEY" in refused
 
         # The problem fixed and saved: the key it names is what is left.
         model.save(_with(module={"type": "deepgram-v1", "api_key_env": "DEMO_ASR_KEY"}))
