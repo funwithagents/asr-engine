@@ -192,6 +192,4 @@ demo = [
 ]
 
 [tool.uv.sources]
-# On app-setup #10's branch (the Setup panel's draft and saved state) until it is
-# merged: then back to rev = "main".
-app-setup = { git = "https://github.com/funwithagents/app-setup", rev = "draft-and-saved" }
+app-setup = { git = "https://github.com/funwithagents/app-setup", rev = "main" }
