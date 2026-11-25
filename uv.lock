@@ -186,7 +186,7 @@ wheels = [
 [[package]]
 name = "app-setup"
 version = "0.1.0"
-source = { git = "https://github.com/funwithagents/app-setup?rev=draft-and-saved#4bd9ef2b546ab8550d46b797f0feea4c8d0246fc" }
+source = { git = "https://github.com/funwithagents/app-setup?rev=draft-and-saved#34e4f1d659f7df455e56e4c2f81b9ee1eb4ffea7" }
 dependencies = [
     { name = "packaging", marker = "extra == 'extra-10-asr-engine-all' or extra != 'extra-10-asr-engine-kyutai-mlx' or extra == 'extra-10-asr-engine-mlx-audio' or extra == 'group-10-asr-engine-demo' or extra == 'group-10-asr-engine-dev'" },
 ]
