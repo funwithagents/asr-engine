@@ -22,12 +22,38 @@ uv run python -m examples.gradio_demo
 Then open the address it prints (`http://127.0.0.1:7860` by default).
 
 ```text
---folder PATH  The demo's folder: its config.json and its .env (default: ~/.config/asr-engine-demo)
+--folder DIR   The demo's folder: its config.json and its .env (default: ~/.config/asr-engine-demo)
+--config FILE  Run this config file as it is, instead of a folder (it is never written)
+--env PATH     The .env the keys are read from and saved to (default: the one next to the config)
 --host HOST    The address to serve on (default: 127.0.0.1)
 --port PORT    The port to serve on (default: gradio's)
 ```
 
-The panels come from the `app-setup` project, in the repository's `demo` dependency group, which `uv sync` installs for contributors; it is not a dependency of the `asr-engine` package. Keys you save on the Secrets tab go to the folder's `.env`; a variable your shell sets wins over it.
+The panels come from the `app-setup` project, in the repository's `demo` dependency group, which `uv sync` installs for contributors; it is not a dependency of the `asr-engine` package.
+
+## Three ways to launch
+
+A config is the engine block itself, the same document everywhere: a folder's `config.json`, a file given with `--config`, any file of [examples/configs/](../configs/), and what `ASREngineConfig.from_json_file` reads.
+
+- **From the demo's folder** (the default, or `--folder DIR`): the Setup tab edits and saves the folder's `config.json`; nothing starts until you press Start.
+- **From a config file**, run as it is:
+
+  ```bash
+  uv run python -m examples.gradio_demo --config examples/configs/deepgram-v2.json
+  ```
+
+  The file is never written: the Setup tab is read-only (Check, Install, Prepare and Test still work, there is no Save). The session starts at launch, and the page opens on the Listen tab; when the config cannot run yet (a missing extra, a key not set), the Listen tab says what is missing instead. A file that does not exist, or is not a JSON object, stops the demo at launch with the reason.
+- **The config app**, to edit a config file on a page without running anything:
+
+  ```bash
+  uv run python -m examples.config_app speech.json [--env PATH] [--host HOST] [--port PORT]
+  ```
+
+  It has the Setup and Secrets tabs only: Save writes the engine block back to the file, Revert reads it again. The file must exist (start from a copy of one in `examples/configs/`).
+
+**Where the keys are.** Keys come from the `.env` next to the config: the folder's, or the one in the config file's directory, unless `--env` names another. Keys you save on the Secrets tab go there; a variable your shell sets wins over it. The repository ignores `.env` files, so a key saved next to `examples/configs/` cannot be committed.
+
+**A folder made by an earlier version** holds the config wrapped in an `"asr"` key, which the demo cannot run any more (Start says `unknown field(s) asr`). Delete the folder (`~/.config/asr-engine-demo` by default) once: the next launch writes the default config again.
 
 ## The session
 

@@ -15,7 +15,7 @@ tests:
 
 # Gradio Demo App
 
-**Status:** Updated
+**Status:** Implemented
 
 ## Purpose
 

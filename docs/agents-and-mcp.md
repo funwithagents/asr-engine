@@ -63,15 +63,15 @@ Its configuration wraps the same [engine block](configuration.md#the-engine-bloc
 }
 ```
 
-Start from the example for your module in [examples/configs/](../examples/configs/):
+Start from the server's example, [examples/mcp/config.json](../examples/mcp/config.json): a `server` block and an engine running the `fake` module, which needs no extra and no key (it replays a short script on the microphone's clock, so you can connect a client first):
 
 ```bash
-uv sync --no-default-groups --extra deepgram --extra silero --extra mcp
-cp examples/configs/deepgram-v2.json config.json
+uv sync --no-default-groups --extra mcp
+cp examples/mcp/config.json config.json
 uv run asr-engine-mcp --config config.json
 ```
 
-There is one complete config per module. All but `kyutai.json` enable the Silero VAD gate with the setting recommended for that module, hence the `silero` extra above; remove their `vad` block to stream everything (the two batch modules need it, see [vad.md](vad.md)).
+For a real module, replace its `engine` block with the file for your module in [examples/configs/](../examples/configs/) (for instance `examples/configs/deepgram-v2.json`), and install that module's extras. There is one complete engine config per module. All but `kyutai.json` enable the Silero VAD gate with the setting recommended for that module, hence the `silero` extra: `uv sync --no-default-groups --extra deepgram --extra silero --extra mcp` for Deepgram. Remove their `vad` block to stream everything (the two batch modules need it, see [vad.md](vad.md)).
 
 With no `server` block the server listens on `127.0.0.1:8000`, so the endpoint is `http://127.0.0.1:8000/mcp` and only programs on the same machine can reach it.
 

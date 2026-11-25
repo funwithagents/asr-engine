@@ -9,7 +9,7 @@ tests:
 
 # Configuration
 
-**Status:** Updated
+**Status:** Implemented
 
 ## Config File
 

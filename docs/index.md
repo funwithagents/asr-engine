@@ -21,5 +21,5 @@ The documentation of `asr-engine`, by what you want to do. The [README](../READM
 Beyond the user documentation:
 
 - [specs/](../specs/_index.md) is the normative design: every guarantee, with its rationale, one spec per concept and per module.
-- [examples/](../examples/README.md) has three runnable applications and, under [examples/configs/](../examples/configs/), one complete server config per module.
+- [examples/](../examples/README.md) has four runnable applications and, under [examples/configs/](../examples/configs/), one complete engine config per module; [examples/mcp/config.json](../examples/mcp/config.json) is the MCP server's example config.
 - [AGENTS.md](../AGENTS.md) is the operating manual for working in the repository.

@@ -1,24 +1,18 @@
 {
-  "server": {
-    "host": "0.0.0.0",
-    "port": 8000
+  "auto_start": true,
+  "auto_start_dictation": false,
+  "dictation_default_segmentation_mode": "trigger_word",
+  "audio_source": {
+    "type": "input-device",
+    "device": null
   },
-  "engine": {
-    "auto_start": true,
-    "auto_start_dictation": false,
-    "dictation_default_segmentation_mode": "trigger_word",
-    "audio_source": {
-      "type": "input-device",
-      "device": null
-    },
-    "module": {
-      "type": "deepgram-v2",
-      "api_key_env": "DEEPGRAM_API_KEY",
-      "model": "flux-general-en"
-    },
-    "vad": {
-      "type": "silero",
-      "min_silence_duration_ms": 1500
-    }
+  "module": {
+    "type": "deepgram-v2",
+    "api_key_env": "DEEPGRAM_API_KEY",
+    "model": "flux-general-en"
+  },
+  "vad": {
+    "type": "silero",
+    "min_silence_duration_ms": 1500
   }
 }

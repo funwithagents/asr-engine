@@ -1,28 +1,22 @@
 {
-  "server": {
-    "host": "0.0.0.0",
-    "port": 8000
+  "auto_start": true,
+  "auto_start_dictation": false,
+  "dictation_default_segmentation_mode": "trigger_word",
+  "audio_source": {
+    "type": "input-device",
+    "device": null
   },
-  "engine": {
-    "auto_start": true,
-    "auto_start_dictation": false,
-    "dictation_default_segmentation_mode": "trigger_word",
-    "audio_source": {
-      "type": "input-device",
-      "device": null
-    },
-    "module": {
-      "type": "mistral-realtime",
-      "api_key_env": "MISTRAL_API_KEY",
-      "model": "voxtral-mini-transcribe-realtime-3",
-      "language": "en",
-      "streaming_delay_ms": 480,
-      "context_bias": [
-        "validate"
-      ]
-    },
-    "vad": {
-      "type": "silero"
-    }
+  "module": {
+    "type": "mistral-realtime",
+    "api_key_env": "MISTRAL_API_KEY",
+    "model": "voxtral-mini-transcribe-realtime-3",
+    "language": "en",
+    "streaming_delay_ms": 480,
+    "context_bias": [
+      "validate"
+    ]
+  },
+  "vad": {
+    "type": "silero"
   }
 }

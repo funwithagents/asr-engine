@@ -1,0 +1,23 @@
+{
+  "server": {
+    "host": "0.0.0.0",
+    "port": 8000
+  },
+  "engine": {
+    "module": {
+      "type": "fake",
+      "utterances": [
+        {
+          "text": "hello from the fake module",
+          "start_s": 1.0,
+          "end_s": 2.5
+        },
+        {
+          "text": "replace the engine block with a real module",
+          "start_s": 4.0,
+          "end_s": 5.5
+        }
+      ]
+    }
+  }
+}

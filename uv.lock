@@ -186,7 +186,7 @@ wheels = [
 [[package]]
 name = "app-setup"
 version = "0.1.0"
-source = { git = "https://github.com/funwithagents/app-setup?rev=main#b6b12e9ca5b98b7369e39185ad7754621cecc4a8" }
+source = { git = "https://github.com/funwithagents/app-setup?rev=config-file#a168281e7b43540a254d6a6ca0c43092faebe34c" }
 dependencies = [
     { name = "packaging", marker = "extra == 'extra-10-asr-engine-all' or extra != 'extra-10-asr-engine-kyutai-mlx' or extra == 'extra-10-asr-engine-mlx-audio' or extra == 'group-10-asr-engine-demo' or extra == 'group-10-asr-engine-dev'" },
 ]
@@ -286,9 +286,9 @@ requires-dist = [
 provides-extras = ["deepgram", "mcp", "kyutai-mlx", "kyutai-torch", "mistral", "openai-compatible", "mlx-audio", "silero", "all"]
 
 [package.metadata.requires-dev]
-demo = [{ name = "app-setup", extras = ["ui"], git = "https://github.com/funwithagents/app-setup?rev=main" }]
+demo = [{ name = "app-setup", extras = ["ui"], git = "https://github.com/funwithagents/app-setup?rev=config-file" }]
 dev = [
-    { name = "app-setup", git = "https://github.com/funwithagents/app-setup?rev=main" },
+    { name = "app-setup", git = "https://github.com/funwithagents/app-setup?rev=config-file" },
     { name = "asr-engine", extras = ["deepgram", "mcp", "mistral", "openai-compatible", "silero"] },
     { name = "mlx-audio", extras = ["stt"], marker = "platform_machine == 'arm64' and sys_platform == 'darwin'", specifier = ">=0.6" },
     { name = "opentelemetry-sdk", specifier = ">=1.20,<2" },

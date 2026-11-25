@@ -207,8 +207,9 @@ class DemoController:
             return None
         section = model.used_config(saved)[SECTION]
         try:
-            # Relative paths are relative to the app's folder, as app-setup's
-            # checks read them (it passes the same folder as base_dir).
+            # Relative paths are relative to the app's folder, or to the config
+            # file's directory, as app-setup's checks read them (it passes the
+            # same directory as base_dir).
             config = ASREngineConfig.from_dict(section, base_dir=model.path)
             engine = ASREngine(
                 config,

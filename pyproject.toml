@@ -192,4 +192,6 @@ demo = [
 ]
 
 [tool.uv.sources]
-app-setup = { git = "https://github.com/funwithagents/app-setup", rev = "main" }
+# On app-setup's config-file branch (a config file as the source, bare apps, a
+# config app): back to main once app-setup #11 is merged.
+app-setup = { git = "https://github.com/funwithagents/app-setup", rev = "config-file" }

@@ -3,15 +3,17 @@
 The controller owns a real background asyncio loop but drives an ``ASREngine``
 replaced with a ``FakeEngine`` (patched at
 ``examples.gradio_demo.controller.ASREngine``), over a real app-setup
-``AppModel`` on a temporary folder. So these exercise the session's own logic —
+``AppModel`` on a temporary folder, or on a config file run as it is. So these
+exercise the session's own logic —
 built from the saved config, refused with the config's blockers, the config
-locked while it runs, listen cancellation, dictation, phase/enablement — without
-an audio device, network or browser. See specs/gradio-demo.md.
+locked while it runs, listen cancellation, dictation, phase/enablement, a file's
+session started at launch — without an audio device, network or browser. See specs/gradio-demo.md.
 """
 
 from __future__ import annotations
 
 import asyncio
+import json
 import threading
 import time
 from collections.abc import Callable, Iterator
@@ -29,7 +31,13 @@ from app_setup.secrets import SecretStore
 from asr_engine import setup
 from asr_engine.config import ASREngineConfig
 from asr_engine.vad.gate import VadState
-from examples.gradio_demo.app import APP, DEFAULT_CONFIG, build_page
+from examples.gradio_demo.app import (
+    APP,
+    DEFAULT_CONFIG,
+    DEFAULT_CONFIG_FILE,
+    build_page,
+    open_demo,
+)
 from examples.gradio_demo.controller import (
     ControllerState,
     DemoController,
@@ -116,8 +124,9 @@ def session(tmp_path: Path) -> Iterator[tuple[DemoController, AppModel]]:
 
 
 def _with(**asr: Any) -> dict[str, Any]:
-    """The default config with its `asr` section's keys replaced."""
-    return {"asr": {**DEFAULT_CONFIG["asr"], **asr}}
+    """The default config with some of its keys replaced, as the panels hold
+    it: the engine block under the `asr` section."""
+    return {"asr": {**DEFAULT_CONFIG, **asr}}
 
 
 def _silero(tmp_path: Path) -> dict[str, Any]:
@@ -145,22 +154,33 @@ def wait_until(pred: Callable[[], bool], timeout: float = 5.0) -> None:
 def test_the_demo_s_default_config_is_ready_on_any_machine(tmp_path: Path) -> None:
     model = _model(tmp_path)
 
-    assert model.saved_config() == DEFAULT_CONFIG
-    assert setup.check_config(DEFAULT_CONFIG["asr"]) == []
+    assert model.saved_config() == {"asr": DEFAULT_CONFIG}
+    assert setup.check_config(DEFAULT_CONFIG) == []
     assert model.blockers(model.saved_config()) == []
 
 
 def test_the_default_config_is_the_committed_file_written_into_a_new_folder(
     tmp_path: Path,
 ) -> None:
-    import json
-
-    from examples.gradio_demo.app import DEFAULT_CONFIG_FILE
-
     model = _model(tmp_path / "new")
 
-    assert model.saved_config() == json.loads(DEFAULT_CONFIG_FILE.read_text())
-    assert model.saved_config()["asr"]["module"]["type"] == "fake"
+    # The folder holds the engine block itself, as the committed file does.
+    written = json.loads((tmp_path / "new" / "config.json").read_text())
+    assert written == json.loads(DEFAULT_CONFIG_FILE.read_text())
+    assert written["module"]["type"] == "fake"
+    assert model.saved_config() == {"asr": written}
+
+
+def test_a_config_saved_in_the_folder_is_the_engine_block_alone(
+    tmp_path: Path,
+) -> None:
+    model = _model(tmp_path)
+
+    model.save(_with(sound_feedback={"enabled": False}))
+
+    written = json.loads((tmp_path / "config.json").read_text())
+    assert written == {**DEFAULT_CONFIG, "sound_feedback": {"enabled": False}}
+    assert ASREngineConfig.from_json_file(str(tmp_path / "config.json"))
 
 
 def test_the_page_puts_listen_first_and_opens_on_setup(tmp_path: Path) -> None:
@@ -192,7 +212,7 @@ def test_start_builds_the_engine_from_the_saved_section_and_locks_the_config(
             "fake",
         )
         [engine] = FakeEngine.instances
-        assert engine.config == ASREngineConfig.from_dict(DEFAULT_CONFIG["asr"])
+        assert engine.config == ASREngineConfig.from_dict(DEFAULT_CONFIG)
         assert controller.locked()
         with pytest.raises(RuntimeError):
             model.save(_with(sound_feedback={"enabled": False}))
@@ -459,3 +479,99 @@ def test_a_relative_path_runs_against_the_app_s_folder(tmp_path: Path) -> None:
         assert before == []  # app-setup checks the file in the app's folder
         [engine] = FakeEngine.instances
         assert engine.config.audio_source.audio_file == str(folder / "speech.wav")
+
+
+# --- Launches: the folder, a config file ---------------------------------------
+
+
+def _config_file(tmp_path: Path, document: dict[str, Any]) -> Path:
+    path = tmp_path / "speech.json"
+    path.write_text(json.dumps(document, indent=2))
+    return path
+
+
+@contextmanager
+def launched(argv: list[str]) -> Iterator[tuple[DemoController, AppModel]]:
+    """The demo opened from its command line, its engine a FakeEngine."""
+    FakeEngine.instances.clear()
+    with patch("examples.gradio_demo.controller.ASREngine", FakeEngine):
+        with DemoController() as controller:
+            model, _ = open_demo(argv, controller)
+            yield controller, model
+
+
+def test_a_config_file_runs_as_it_is_its_session_started_at_launch(
+    tmp_path: Path,
+) -> None:
+    document = {**DEFAULT_CONFIG, "segmentation": {"trigger_words": ["done"]}}
+    path = _config_file(tmp_path, document)
+
+    with launched(["--config", str(path)]) as (controller, model):
+        state = controller.state(model)
+        assert (state.phase, state.message) == ("running", "Running (always-on).")
+        [engine] = FakeEngine.instances
+        assert engine.config.segmentation.trigger_words == ["done"]
+
+        with DemoController() as other:
+            page = build_page(model, other)
+        [selector] = [b for b in page.blocks.values() if isinstance(b, gr.Tabs)]
+        assert selector.selected == "listen"
+
+        controller.stop()
+        # Read-only even with no session running: the file is never written.
+        assert not model.editable
+        with pytest.raises(RuntimeError):
+            model.save(_with(sound_feedback={"enabled": False}))
+    assert json.loads(path.read_text()) == document
+
+
+def test_a_config_file_that_cannot_run_says_why_at_launch(tmp_path: Path) -> None:
+    path = _config_file(
+        tmp_path, {**DEFAULT_CONFIG, "segmentation": {"end_of_speech_timeout_s": 0}}
+    )
+
+    with launched(["--config", str(path)]) as (controller, model):
+        state = controller.state(model)
+
+        assert state.phase == "stopped"
+        assert state.message.startswith("The saved config cannot run yet:")
+        assert "end_of_speech_timeout_s" in state.message
+        assert FakeEngine.instances == []
+
+
+def test_a_config_file_s_keys_come_from_the_env_next_to_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("DEMO_ASR_KEY", "")  # recorded, so the key loaded is undone
+    monkeypatch.delenv("DEMO_ASR_KEY")
+    document = {"module": {"type": "deepgram-v1", "api_key_env": "DEMO_ASR_KEY"}}
+    path = _config_file(tmp_path, document)
+    (tmp_path / ".env").write_text("DEMO_ASR_KEY=a-key\n")
+
+    with launched(["--config", str(path)]) as (controller, model):
+        assert controller.state(model).phase == "running"
+        assert model.source.env_path == tmp_path / ".env"
+
+
+def test_a_missing_config_file_stops_the_demo_at_launch(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    missing = tmp_path / "nowhere.json"
+
+    with pytest.raises(SystemExit):
+        with launched(["--config", str(missing)]):
+            pass
+
+    assert f"config file {missing} does not exist" in capsys.readouterr().err
+    assert FakeEngine.instances == []
+
+
+def test_the_folder_launch_starts_nothing_and_opens_on_setup(tmp_path: Path) -> None:
+    with launched(["--folder", str(tmp_path / "demo")]) as (controller, model):
+        assert controller.state(model).phase == "stopped"
+        assert model.editable
+        assert (tmp_path / "demo" / "config.json").is_file()
+        with DemoController() as other:
+            page = build_page(model, other)
+        [selector] = [b for b in page.blocks.values() if isinstance(b, gr.Tabs)]
+        assert selector.selected == "setup"

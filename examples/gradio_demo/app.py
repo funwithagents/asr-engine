@@ -7,9 +7,12 @@ the Listen tab starts a session from the saved config, listens once, runs a
 dictation, and shows the utterances and segments. While a session runs the
 config is locked: the Setup panel cannot save under it.
 
-Run it from the repo root::
+The config is the engine block itself (the app is bare): the folder's
+``config.json``, or a file run as it is with ``--config`` (read-only on the page,
+its session started at launch). Run it from the repo root::
 
-    uv run python -m examples.gradio_demo [--folder PATH] [--host ADDRESS] [--port N]
+    uv run python -m examples.gradio_demo [--folder DIR | --config FILE] [--env PATH]
+        [--host ADDRESS] [--port N]
 """
 
 from __future__ import annotations
@@ -24,19 +27,28 @@ from pathlib import Path
 
 import gradio as gr
 from app_setup.app import App, AppModel, Section
-from app_setup.folder import ConfigFolder, default_folder
+from app_setup.autostart import starts_at_launch
+from app_setup.config_file import ConfigFileError
+from app_setup.launch import add_config_arguments, open_source
 from app_setup.ui import SetupPanel, secrets_panel, setup_panel, unsaved_notice
 
 import asr_engine.setup
 
 from .controller import SECTION, ControllerState, DemoController
 
-__all__ = ["APP", "DEFAULT_CONFIG", "DEFAULT_CONFIG_FILE", "build_page", "main"]
+__all__ = [
+    "APP",
+    "DEFAULT_CONFIG",
+    "DEFAULT_CONFIG_FILE",
+    "build_page",
+    "main",
+    "open_demo",
+]
 
 log = logging.getLogger(__name__)
 
 # The first config of a new folder, a committed file (one field per line, for
-# review): the fake module needs nothing installed and no key, so the page works
+# review), the engine block alone (the app is bare): the fake module needs nothing installed and no key, so the page works
 # before any choice; it replays its script on the microphone's audio clock.
 DEFAULT_CONFIG_FILE = Path(__file__).with_name("default_config.json")
 DEFAULT_CONFIG = json.loads(DEFAULT_CONFIG_FILE.read_text(encoding="utf-8"))
@@ -47,6 +59,9 @@ APP = App(
     host="asr-engine",
     sections=(Section(SECTION, asr_engine.setup, title="Speech recognition"),),
     default_config=DEFAULT_CONFIG,
+    # The config is the engine block itself, in the folder's config.json and in
+    # a --config file alike; the panels see it as the `asr` section.
+    bare=True,
 )
 
 _SEG_MODES = ["utterance", "trigger_word", "timeout"]
@@ -273,10 +288,11 @@ def _render(state: ControllerState) -> list:
 
 def build_page(model: AppModel, controller: DemoController) -> gr.Blocks:
     """The demo's page: its Listen tab, then app-setup's Setup and Secrets
-    panels. It opens on Setup."""
+    panels. It opens on Setup, or on Listen for a config file run as it is
+    (its session started at launch, its Setup panel read-only)."""
     with gr.Blocks(title=model.title) as page:
         gr.Markdown(f"# {model.title}")
-        with gr.Tabs(selected="setup"):
+        with gr.Tabs(selected="setup" if model.editable else "listen"):
             with gr.Tab("Listen", id="listen") as listen_tab:
                 tab = _listen_tab(model, controller)
             with gr.Tab("Setup", id="setup"):
@@ -287,22 +303,37 @@ def build_page(model: AppModel, controller: DemoController) -> gr.Blocks:
     return page
 
 
-def _arguments(argv: Sequence[str] | None) -> argparse.Namespace:
-    folder = default_folder(APP.name)
+def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=APP.title)
-    parser.add_argument(
-        "--folder",
-        type=Path,
-        default=folder,
-        help=f"the demo's folder: its config and its keys (default: {folder})",
-    )
+    # --folder DIR (default ~/.config/asr-engine-demo) | --config FILE, --env PATH
+    add_config_arguments(parser, APP)
     parser.add_argument("--host", default="127.0.0.1", help="the address to serve on")
     parser.add_argument("--port", type=int, default=None, help="the port to serve on")
-    return parser.parse_args(argv)
+    return parser
+
+
+def open_demo(
+    argv: Sequence[str] | None, controller: DemoController
+) -> tuple[AppModel, argparse.Namespace]:
+    """The demo's model from its command line, locked by *controller*'s session;
+    run from a file, its session is started (or its blockers said) before the
+    page opens. A missing or unreadable file stops the demo with the error."""
+    parser = _parser()
+    options = parser.parse_args(argv)
+    try:
+        source = open_source(options, APP)
+    except ConfigFileError as exc:
+        parser.error(str(exc))
+    # Building the model makes the folder ready and loads the .env next to the
+    # config (or --env's). The config is locked while a session runs.
+    model = AppModel(APP, source, locked=controller.locked)
+    # The demo has no autostart of its own: only a file run as it is starts.
+    if starts_at_launch(model, None):
+        controller.start(model)
+    return model, options
 
 
 def main(argv: Sequence[str] | None = None) -> None:
-    options = _arguments(argv)
     # This example is an application entry point, so it configures logging itself
     # (deliberately not importing the library's private _logging.setup_logging).
     logging.basicConfig(
@@ -314,14 +345,8 @@ def main(argv: Sequence[str] | None = None) -> None:
     # rejection. A headless browser saw no request of the page refused.
     warnings.filterwarnings("ignore", message=".*HTTP_422_UNPROCESSABLE_ENTITY.*")
     with DemoController() as controller:
-        # Building the model makes the folder ready and loads its .env. The
-        # config is locked while a session runs.
-        model = AppModel(
-            APP,
-            ConfigFolder(options.folder, APP.default_config),
-            locked=controller.locked,
-        )
-        log.info("folder: %s", model.path)
+        model, options = open_demo(argv, controller)
+        log.info("config: %s", model.source.config_path)
         build_page(model, controller).launch(
             server_name=options.host, server_port=options.port
         )

@@ -1,19 +1,17 @@
 {
-  "asr": {
-    "module": {
-      "type": "fake",
-      "utterances": [
-        {
-          "text": "hello from the fake module",
-          "start_s": 1.0,
-          "end_s": 2.5
-        },
-        {
-          "text": "choose a real one in setup",
-          "start_s": 4.0,
-          "end_s": 5.5
-        }
-      ]
-    }
+  "module": {
+    "type": "fake",
+    "utterances": [
+      {
+        "text": "hello from the fake module",
+        "start_s": 1.0,
+        "end_s": 2.5
+      },
+      {
+        "text": "choose a real one in setup",
+        "start_s": 4.0,
+        "end_s": 5.5
+      }
+    ]
   }
 }

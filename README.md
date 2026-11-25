@@ -185,11 +185,12 @@ The runnable consumers under [examples/](examples/README.md) are not part of the
 
 | Example | Integration | Demonstrates |
 |---|---|---|
-| [gradio_demo](examples/gradio_demo/) | Direct engine import | A page to set the engine up (module, device, extras, models, keys) and try it: start, listen, dictation, live utterances and segments |
+| [gradio_demo](examples/gradio_demo/) | Direct engine import | A page to set the engine up (module, device, extras, models, keys) and try it: start, listen, dictation, live utterances and segments; from its own folder, or from a config file with `--config` |
+| [config_app](examples/config_app/) | Setup panels | One config file edited on a page (Setup and Secrets, Save to the file), with no session: `python -m examples.config_app FILE` |
 | [mcp_client](examples/mcp_client/) | MCP resources | Subscribing to the server's rolling transcription resources |
 | [asr_to_terminal](examples/asr_to_terminal/) | MCP resources | Typing what is said into the focused terminal |
 
-[examples/configs/](examples/configs/) holds one complete config per module, in the MCP server's format (a `server` block and an `engine` block). With the `mcp` extra and the module's extra installed, `uv run asr-engine-mcp --config examples/configs/deepgram-v1.json` starts a server as is; the `engine` block is what a library config takes. These configs listen on every network interface (`"host": "0.0.0.0"`) and the server has no authentication: see [the warning](docs/agents-and-mcp.md#run-the-mcp-server) before running one outside a trusted network. They hold no secrets: a hosted module reads its key from the environment variable named in `api_key_env` (the provider's usual one by default), and a key written in a config is refused.
+[examples/configs/](examples/configs/) holds one complete engine config per module: the engine block alone, what `ASREngineConfig.from_json_file` reads and what the demo runs with `--config`. The MCP server's format (a `server` block and an `engine` block) has one example, [examples/mcp/config.json](examples/mcp/config.json), on the `fake` module: with the `mcp` extra installed, `uv run asr-engine-mcp --config examples/mcp/config.json` starts a server as is, and any file of `examples/configs/` can replace its `engine` block. That example listens on every network interface (`"host": "0.0.0.0"`) and the server has no authentication: see [the warning](docs/agents-and-mcp.md#run-the-mcp-server) before running it outside a trusted network. The configs hold no secrets: a hosted module reads its key from the environment variable named in `api_key_env` (the provider's usual one by default), and a key written in a config is refused.
 
 ## Feedback and contributions
 

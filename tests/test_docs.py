@@ -85,9 +85,9 @@ def test_relative_links_resolve(path: Path):
 # --- Paths named in code ------------------------------------------------------
 
 # The documentation names example configs as code (`examples/configs/x.json`,
-# `cp examples/configs/x.json config.json`) at least as often as it links them,
+# `cp examples/mcp/config.json config.json`) at least as often as it links them,
 # and a rename breaks those silently: the copy command fails for the reader.
-_EXAMPLE_CONFIG = re.compile(r"examples/configs/[\w.-]+\.json")
+_EXAMPLE_CONFIG = re.compile(r"examples/(?:configs|mcp)/[\w.-]+\.json")
 
 
 @pytest.mark.parametrize(

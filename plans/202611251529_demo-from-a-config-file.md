@@ -1,6 +1,6 @@
 # The demo from a config file, and a config app
 
-**Status:** Todo
+**Status:** Done
 
 Implements `specs/gradio-demo.md` ("Running it": the three launches, the keys, the config is the engine block), with the example configs of `specs/configuration.md` and the documentation checks of `specs/project.md`. The demo runs from its folder or from a config file run as it is (its session started at launch), a config app edits one file with the Setup and Secrets panels, and every config the demo reads or writes is the engine block alone. The MCP server's format is unchanged; it gets one example of its own. Left out: a `--start`/`--no-start` autostart for the folder launch (the demo has none).
 
