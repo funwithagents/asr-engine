@@ -2,11 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-
-from deepgram import AsyncDeepgramClient
-from deepgram.core.events import EventType
-from deepgram.listen.v2.types.listen_v2turn_info import ListenV2TurnInfo
-from deepgram.listen.v2.types.listen_v2warning import ListenV2Warning
+from collections.abc import Mapping
 
 from asr_engine.audio import (
     DEFAULT_AUDIO_FORMAT,
@@ -14,14 +10,13 @@ from asr_engine.audio import (
     EndOfSpeech,
 )
 from asr_engine.modules.base import (
-    ASRModule,
     AudioQueue,
     ConnectedCallback,
     SpeechUtterance,
     UtteranceCallback,
-    resolve_api_key,
 )
-from asr_engine.modules.deepgram import _config
+from asr_engine.modules.deepgram._config import KEY_FIELD, DeepgramModule
+from asr_engine.modules.fields import Field
 
 log = logging.getLogger(__name__)
 
@@ -41,7 +36,7 @@ async def send_keep_alive(conn: object) -> None:
     await conn._send(_KEEP_ALIVE)  # type: ignore[attr-defined]
 
 
-class DeepgramV2Module(ASRModule):
+class DeepgramV2Module(DeepgramModule):
     """ASR module backed by the Deepgram Listen v2 (Flux) WebSocket API.
 
     Uses the Flux model with built-in contextual turn detection.
@@ -61,17 +56,45 @@ class DeepgramV2Module(ASRModule):
     DEFAULT_ENCODING = "linear16"
     VAD_GATING = "supported"
 
-    def __init__(self, config: dict) -> None:
+    title = "Deepgram Flux"
+    fields = (
+        KEY_FIELD,
+        Field(
+            "model",
+            "string",
+            "The Deepgram Flux model.",
+            default="flux-general-en",
+        ),
+        Field(
+            "eot_threshold",
+            "number",
+            "How confident Flux must be that a turn ended before it ends it.",
+            default=0.7,
+            minimum=0.5,
+            maximum=0.9,
+            advanced=True,
+        ),
+        Field(
+            "eot_timeout_ms",
+            "integer",
+            "The silence after which a turn ends whatever the confidence, in "
+            "milliseconds.",
+            default=2000,
+            minimum=1,
+            advanced=True,
+        ),
+    )
+
+    def __init__(
+        self, config: dict, *, secrets: Mapping[str, str] | None = None
+    ) -> None:
         super().__init__(config)
-        label = "deepgram-v2"
-        self._api_key: str = resolve_api_key(config, label)
-        self._model = _config.non_empty_str(config, "model", "flux-general-en", label)
-        self._eot_threshold = _config.number_in(
-            config, "eot_threshold", 0.7, 0.5, 0.9, label
-        )
-        self._eot_timeout_ms = _config.positive_int(
-            config, "eot_timeout_ms", 2000, label
-        )
+        values = self.validated(config)
+        self.imports(config)
+        self._api_key: str = self.resolve_api_key(config, secrets)
+        self._model: str = values["model"]
+        self._eot_threshold: float = values["eot_threshold"]
+        self._eot_timeout_ms: int = values["eot_timeout_ms"]
 
         self._stop_event = asyncio.Event()
 
@@ -90,6 +113,11 @@ class DeepgramV2Module(ASRModule):
         *,
         audio_format: AudioFormat = DEFAULT_AUDIO_FORMAT,
     ) -> None:
+        from deepgram import AsyncDeepgramClient
+        from deepgram.core.events import EventType
+        from deepgram.listen.v2.types.listen_v2turn_info import ListenV2TurnInfo
+        from deepgram.listen.v2.types.listen_v2warning import ListenV2Warning
+
         self._stop_event.clear()
         client = AsyncDeepgramClient(api_key=self._api_key)
         attempt = 0

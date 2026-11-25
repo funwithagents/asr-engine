@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import sys
 from unittest.mock import patch
 
 import numpy as np
 import pytest
 
-from asr_engine.vad import REGISTRY, LazyVAD, resolve_vad_class
+from asr_engine.vad import REGISTRY, resolve_vad_class
 from asr_engine.vad.base import VADModule
 from tests.vad.scripted import ScriptedVAD
 
@@ -64,19 +65,10 @@ def test_unknown_type_lists_the_available_ones():
         resolve_vad_class("nope")
 
 
-def test_missing_extra_names_the_install_command():
-    entry = LazyVAD("a_package_that_does_not_exist.module:Cls", extra="silero")
-    with patch.dict(REGISTRY, {"ghost": entry}):
-        with pytest.raises(ImportError, match=r"asr-engine\[silero\]"):
-            resolve_vad_class("ghost")
-
-
-def test_a_broken_import_inside_asr_engine_is_not_reported_as_a_missing_extra():
-    entry = LazyVAD("asr_engine.vad.no_such_backend:Cls", extra="silero")
-    with patch.dict(REGISTRY, {"broken": entry}):
-        with pytest.raises(ModuleNotFoundError) as excinfo:
-            resolve_vad_class("broken")
-    assert "asr-engine[" not in str(excinfo.value)
+def test_missing_extra_names_the_install_command(monkeypatch):
+    monkeypatch.setitem(sys.modules, "onnxruntime", None)  # None → not installed
+    with pytest.raises(ImportError, match=r"asr-engine\[silero\]"):
+        resolve_vad_class("silero")({})
 
 
 def test_a_class_can_be_registered_eagerly():

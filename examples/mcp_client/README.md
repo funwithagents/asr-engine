@@ -8,7 +8,7 @@ Start the server from the repository root in one terminal:
 
 ```bash
 uv sync --extra deepgram --extra silero --extra mcp   # the extras your config selects (module + VAD) + the MCP server/SDK
-cp examples/config/deepgram-v2.json config.json   # or another file in examples/config/
+cp examples/configs/deepgram-v2.json config.json   # or another file in examples/configs/
 export DEEPGRAM_API_KEY="..."
 uv run asr-engine-mcp --config config.json
 ```

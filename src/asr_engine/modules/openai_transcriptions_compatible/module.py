@@ -16,18 +16,25 @@ from __future__ import annotations
 import io
 import logging
 import wave
-from typing import Any
+from collections.abc import Mapping
+from typing import TYPE_CHECKING, Any
 from urllib.parse import urlsplit
 
-import httpx
 import numpy as np
 
-from asr_engine.modules.base import resolve_api_key
-from asr_engine.modules.batch import BatchASRModule
+from asr_engine.errors import ConfigError
+from asr_engine.modules.base import key_env_field, openai_needs_a_key, probe_listing
+from asr_engine.modules.batch import BatchASRModule, batch_fields
+from asr_engine.modules.fields import Field
+
+if TYPE_CHECKING:
+    import httpx
 
 log = logging.getLogger(__name__)
 
 _LABEL = "openai-transcriptions-compatible"
+_TITLE = "OpenAI Transcriptions-compatible"
+_MESSAGES = f"{_TITLE} module"  # the prefix of its config messages
 DEFAULT_URL = "https://api.openai.com/v1/audio/transcriptions"
 DEFAULT_MODEL = "gpt-4o-transcribe"
 _OPENAI_HOST = "api.openai.com"
@@ -45,7 +52,7 @@ _RESERVED_FIELDS = frozenset(
     {"file", "model", "language", "prompt", "response_format", "stream"}
 )
 _STATUS_HINTS = {
-    401: "the API key was rejected: check api_key / api_key_env",
+    401: "the API key was rejected: check the variable named by api_key_env",
     403: "access was refused: check the API key's permissions and model",
     404: "no such endpoint or model: check url and model",
 }
@@ -93,51 +100,100 @@ class OpenAITranscriptionsCompatibleModule(BatchASRModule):
     LABEL = _LABEL
     DEFAULT_INTERIM_INTERVAL_S = 0.0  # each interim is a billed re-upload
 
+    kind = "hosted"
+    title = _TITLE
+    extra = "openai-compatible"
+    fields = (
+        key_env_field("OpenAI-compatible server", None),
+        Field(
+            "url",
+            "string",
+            "The server's transcriptions endpoint, an http:// or https:// URL.",
+            default=DEFAULT_URL,
+        ),
+        Field("model", "string", "The transcription model.", default=DEFAULT_MODEL),
+        Field(
+            "language",
+            "string",
+            "The language, as an ISO 639-1 code ('en'). Absent, it is detected.",
+        ),
+        Field(
+            "prompt",
+            "string",
+            "A text to guide the transcription (vocabulary, spelling).",
+            advanced=True,
+        ),
+        Field(
+            "request_timeout_s",
+            "number",
+            "How long one transcription request may take, in seconds.",
+            default=30.0,
+            exclusive_minimum=0,
+            advanced=True,
+        ),
+        *batch_fields(DEFAULT_INTERIM_INTERVAL_S),
+    )
+    schema_extras = {
+        "extra_fields": {
+            "type": "object",
+            "additionalProperties": True,
+            "description": "More form fields sent with each request (a server's "
+            "own parameters): string keys, string, number or boolean values.",
+            "x-advanced": True,
+        },
+    }
+
+    @classmethod
+    def config_rules(cls, values: dict[str, Any], config: dict) -> None:
+        url = values["url"]
+        if not url.startswith(("http://", "https://")):
+            raise ConfigError(
+                f"{_MESSAGES}: 'url' must be an http:// or https:// URL string"
+            )
+        if values["api_key_env"] is None and urlsplit(url).hostname == _OPENAI_HOST:
+            raise ConfigError(openai_needs_a_key(_MESSAGES))
+        cls._extra_fields(config.get("extra_fields", {}))
+
+    @classmethod
+    def imports(cls, config: dict) -> None:
+        try:
+            import httpx  # noqa: F401
+        except ImportError as exc:
+            raise ImportError(cls.install_hint("openai-compatible")) from exc
+
+    @classmethod
+    def probe(cls, config: dict, secrets: Mapping[str, str] | None = None) -> str:
+        values = cls.validated(config)
+        return probe_listing(cls, config, secrets, values["url"], values["model"])
+
     def __init__(
-        self, config: dict, *, transport: httpx.BaseTransport | None = None
+        self,
+        config: dict,
+        *,
+        secrets: Mapping[str, str] | None = None,
+        transport: httpx.BaseTransport | None = None,
     ) -> None:
         super().__init__(config)
-        self._url = config.get("url", DEFAULT_URL)
-        if not isinstance(self._url, str) or not self._url.startswith(
-            ("http://", "https://")
-        ):
-            raise ValueError(
-                f"{_LABEL} module: 'url' must be an http:// or https:// URL string"
-            )
-        self._api_key: str | None = None
-        if config.get("api_key") or config.get("api_key_env"):
-            self._api_key = resolve_api_key(config, _LABEL)
-        elif urlsplit(self._url).hostname == _OPENAI_HOST:
-            raise ValueError(
-                f"{_LABEL} module: hosted OpenAI ({_OPENAI_HOST}) requires "
-                f"'api_key' or 'api_key_env' in config"
-            )
-
-        self._fields: dict[str, str] = {
-            "model": self._string(config, "model", DEFAULT_MODEL, required=True)
-        }
+        values = self._values
+        self.imports(config)
+        self._url: str = values["url"]
+        # No variable named: no key is sent (a local server); hosted OpenAI is
+        # refused that way by config_rules.
+        self._api_key: str | None = (
+            self.resolve_api_key(config, secrets)
+            if values["api_key_env"] is not None
+            else None
+        )
+        self._fields: dict[str, str] = {"model": values["model"]}
         for key in ("language", "prompt"):
-            value = self._string(config, key, None)
-            if value is not None:
-                self._fields[key] = value
+            if values[key] is not None:
+                self._fields[key] = values[key]
         self._fields.update(self._extra_fields(config.get("extra_fields", {})))
         self._fields["response_format"] = "json"
 
-        self._request_timeout_s = self._number(config, "request_timeout_s", 30.0)
+        self._request_timeout_s: float = values["request_timeout_s"]
         self._transport = transport
         self._client: httpx.Client | None = None
-
-    @staticmethod
-    def _string(
-        config: dict, key: str, default: str | None, *, required: bool = False
-    ) -> Any:
-        value = config.get(key, default)
-        if value is None and not required:
-            return None
-        if not isinstance(value, str) or not value:
-            kind = "a non-empty string" if required else "null or a non-empty string"
-            raise ValueError(f"{_LABEL} module: '{key}' must be {kind}")
-        return value
 
     @staticmethod
     def _extra_fields(value: object) -> dict[str, str]:
@@ -145,14 +201,14 @@ class OpenAITranscriptionsCompatibleModule(BatchASRModule):
             isinstance(k, str) and isinstance(v, (str, int, float, bool))
             for k, v in value.items()
         ):
-            raise ValueError(
-                f"{_LABEL} module: 'extra_fields' must be an object of string keys "
+            raise ConfigError(
+                f"{_MESSAGES}: 'extra_fields' must be an object of string keys "
                 f"to string, number or boolean values"
             )
         reserved = sorted(_RESERVED_FIELDS.intersection(value))
         if reserved:
-            raise ValueError(
-                f"{_LABEL} module: 'extra_fields' cannot set {reserved}: use the "
+            raise ConfigError(
+                f"{_MESSAGES}: 'extra_fields' cannot set {reserved}: use the "
                 f"module's own fields"
             )
         return {k: _form_value(v) for k, v in value.items()}
@@ -160,6 +216,8 @@ class OpenAITranscriptionsCompatibleModule(BatchASRModule):
     # --------------------------------------------------------- BatchASRModule
 
     def load(self) -> None:
+        import httpx
+
         if self._client is None:
             headers = (
                 {"Authorization": f"Bearer {self._api_key}"} if self._api_key else {}
@@ -177,6 +235,8 @@ class OpenAITranscriptionsCompatibleModule(BatchASRModule):
         return self._post(audio)
 
     def _post(self, audio: np.ndarray) -> str:
+        import httpx
+
         assert self._client is not None, "transcribe() before load()"
         try:
             response = self._client.post(

@@ -1,4 +1,4 @@
-"""Tests for the lazy ASR module registry (specs/asr-module-interface.md)."""
+"""Tests for the ASR module registry (specs/asr-module-interface.md)."""
 
 from __future__ import annotations
 
@@ -12,7 +12,6 @@ import pytest
 from asr_engine.modules import (
     REGISTRY,
     RENAMED_MODULE_TYPES,
-    LazyModule,
     resolve_module_class,
 )
 from asr_engine.modules.fake import FakeASRModule
@@ -62,55 +61,31 @@ def test_a_new_name_logs_no_warning(caplog):
 def test_the_protocol_modules_install_hint_names_the_shared_extra(
     module_type, sdk, monkeypatch
 ):
-    # Simulate the extra not being installed: the SDK import fails, and the
-    # module file is imported afresh so it hits that failure.
-    entry = REGISTRY[module_type]
-    assert isinstance(entry, LazyModule)
-    module_name = entry.import_path.partition(":")[0]
-    monkeypatch.delitem(sys.modules, module_name, raising=False)
+    # Simulate the extra not being installed: the SDK import fails when the
+    # module is built.
     monkeypatch.setitem(sys.modules, sdk, None)  # None → ModuleNotFoundError
+    cls = resolve_module_class(module_type)
 
     with pytest.raises(ImportError) as exc_info:
-        resolve_module_class(module_type)
+        cls(
+            {"url": "ws://localhost:8000/v1/realtime"}
+            if sdk == "websockets"
+            else {"url": "http://localhost:8000/v1/audio/transcriptions"}
+        )
 
     message = str(exc_info.value)
-    assert f"ASR module '{module_type}'" in message
+    assert f"{cls.title} module" in message
     assert "pip install 'asr-engine[openai-compatible]'" in message
     assert "uv sync --extra openai-compatible" in message
 
 
-def test_lazy_entry_imports_and_returns_class():
+def test_a_registered_type_resolves_to_its_class():
     assert resolve_module_class("fake") is FakeASRModule
 
 
-def test_eager_entry_returned_as_registered():
-    sentinel = object()
-    with patch.dict(REGISTRY, {"eager": sentinel}):  # type: ignore[dict-item]
-        assert resolve_module_class("eager") is sentinel
-
-
-def test_missing_third_party_dependency_names_the_extra(tmp_path, monkeypatch):
-    (tmp_path / "needs_missing_sdk.py").write_text(
-        "import asr_engine_test_missing_sdk_xyz\n\nclass Module: ...\n"
-    )
-    monkeypatch.syspath_prepend(str(tmp_path))
-    entry = LazyModule("needs_missing_sdk:Module", extra="acme")
-    with patch.dict(REGISTRY, {"acme_v1": entry}):
-        with pytest.raises(ImportError) as exc_info:
-            resolve_module_class("acme_v1")
-
-    message = str(exc_info.value)
-    assert "ASR module 'acme_v1'" in message
-    assert "pip install 'asr-engine[acme]'" in message
-    assert "uv sync --extra acme" in message
-    assert isinstance(exc_info.value.__cause__, ModuleNotFoundError)
-
-
-def test_missing_own_module_propagates_unchanged():
-    entry = LazyModule("asr_engine.modules.does_not_exist:Module", extra="acme")
-    with patch.dict(REGISTRY, {"broken": entry}):
-        with pytest.raises(ModuleNotFoundError, match="does_not_exist"):
-            resolve_module_class("broken")
+def test_a_class_registered_at_runtime_is_returned():
+    with patch.dict(REGISTRY, {"scripted": FakeASRModule}):
+        assert resolve_module_class("scripted") is FakeASRModule
 
 
 def test_importing_the_package_loads_no_provider_sdk():
@@ -118,8 +93,10 @@ def test_importing_the_package_loads_no_provider_sdk():
     code = (
         "import sys; from unittest.mock import MagicMock; "
         "sys.modules['sounddevice'] = MagicMock(); "
-        "import asr_engine, asr_engine.modules; "
-        "assert 'deepgram' not in sys.modules, 'deepgram imported eagerly'"
+        "import asr_engine, asr_engine.modules, asr_engine.vad, asr_engine.setup; "
+        "eager = [n for n in ('deepgram', 'websockets', 'httpx', 'onnxruntime', "
+        "'mlx_audio', 'moshi', 'moshi_mlx') if n in sys.modules]; "
+        "assert not eager, f'imported eagerly: {eager}'"
     )
     result = subprocess.run(
         [sys.executable, "-c", code], capture_output=True, text=True

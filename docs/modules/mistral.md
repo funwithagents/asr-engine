@@ -23,7 +23,7 @@ pip install 'asr-engine[mistral]'
 
 | Field | Default | Description |
 |---|---|---|
-| `api_key_env` / `api_key` | — (one required) | Name of the environment variable holding the API key, or the literal key |
+| `api_key_env` | `MISTRAL_API_KEY` | Name of the environment variable holding the API key. The key itself is never written in a config |
 | `model` | `voxtral-mini-transcribe-realtime-3` | Voxtral realtime model |
 | `url` | `wss://api.mistral.ai/v1/audio/transcriptions/realtime` | Endpoint override, for a proxy |
 | `language` | `null` | Two-letter ISO 639-1 code; `null` auto-detects |
@@ -44,10 +44,11 @@ pip install 'asr-engine[mistral]'
 
 ## Troubleshooting
 
-- An error log naming HTTP 401 means the key was rejected: check `api_key` / `api_key_env`. HTTP 403 usually means the `model` is unknown or not available to the account. The module keeps retrying, so fixing the key in place recovers without a restart.
-- A `ValueError` at engine construction names the field at fault, for example a `streaming_delay_ms` outside 80 to 1200 that is not 2400.
+- An error log naming HTTP 401 means the key was rejected: check the variable named by `api_key_env`. HTTP 403 usually means the `model` is unknown or not available to the account. The module keeps retrying, so fixing the key in place recovers without a restart.
+- A `ConfigError` (a `ValueError`) at engine construction names the field at fault, for example a `streaming_delay_ms` outside 80 to 1200 that is not 2400.
+- `Mistral Voxtral Realtime module: no key under 'MISTRAL_API_KEY'`: set the variable in the process that runs the engine, or pass the key in code (`ASREngine(config, secrets={"MISTRAL_API_KEY": key})`).
 
 ## See also
 
 - [specs/modules/mistral.md](../../specs/modules/mistral.md): the module's contract, with the protocol and the measurements it rests on.
-- [examples/config/mistral-realtime.json](../../examples/config/mistral-realtime.json): a complete server config, with the VAD gate on.
+- [examples/configs/mistral-realtime.json](../../examples/configs/mistral-realtime.json): a complete server config, with the VAD gate on.

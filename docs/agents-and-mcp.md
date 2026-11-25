@@ -63,11 +63,11 @@ Its configuration wraps the same [engine block](configuration.md#the-engine-bloc
 }
 ```
 
-Start from the example for your module in [examples/config/](../examples/config/):
+Start from the example for your module in [examples/configs/](../examples/configs/):
 
 ```bash
 uv sync --no-default-groups --extra deepgram --extra silero --extra mcp
-cp examples/config/deepgram-v2.json config.json
+cp examples/configs/deepgram-v2.json config.json
 uv run asr-engine-mcp --config config.json
 ```
 

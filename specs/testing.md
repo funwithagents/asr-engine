@@ -54,6 +54,8 @@ The full unit suite (`pytest tests/`) must complete in a few seconds. If it does
 
 ## Test isolation
 
+**Keys come from the environment, as for a user.** A config never holds a key ([setup.md](setup.md) "Keys"), so `tests/conftest.py` sets every provider's default key variable (`DEEPGRAM_API_KEY`, `MISTRAL_API_KEY`, `OPENAI_API_KEY`) to `"k"` for each test with an `autouse` fixture: a test builds a hosted module the way a user does, and the shell's real keys never reach the fast tier. A test about a missing key deletes the variable.
+
 If the package holds process-global or singleton state (a module-level registry, a cached client, a configured logger, a background timer/thread), reset it before and after each test via an `autouse` fixture in the tier's `conftest.py`, so no state leaks across tests.
 
 Live scenarios that wait for asynchronous callbacks or state transitions share

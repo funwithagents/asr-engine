@@ -167,6 +167,7 @@ Start at [docs/index.md](docs/index.md), the documentation by task. The pages us
 |---|---|
 | [docs/running-the-engine.md](docs/running-the-engine.md) | The callbacks, utterances and segments, `start`, `listen`, dictation |
 | [docs/configuration.md](docs/configuration.md) | The engine block, the loaders, credentials |
+| [docs/setup.md](docs/setup.md) | Setting the engine up from an application: the config's schema and problems, the extras, keys and models it needs, a light real check |
 | [docs/modules/index.md](docs/modules/index.md) | Every module, with one page each |
 | [docs/choosing-a-module.md](docs/choosing-a-module.md) | Hosted or local, streaming or batch, languages, cost |
 | [docs/local-speech-recognition.md](docs/local-speech-recognition.md) | In process, a local batch server or a local streaming server: each solution and where it runs |
@@ -188,7 +189,7 @@ The runnable consumers under [examples/](examples/README.md) are not part of the
 | [mcp_client](examples/mcp_client/) | MCP resources | Subscribing to the server's rolling transcription resources |
 | [asr_to_terminal](examples/asr_to_terminal/) | MCP resources | Typing what is said into the focused terminal |
 
-[examples/config/](examples/config/) holds one complete config per module, in the MCP server's format (a `server` block and an `engine` block). With the `mcp` extra and the module's extra installed, `uv run asr-engine-mcp --config examples/config/deepgram-v1.json` starts a server as is; the `engine` block is what a library config takes. These configs listen on every network interface (`"host": "0.0.0.0"`) and the server has no authentication: see [the warning](docs/agents-and-mcp.md#run-the-mcp-server) before running one outside a trusted network. They hold no secrets: a hosted module reads its key from the environment variable named in `api_key_env`.
+[examples/configs/](examples/configs/) holds one complete config per module, in the MCP server's format (a `server` block and an `engine` block). With the `mcp` extra and the module's extra installed, `uv run asr-engine-mcp --config examples/configs/deepgram-v1.json` starts a server as is; the `engine` block is what a library config takes. These configs listen on every network interface (`"host": "0.0.0.0"`) and the server has no authentication: see [the warning](docs/agents-and-mcp.md#run-the-mcp-server) before running one outside a trusted network. They hold no secrets: a hosted module reads its key from the environment variable named in `api_key_env` (the provider's usual one by default), and a key written in a config is refused.
 
 ## Feedback and contributions
 

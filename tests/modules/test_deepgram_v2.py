@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from asr_engine.config import ConfigError, MissingSecretError
 from asr_engine.modules.base import AudioQueue, SpeechUtterance
 from asr_engine.modules.deepgram.v2 import DeepgramV2Module
 
@@ -69,14 +70,21 @@ def _make_mock_conn(messages: list[Any]) -> MagicMock:
 # ---------------------------------------------------------------------------
 
 
-def test_init_missing_api_key_raises() -> None:
-    with pytest.raises(ValueError, match="api_key"):
+def test_init_without_the_key_in_its_variable_names_the_variable(monkeypatch) -> None:
+    monkeypatch.delenv("DEEPGRAM_API_KEY")
+    with pytest.raises(MissingSecretError, match="DEEPGRAM_API_KEY") as error:
         DeepgramV2Module(config={})
+    assert error.value.variable == "DEEPGRAM_API_KEY"
 
 
-def test_init_empty_api_key_raises() -> None:
-    with pytest.raises(ValueError, match="api_key"):
-        DeepgramV2Module(config={"api_key": ""})
+def test_init_a_key_given_in_code_is_used_before_the_environment() -> None:
+    module = DeepgramV2Module(config={}, secrets={"DEEPGRAM_API_KEY": "from-code"})
+    assert module._api_key == "from-code"
+
+
+def test_init_a_key_written_in_the_config_is_refused() -> None:
+    with pytest.raises(ConfigError, match="keep the key in an environment variable"):
+        DeepgramV2Module(config={"api_key": "sk-test"})
 
 
 @pytest.mark.asyncio
@@ -122,8 +130,8 @@ def test_init_a_field_of_the_wrong_type_or_range_fails_at_construction(
 ) -> None:
     # Before reaching the SDK, where it would surface as an unrelated TypeError
     # or a rejected connection once the engine has started.
-    with pytest.raises(ValueError, match=f"deepgram-v2.*'{named}'"):
-        DeepgramV2Module(config={"api_key": "sk-test", **fields})
+    with pytest.raises(ValueError, match=f"Deepgram Flux module '{named}'"):
+        DeepgramV2Module(config={**fields})
 
 
 # ---------------------------------------------------------------------------
@@ -133,7 +141,7 @@ def test_init_a_field_of_the_wrong_type_or_range_fails_at_construction(
 
 @pytest.mark.asyncio
 async def test_drain_queue_for_removes_items() -> None:
-    m = DeepgramV2Module(config={"api_key": "sk-test"})
+    m = DeepgramV2Module(config={})
     q: AudioQueue = asyncio.Queue()
     for _ in range(5):
         q.put_nowait(b"chunk")
@@ -145,7 +153,7 @@ async def test_drain_queue_for_removes_items() -> None:
 async def test_drain_queue_for_returns_after_duration() -> None:
     import time
 
-    m = DeepgramV2Module(config={"api_key": "sk-test"})
+    m = DeepgramV2Module(config={})
     q: AudioQueue = asyncio.Queue()
     start = time.monotonic()
     await m._drain_queue_for(q, duration=0.15)
@@ -159,7 +167,7 @@ async def test_drain_queue_for_returns_after_duration() -> None:
 
 @pytest.mark.asyncio
 async def test_audio_loop_sends_chunks() -> None:
-    m = DeepgramV2Module(config={"api_key": "sk-test"})
+    m = DeepgramV2Module(config={})
     conn = MagicMock()
     conn.send_media = AsyncMock()
     conn._send = AsyncMock()
@@ -182,7 +190,7 @@ async def test_audio_loop_sends_chunks() -> None:
 
 @pytest.mark.asyncio
 async def test_audio_loop_sends_keepalive_on_timeout() -> None:
-    m = DeepgramV2Module(config={"api_key": "sk-test"})
+    m = DeepgramV2Module(config={})
     m._KEEPALIVE_TIMEOUT = 0.05
     conn = MagicMock()
     conn.send_media = AsyncMock()
@@ -233,7 +241,7 @@ async def test_keep_alive_reaches_the_socket_through_the_real_sdk_client() -> No
 
 @pytest.mark.asyncio
 async def test_audio_loop_exits_when_stopped() -> None:
-    m = DeepgramV2Module(config={"api_key": "sk-test"})
+    m = DeepgramV2Module(config={})
     await m.stop()
 
     conn = MagicMock()
@@ -258,9 +266,9 @@ async def _run_with_messages(messages, module_config=None):
         received.append(r)
 
     conn = _make_mock_conn(messages)
-    m = DeepgramV2Module(config=module_config or {"api_key": "sk-test"})
+    m = DeepgramV2Module(config=module_config or {})
 
-    with patch("asr_engine.modules.deepgram.v2.AsyncDeepgramClient") as MockClient:
+    with patch("deepgram.AsyncDeepgramClient") as MockClient:
         mc = MockClient.return_value
         mc.listen.v2.connect.return_value.__aenter__ = AsyncMock(return_value=conn)
         mc.listen.v2.connect.return_value.__aexit__ = AsyncMock(return_value=False)
@@ -394,7 +402,7 @@ class _GatedRun:
 
     def __init__(self, **config: Any) -> None:
         self.socket = _FluxSocket()
-        self.module = DeepgramV2Module(config={"api_key": "sk-test", **config})
+        self.module = DeepgramV2Module(config={**config})
         self.queue: AudioQueue = asyncio.Queue()
         self.utterances: list[SpeechUtterance] = []
 
@@ -402,7 +410,7 @@ class _GatedRun:
         async def on_result(r: SpeechUtterance) -> None:
             self.utterances.append(r)
 
-        self._patch = patch("asr_engine.modules.deepgram.v2.AsyncDeepgramClient")
+        self._patch = patch("deepgram.AsyncDeepgramClient")
         mc = self._patch.start().return_value
         mc.listen.v2.connect.return_value.__aenter__ = AsyncMock(
             return_value=_flux_conn(self.socket)
@@ -546,7 +554,7 @@ async def test_a_force_end_turn_that_crosses_flux_end_of_turn_is_harmless():
 async def test_end_of_speech_while_reconnecting_is_discarded() -> None:
     from asr_engine.audio import END_OF_SPEECH
 
-    m = DeepgramV2Module(config={"api_key": "sk-test"})
+    m = DeepgramV2Module(config={})
     q: AudioQueue = asyncio.Queue()
     q.put_nowait(b"chunk")
     q.put_nowait(END_OF_SPEECH)
@@ -558,8 +566,8 @@ async def test_end_of_speech_while_reconnecting_is_discarded() -> None:
 
 async def _connect_params(config: dict) -> dict:
     """The parameters the module opens its Deepgram connection with."""
-    m = DeepgramV2Module(config={"api_key": "sk-test", **config})
-    with patch("asr_engine.modules.deepgram.v2.AsyncDeepgramClient") as MockClient:
+    m = DeepgramV2Module(config={**config})
+    with patch("deepgram.AsyncDeepgramClient") as MockClient:
         connect = MockClient.return_value.listen.v2.connect
         connect.return_value.__aenter__ = AsyncMock(return_value=_flux_conn())
         connect.return_value.__aexit__ = AsyncMock(return_value=False)

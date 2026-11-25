@@ -2,6 +2,7 @@
 code:
   - src/asr_engine/modules/base.py
   - src/asr_engine/modules/__init__.py
+  - src/asr_engine/modules/fields.py
   - src/asr_engine/engine.py
   - pyproject.toml
 tests:
@@ -109,9 +110,9 @@ When the engine is configured with a VAD ([vad.md](vad.md)), a speech gate sits 
 
   | Value | Meaning | Engine check at construction |
   |---|---|---|
-  | `"unsupported"` (default) | The module never receives a marker; its queue holds only `bytes`. | `engine.vad` set → `ValueError` |
+  | `"unsupported"` (default) | The module never receives a marker; its queue holds only `bytes`. | `engine.vad` set → `ConfigError` |
   | `"supported"` | Handles the marker; works with or without a VAD. | — |
-  | `"required"` | Produces no final without the marker (a batch backend). | no `engine.vad` → `ValueError` |
+  | `"required"` | Produces no final without the marker (a batch backend). | no `engine.vad` → `ConfigError` |
 
 - **The module handles the marker in its own drain loop**, where its connection or model is in scope: on `END_OF_SPEECH` it calls `self.finalize()` instead of sending audio. The engine never calls `finalize()`.
 - **`finalize()`** makes the backend emit the final for the audio received so far, and leaves the module ready for the next utterance on the same connection or session. It may return before the final has been emitted (the final can arrive through the normal receive path) and must not block the drain loop for long.
@@ -138,47 +139,25 @@ The engine keeps two of them ([format-conversion.md](format-conversion.md)): the
 
 **An instance can narrow or widen the rates.** The engine reads the rates through two instance properties, `supported_sample_rates` and `default_sample_rate`, which return the class attributes by default. A protocol module whose servers differ overrides them from its config with `parse_sample_rate_overrides` ([format-conversion.md](format-conversion.md#per-instance-rates)).
 
-**The engine resolves the module format** at construction with `resolve_module_audio_format(module, sample_rate=, channels=, encoding=)`: the module's default rate, channel count and encoding, unless a field of `engine.module.audio_format` sets another value, which must be one the module supports (`ValueError` otherwise). The source's format plays no part. The module format is what `start(..., audio_format=...)` receives.
+**The engine resolves the module format** at construction with `resolve_module_audio_format(module, sample_rate=, channels=, encoding=)`: the module's default rate, channel count and encoding, unless a field of `engine.module.audio_format` sets another value, which must be one the module supports (`ConfigError` otherwise). `format_for(module_or_class, rates, …)` is the same rule on a class and the rates `ASRModule.sample_rates(config)` gives, which the setup checks use without building the module. The source's format plays no part. The module format is what `start(..., audio_format=...)` receives.
 
 **Who converts.** When the two formats differ, the engine puts a converter between the source and the module: it resamples, downmixes or duplicates channels, and re-encodes ([format-conversion.md](format-conversion.md)). A module never converts and never sees the source format. The bundled sources produce the source format themselves: live capture opens its stream at that rate and channel count (PortAudio performs any device conversion), file sources (any container/codec `libsndfile`/`soundfile` decodes — WAV, MP3, …) are decoded to s16 at their own rate, and both encode to `mulaw` when the source format says so (a numpy G.711 encoder — `audioop` is not used, as it is removed in Python 3.13+). An **injected** `AudioSource` (see [audio-source.md](audio-source.md)) produces `engine.audio_format`.
 
 ## Module Registration
 
-Modules are registered in a central registry mapping `type` string → module entry. Built-in entries are **lazy**: the registry names an import path and the extra that provides its dependencies, and nothing is imported until that type is selected — so `import asr_engine` never imports a provider SDK, and a missing extra only matters for the module that needs it.
+Modules are registered in a central registry mapping `type` string → module class. A module file imports its provider's library only when the module is built or run (`imports()`, then its connection or its model load), never at module level, so the registry can hold the classes themselves: `import asr_engine` never imports a provider SDK, a missing extra only matters for the module that needs it, and what each module declares (its title, kind, extra and fields) is readable on the base install, which the setup checks rely on ([setup.md](setup.md)).
 
 ```python
 # src/asr_engine/modules/__init__.py
-@dataclass(frozen=True)
-class LazyModule:
-    import_path: str  # "package.module:ClassName"
-    extra: str | None = None  # pip extra providing its dependencies; None = core
-
-
-REGISTRY: dict[str, LazyModule | type[ASRModule]] = {
-    "fake": LazyModule("asr_engine.modules.fake.module:FakeASRModule"),
-    "deepgram-v1": LazyModule(
-        "asr_engine.modules.deepgram.v1:DeepgramV1Module", extra="deepgram"
-    ),
-    "deepgram-v2": LazyModule(
-        "asr_engine.modules.deepgram.v2:DeepgramV2Module", extra="deepgram"
-    ),
-    "mistral-realtime": LazyModule(
-        "asr_engine.modules.mistral.realtime:MistralRealtimeModule", extra="mistral"
-    ),
-    "openai-realtime-compatible": LazyModule(
-        "asr_engine.modules.openai_realtime_compatible.module:"
-        "OpenAIRealtimeCompatibleModule",
-        extra="openai-compatible",
-    ),
-    "openai-transcriptions-compatible": LazyModule(
-        "asr_engine.modules.openai_transcriptions_compatible.module:"
-        "OpenAITranscriptionsCompatibleModule",
-        extra="openai-compatible",
-    ),
-    "mlx-audio": LazyModule(
-        "asr_engine.modules.mlx_audio.module:MlxAudioModule"
-    ),  # see below
-    "kyutai": LazyModule("asr_engine.modules.kyutai.module:KyutaiModule"),  # see below
+REGISTRY: dict[str, type[ASRModule]] = {
+    "fake": FakeASRModule,
+    "deepgram-v1": DeepgramV1Module,
+    "deepgram-v2": DeepgramV2Module,
+    "mistral-realtime": MistralRealtimeModule,
+    "openai-realtime-compatible": OpenAIRealtimeCompatibleModule,
+    "openai-transcriptions-compatible": OpenAITranscriptionsCompatibleModule,
+    "mlx-audio": MlxAudioModule,
+    "kyutai": KyutaiModule,
 }
 
 
@@ -187,17 +166,17 @@ RENAMED_MODULE_TYPES: dict[str, str] = {...}  # old key → new key, see "Module
 
 def canonical_module_type(module_type: str) -> str: ...
 def resolve_module_class(module_type: str) -> type[ASRModule]: ...
-def load_module(asr_config: dict) -> ASRModule: ...
+def load_module(asr_config: dict, *, secrets=None) -> ASRModule: ...
 ```
 
-- A value may also be an `ASRModule` subclass itself (eager). This is how a caller or a test registers a module it already imported (e.g. `patch.dict(REGISTRY, {"mock": MockModule})`).
+- A caller or a test registers a module it already imported the same way (`patch.dict(REGISTRY, {"mock": MockModule})`).
 - **`resolve_module_class(module_type)`** is the single resolution point, used by the engine and `load_module`:
   - an old key (see "Module names") → resolved as its new key, with a deprecation warning;
-  - unknown key → `ValueError("Unknown ASR type '<t>'. Available: <sorted keys>")` (unchanged message);
-  - eager class → returned as is;
-  - `LazyModule` → imports `import_path` and returns the class. If the import fails with `ModuleNotFoundError` for a **third-party** package (the error's `name` is not under `asr_engine`), it raises `ImportError` chaining the original, with a message naming the module type, the missing package, and the install command: `ASR module 'deepgram-v1' requires the optional dependency 'deepgram' which is not installed. Install it with: pip install 'asr-engine[deepgram]'` (or `uv sync --extra deepgram`). A `ModuleNotFoundError` for an `asr_engine` module itself is a packaging bug and propagates unchanged.
-- **Listing does not import.** `sorted(REGISTRY)` lists every registered type, installed or not, under its current name only. Config validation (`validate_asr_type`) checks key membership only, accepting an old key, so a config naming an uninstalled module still *parses*. The missing extra surfaces at engine construction (`ASREngine(config)` → `resolve_module_class`), which the MCP server does at startup — so `asr-engine-mcp` still fails fast, printing the install hint and exiting 1.
-- The engine calls `resolve_module_class(config.module.type)` then instantiates with the module-specific fields (the `engine.module` block minus `type`).
+  - unknown key → `ConfigError("Unknown ASR type '<t>'. Available: <sorted keys>")` (a `ValueError`);
+  - else the class.
+- **A missing extra surfaces at construction.** The constructor validates the config first, then calls the module's `imports()`, which tries the provider's imports and raises `ImportError` with the install hint: `Deepgram Nova module requires the optional dependency 'deepgram' which is not installed. Install it with: pip install 'asr-engine[deepgram]' (from source: uv sync --extra deepgram)`. The MCP server constructs the engine at startup, so `asr-engine-mcp` still fails fast, printing the hint and exiting 1.
+- **Listing does not import.** `sorted(REGISTRY)` lists every registered type, installed or not, under its current name only. Config validation (`validate_asr_type`) checks key membership only, accepting an old key, so a config naming an uninstalled module still *parses*.
+- The engine calls `resolve_module_class(config.module.type)` then instantiates with the module-specific fields (the `engine.module` block minus `type` and `audio_format`), plus `secrets=` for a module that reads a key (see "API keys").
 
 ## Module names
 
@@ -242,46 +221,44 @@ Each real backend's third-party dependencies live in a `[project.optional-depend
 
 The optional VAD stage follows the same rule with its own registry: the `silero` extra (`onnxruntime`) serves `engine.vad.type: "silero"` ([vad.md](vad.md)).
 
-A module file may import its SDK at module top level — the lazy registry guarantees it is only imported when selected. Adding a backend with new dependencies means adding an extra and naming it in the `LazyModule` entry.
+A module file imports its SDK only inside the methods that use it, never at module level; adding a backend with new dependencies means adding an extra, declaring it as the class's `extra`, and trying its imports in the class's `imports()`.
 
-**A module that raises its own hint.** `mlx-audio` is registered with `extra=None` too: its extra is Apple Silicon only, so its `module.py` imports nothing third-party and raises an `ImportError` that says so, which also keeps the module testable on every platform ([modules/mlx-audio.md](modules/mlx-audio.md)).
-
-**One module over several extras.** A `LazyModule` names a single `extra`, which cannot describe `kyutai`: one registry key over two interchangeable backends, each with its own extra. It is therefore registered with `extra=None`, its module file imports no third-party package, and it resolves its backend in `__init__`, raising its own `ImportError` worded like the registry's (see [modules/kyutai.md](modules/kyutai.md) "Backend selection"). The error still surfaces at engine construction, so the fail-fast behaviour is unchanged.
+**One module over several extras.** `kyutai` is one registry key over two interchangeable backends, each with its own extra. It declares `extra = None` and overrides `required_extras`, which picks `kyutai-mlx` or `kyutai-torch` from its `backend` and the platform; its `imports()` raises an `ImportError` worded like the others' (see [modules/kyutai.md](modules/kyutai.md) "Backend selection").
 
 ### Adding a module (checklist)
 
-1. Create a package `src/asr_engine/modules/<backend>/` — **one folder per backend**, never a loose file next to `base.py`. Put the `ASRModule` subclass in a file inside it (declare its supported/default audio formats — see "Audio Format Contract"): `module.py` for a single-module backend (`fake/`, `kyutai/`), or one file per module when a backend ships several (`deepgram/v1.py`, `deepgram/v2.py`). Its `__init__.py` may re-export the public names, but only when that imports nothing the registry is supposed to keep lazy — `deepgram/__init__.py` imports neither of its modules, so selecting `deepgram-v1` never imports `v2`.
-2. Register it lazily in `modules/__init__.py`: `REGISTRY["<name>"] = LazyModule("asr_engine.modules.<backend>.<file>:<ClassName>", extra="<extra>")`, the `<name>` spelled with hyphens (see "Module names"). Put its third-party dependencies in an extra named per the rule above (`<provider>`, or the shared `<origin>-compatible` extra for a protocol module, adding its packages there) under `[project.optional-dependencies]` in `pyproject.toml` (never in core `dependencies`), and **add it to the `all` extra** — `all` means every extra that can be installed together. The one exception is an extra that cannot share an environment with the others: it stays out of `all` and `dev` and is declared in `[tool.uv] conflicts` (see [project.md](project.md) "Exclusive extras"). Then decide *separately* whether the `dev` group needs it: add it there too when contributors must have the module type-checked and tested (the usual case), or leave it out when it is heavy enough that not every contributor should pay for it (see [project.md](project.md), "`all` means every extra that can be installed together").
-3. Document its config fields (the `engine.module` block accepts any fields beyond `type`); if it authenticates, resolve the key through `resolve_api_key` (`api_key` / `api_key_env`).
+1. Create a package `src/asr_engine/modules/<backend>/` — **one folder per backend**, never a loose file next to `base.py`. Put the `ASRModule` subclass in a file inside it (declare its supported/default audio formats — see "Audio Format Contract"): `module.py` for a single-module backend (`fake/`, `kyutai/`), or one file per module when a backend ships several (`deepgram/v1.py`, `deepgram/v2.py`). Its `__init__.py` may re-export the public names; `deepgram/__init__.py` imports neither of its modules.
+2. Declare what it is ([setup.md](setup.md) "On a module"): `kind`, `title`, `extra`, and its config `fields` (each with a description; `schema_extras` and `config_rules` for what a `Field` cannot state); validate them first in `__init__` (`self.validated(config)`), then call `self.imports(config)`, which imports the provider and raises the install hint; a local model also gets `check_files`, `prepare`, and every module but the fixture a light `probe`. Import the provider nowhere else at module level. Register the class in `modules/__init__.py`, `REGISTRY["<name>"] = <ClassName>`, the `<name>` spelled with hyphens (see "Module names"). Put its third-party dependencies in an extra named per the rule above (`<provider>`, or the shared `<origin>-compatible` extra for a protocol module, adding its packages there) under `[project.optional-dependencies]` in `pyproject.toml` (never in core `dependencies`), and **add it to the `all` extra** — `all` means every extra that can be installed together. The one exception is an extra that cannot share an environment with the others: it stays out of `all` and `dev` and is declared in `[tool.uv] conflicts` (see [project.md](project.md) "Exclusive extras"). Then decide *separately* whether the `dev` group needs it: add it there too when contributors must have the module type-checked and tested (the usual case), or leave it out when it is heavy enough that not every contributor should pay for it (see [project.md](project.md), "`all` means every extra that can be installed together").
+3. Document its config fields (the `engine.module` block accepts any fields beyond `type`); if it authenticates, declare its key field with `key_env_field(provider, "<PROVIDER>_API_KEY")`, take `secrets` as a keyword of its constructor, and resolve the key with `self.resolve_api_key(config, secrets)` (see "API keys").
 4. Add the backend's spec as `specs/modules/<backend>.md` (or update the existing one, e.g. [modules/deepgram.md](modules/deepgram.md)), with its frontmatter `code:`/`tests:` lists, and a row in [_index.md](_index.md).
 5. Decide its `VAD_GATING` (see "VAD gating"): implement `finalize()` and the marker branch in the drain loop and declare `"supported"` — or `"required"` for a backend with no endpointing of its own. A batch model subclasses `BatchASRModule` ([batch-asr-module.md](batch-asr-module.md)), which is `"required"` and only asks for `load()` and `transcribe()`. Leaving the default `"unsupported"` makes `engine.vad` a configuration error with this module.
 6. Add a row to the `MODULES` table in `tests-e2e/helpers.py` (module type, model, `api_key_env`, a `silence_s` matching how long the backend needs to finalize an utterance, and the `ModuleAudio` — format + fixtures — to drive it with; a local-model module also gets a `download.py` in its package (`DEFAULT_REPO`, `is_cached`, a `python -m` entry point) and a `LOCAL_MODELS` entry) so `test_engine_modules.py` gives it e2e conformance coverage, ungated and (when it supports gating) behind the VAD gate (see [e2e-testing.md](e2e-testing.md)). Verify with `zsh -ic 'uv run pytest tests-e2e -k <name>'`.
-7. Document it for users: a page `docs/modules/<backend>.md` (the install line, a minimal config, a `| Field |` table with the spec's fields, troubleshooting, links to the spec and the example config), a row in the module tables of `docs/modules/index.md` and the README, and a complete server config `examples/config/<name>.json`. `tests/test_docs.py` checks the tables against the registry and the page's fields against the spec's ([project.md](project.md) "Documentation checks").
+7. Document it for users: a page `docs/modules/<backend>.md` (the install line, a minimal config, a `| Field |` table with the spec's fields, troubleshooting, links to the spec and the example config), a row in the module tables of `docs/modules/index.md` and the README, and a complete server config `examples/configs/<name>.json`. `tests/test_docs.py` checks the tables against the registry and the page's fields against the spec's ([project.md](project.md) "Documentation checks").
 
 ## Module Constructor Contract
 
-Each module is instantiated with the module-specific portion of the config:
+Each module is instantiated with the module-specific portion of the config, and, when it reads a key, the keys given in code:
 
 ```python
 module = resolve_module_class(asr_type)(config=asr_config_dict)
+# When the module reads a key (takes_secrets()):
+module = resolve_module_class(asr_type)(config=asr_config_dict, secrets=secrets)
 ```
 
-Modules must validate their config in `__init__` and raise `ValueError` with a clear message if required fields are missing.
+The first statement of `__init__` (after `super().__init__`) is `self.validated(config)`: the declared fields read, then `config_rules`, raising `ConfigError` (a `ValueError`) with a clear message naming the field. It runs before any provider import, so what `asr_engine.setup.check_config` accepts is exactly what the constructor accepts ([setup.md](setup.md)). Then `self.imports(config)` raises `ImportError` with the install hint when the extra is missing. A module may take keyword-only test seams after these (`connect=`, `transport=`, `load_model=`, `backend_factory=`).
 
-## API key resolution
+## API keys
 
-`modules/base.py` provides a shared helper for modules that authenticate with an API key, so keys can be kept out of committed config files:
+A key is never written in a config ([setup.md](setup.md) "Keys"). A module that authenticates declares one key field, `api_key_env`, with `key_env_field(provider, variable)` in `modules/base.py`: the name of the environment variable holding the key, defaulting to the provider's usual one (`DEEPGRAM_API_KEY`, `MISTRAL_API_KEY`); a protocol module for compatible servers declares none (`variable=None`), and sends no key unless one is named.
 
 ```python
-def resolve_api_key(config: dict, module_label: str) -> str: ...
+@classmethod
+def resolve_api_key(
+    cls, config: dict, secrets: Mapping[str, str] | None = None
+) -> str: ...
 ```
 
-Resolution precedence:
-
-1. `config["api_key"]` — a literal key.
-2. `config["api_key_env"]` — the **name** of an environment variable to read.
-
-Raises `ValueError` if neither is provided, or if the named environment variable is unset or empty. Modules call it in `__init__` (e.g. `self._api_key = resolve_api_key(config, "deepgram-v1")`).
+The key under that variable is looked up in `secrets` (variable name → key, given in code: `ASREngine(config, secrets=...)`) first, then in the environment. A config holding `api_key` is refused (`ConfigError`); no key under the variable raises `MissingSecretError` (a `ConfigError`) carrying `.variable` and `.label`. Modules call it in `__init__`: `self._api_key = self.resolve_api_key(config, secrets)`.
 
 ## Reconnection Contract
 

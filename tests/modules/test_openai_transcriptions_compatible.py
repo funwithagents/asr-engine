@@ -180,7 +180,7 @@ async def test_each_utterance_is_uploaded_as_a_wav_and_its_text_is_the_final() -
     server = Server()
     mod = module(
         server,
-        api_key="sk-test",
+        api_key_env="OPENAI_API_KEY",
         model="whisper-large-v3-turbo",
         language="fr",
         prompt="validate",
@@ -193,7 +193,7 @@ async def test_each_utterance_is_uploaded_as_a_wav_and_its_text_is_the_final() -
 
     upload = server.speech[0]
     assert upload.url == LOCAL_URL
-    assert upload.headers["authorization"] == "Bearer sk-test"
+    assert upload.headers["authorization"] == "Bearer k"
     assert upload.fields == {
         "model": "whisper-large-v3-turbo",
         "language": "fr",

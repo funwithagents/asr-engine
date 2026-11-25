@@ -47,7 +47,7 @@ Every bundled module works behind the gate. The right setting depends on whether
 | `mlx-audio`, `openai-transcriptions-compatible` | `{"type": "silero"}` (required) | A batch model has no end-of-utterance signal of its own; the gate provides it |
 | `kyutai` | Usually none; otherwise as for Flux | Local and free, with its own end-of-turn detection; gating only saves compute |
 
-The configs under [examples/config/](../examples/config/) carry these settings.
+The configs under [examples/configs/](../examples/configs/) carry these settings.
 
 ## What changes with the gate on
 

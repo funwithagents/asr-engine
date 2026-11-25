@@ -31,16 +31,11 @@ pip install 'asr-engine[deepgram]'
 uv sync --extra deepgram
 ```
 
-Without it, `deepgram-v1` / `deepgram-v2` still appear in the registry, but constructing an engine with either raises the registry's `ImportError` naming the `deepgram` extra. Each module file imports the SDK at top level; the lazy registry keeps that import off the `import asr_engine` path.
+Without it, `deepgram-v1` / `deepgram-v2` still appear in the registry and their config is checked, but constructing either raises the `ImportError` of their `imports()`, naming the `deepgram` extra. The module files import the SDK only inside `imports()` and `start()`, so `import asr_engine` never loads it, and the setup checks read their declarations on the base install ([setup.md](../setup.md)). What both declare alike (`kind = "hosted"`, the extra, the key field, `imports`, `probe`) is `DeepgramModule` in `modules/deepgram/_config.py`.
 
 ## API key resolution
 
-Both modules resolve their API key via `resolve_api_key` (see [asr-module-interface.md](../asr-module-interface.md)). Provide **either**:
-
-- `api_key` — a literal key, or
-- `api_key_env` — the **name** of an environment variable holding the key.
-
-`api_key` wins if both are present. `api_key_env` keeps secrets out of config files so the config can be committed. If neither is set — or the named variable is unset/empty — construction raises `ValueError`.
+Both modules read their key from the environment variable `api_key_env` names, `DEEPGRAM_API_KEY` by default, or from the `secrets` given in code under that name ([setup.md](../setup.md) "Keys"). A config never holds the key: `api_key` is refused. No key under the variable raises `MissingSecretError` at construction. Their `probe` proves the key on `GET /v1/projects`: Deepgram's `/v1/models` answers without a key and does not list Flux.
 
 ---
 
@@ -54,23 +49,20 @@ Uses the Deepgram Listen v1 WebSocket API with any v1-compatible model. `SpeechU
 
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `api_key` | string | one of¹ | — | Deepgram API key (literal) |
-| `api_key_env` | string | one of¹ | — | Name of an env var holding the key |
+| `api_key_env` | string | no | `"DEEPGRAM_API_KEY"` | Name of the env var holding the key |
 | `model` | string | no | `"nova-3"` | Deepgram model name |
 | `language` | string | no | `"multi"` | BCP-47 language code, or `"multi"` for auto-detection |
 | `punctuate` | boolean | no | `true` | Enable automatic punctuation |
 | `interim_results` | boolean | no | `true` | Enable interim results |
 
-¹ Provide at least one of `api_key` / `api_key_env`; `api_key` takes precedence when both are set (see [API key resolution](#api-key-resolution)).
-
-Validated in `__init__`: `model` and `language` are non-empty strings, `punctuate` and `interim_results` are booleans. A wrong type raises `ValueError` naming the field (`deepgram-v1 module: 'punctuate' must be true or false`) at engine construction, not at the first connection.
+Declared as `fields` (title "Deepgram Nova") and validated first in `__init__`: `model` and `language` are non-empty strings, `punctuate` and `interim_results` are booleans. A wrong type raises `ConfigError` naming the field (`Deepgram Nova module 'punctuate' must be a boolean`) at engine construction, not at the first connection.
 
 ### Example Config
 
 ```json
 {
   "type": "deepgram-v1",
-  "api_key": "YOUR_DEEPGRAM_API_KEY",
+  "api_key_env": "DEEPGRAM_API_KEY",
   "model": "nova-3",
   "language": "en-US",
   "punctuate": true,
@@ -81,7 +73,7 @@ Validated in `__init__`: `model` and `language` are non-empty strings, `punctuat
 ### WebSocket Connection
 
 - **URL:** `wss://api.deepgram.com/v1/listen`
-- **Auth:** `Authorization: Token <api_key>` header
+- **Auth:** `Authorization: Token <key>` header
 - **Query params:** `model`, `encoding`, `sample_rate`, `channels`, `language`, `punctuate`, `interim_results` — `encoding`/`sample_rate`/`channels` come from the reconciled `AudioFormat` passed to `start()`, not hardcoded.
 - **SDK:** `async with client.listen.v1.connect(...) as conn:`
 - **Declared audio-format support:** `SUPPORTED_SAMPLE_RATES = {8000, 16000, 24000, 44100, 48000}`, `SUPPORTED_CHANNELS = {1}`, `SUPPORTED_ENCODINGS = {"linear16", "mulaw"}`; defaults 16000 / 1 / `linear16` (see [asr-module-interface.md](../asr-module-interface.md)).
@@ -125,22 +117,19 @@ Supports only Flux-family models (`flux-general-en`, etc.). Not suitable for non
 
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `api_key` | string | one of¹ | — | Deepgram API key (literal) |
-| `api_key_env` | string | one of¹ | — | Name of an env var holding the key |
+| `api_key_env` | string | no | `"DEEPGRAM_API_KEY"` | Name of the env var holding the key |
 | `model` | string | no | `"flux-general-en"` | Deepgram Flux model name |
 | `eot_threshold` | float | no | `0.7` | End-of-turn confidence threshold (0.5–0.9) |
 | `eot_timeout_ms` | int | no | `2000` | Silence timeout before forced turn-end (ms) |
 
-¹ Provide at least one of `api_key` / `api_key_env`; `api_key` takes precedence when both are set (see [API key resolution](#api-key-resolution)).
-
-Validated in `__init__`: `model` is a non-empty string, `eot_threshold` a number from 0.5 to 0.9, `eot_timeout_ms` a positive integer. An invalid value raises `ValueError` naming the field at engine construction, not at the first connection. The two modules share these checks (`modules/deepgram/_config.py`).
+Declared as `fields` (title "Deepgram Flux") and validated first in `__init__`: `model` is a non-empty string, `eot_threshold` a number from 0.5 to 0.9, `eot_timeout_ms` an integer from 1. An invalid value raises `ConfigError` naming the field at engine construction, not at the first connection.
 
 ### Example Config
 
 ```json
 {
   "type": "deepgram-v2",
-  "api_key": "YOUR_DEEPGRAM_API_KEY",
+  "api_key_env": "DEEPGRAM_API_KEY",
   "model": "flux-general-en",
   "eot_threshold": 0.7,
   "eot_timeout_ms": 2000
@@ -150,7 +139,7 @@ Validated in `__init__`: `model` is a non-empty string, `eot_threshold` a number
 ### WebSocket Connection
 
 - **URL:** `wss://api.deepgram.com/v2/listen`
-- **Auth:** `Authorization: Token <api_key>` header
+- **Auth:** `Authorization: Token <key>` header
 - **Query params:** `model`, `encoding`, `sample_rate`, `eot_threshold`, `eot_timeout_ms` — `encoding`/`sample_rate` come from the reconciled `AudioFormat` passed to `start()`.
 - **Declared audio-format support:** same as `deepgram-v1` — `SUPPORTED_SAMPLE_RATES = {8000, 16000, 24000, 44100, 48000}`, `SUPPORTED_CHANNELS = {1}`, `SUPPORTED_ENCODINGS = {"linear16", "mulaw"}`; defaults 16000 / 1 / `linear16`. Flux takes the same raw `encoding`/`sample_rate` parameters as v1 (verified live at 44.1 kHz — see [Encoding](https://developers.deepgram.com/docs/encoding)).
 - **SDK:** `async with client.listen.v2.connect(...) as conn:`

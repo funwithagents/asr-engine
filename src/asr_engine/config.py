@@ -1,11 +1,30 @@
 from __future__ import annotations
 
+import copy
 import json
-import math
+import os
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
-from asr_engine.modules import RENAMED_MODULE_TYPES, canonical_module_type
+from asr_engine.errors import ConfigError, MissingSecretError
+from asr_engine.modules.fields import Field, field_problems, read_fields
+
+__all__ = [
+    "ASREngineConfig",
+    "AudioFormatConfig",
+    "AudioSourceConfig",
+    "ConfigError",
+    "MCPServerConfig",
+    "MissingSecretError",
+    "ModuleConfig",
+    "SegmentationConfig",
+    "ServerConfig",
+    "SoundFeedbackConfig",
+    "VadConfig",
+    "engine_problems",
+    "resolve_paths",
+]
 
 _DEFAULT_TRIGGER_WORDS: list[str] = [
     "submit",
@@ -22,11 +41,216 @@ _DEFAULT_TRIGGER_WORDS: list[str] = [
     "entrée",
 ]
 
-_SEGMENT_MODES = ("utterance", "trigger_word", "timeout")
-_ENCODINGS = ("linear16", "mulaw")
+SEGMENT_MODES = ("utterance", "trigger_word", "timeout")
+ENCODINGS = ("linear16", "mulaw")
+
+# A problem in a config document: a JSON Pointer into it ("" for the document as
+# a whole) and its message (specs/setup.md "check_config").
+Problem = tuple[str, str]
 
 
-_AUDIO_FORMAT_FIELDS = ("sample_rate", "channels", "encoding")
+# --- The engine block's own fields, declared once (specs/setup.md) -------------
+#
+# Read by `from_dict`, which raises on the first problem, and by
+# `asr_engine.setup`, which reports them all and draws the form from them.
+
+ENGINE_FIELDS = (
+    Field(
+        "auto_start",
+        "boolean",
+        "Start listening as soon as the MCP server starts.",
+        default=True,
+        advanced=True,
+    ),
+    Field(
+        "auto_start_dictation",
+        "boolean",
+        "Start a dictation session as soon as the MCP server starts; needs "
+        "'auto_start'.",
+        default=False,
+        advanced=True,
+    ),
+    Field(
+        "listen_default_segmentation_mode",
+        "string",
+        "How a listen() call cuts the speech into segments, unless it says.",
+        default="trigger_word",
+        choices=SEGMENT_MODES,
+        advanced=True,
+    ),
+    Field(
+        "dictation_default_segmentation_mode",
+        "string",
+        "How a dictation cuts the speech into segments, unless it says.",
+        default="trigger_word",
+        choices=SEGMENT_MODES,
+        advanced=True,
+    ),
+)
+
+SEGMENTATION_FIELDS = (
+    Field(
+        "initial_silence_timeout_s",
+        "number",
+        "In 'timeout' mode, the silence from a segment's start that closes it, in "
+        "seconds.",
+        default=10.0,
+        exclusive_minimum=0,
+    ),
+    Field(
+        "end_of_speech_timeout_s",
+        "number",
+        "In 'timeout' mode, the silence after the last word that closes a "
+        "segment, in seconds.",
+        default=5.0,
+        exclusive_minimum=0,
+    ),
+)
+# Not a `Field` kind (a list of strings): checked by `_segmentation_problems`.
+TRIGGER_WORDS_SCHEMA: dict[str, Any] = {
+    "type": "array",
+    "items": {"type": "string"},
+    "description": "The words that close a segment in 'trigger_word' mode.",
+    "default": list(_DEFAULT_TRIGGER_WORDS),
+}
+
+SOUND_FEEDBACK_FIELDS = (
+    Field(
+        "enabled",
+        "boolean",
+        "Play a short sound when a listen() starts and stops.",
+        default=True,
+    ),
+    Field(
+        "output_device",
+        ("string", "integer"),
+        "The device the sounds play on, by name or index. Absent, the system's "
+        "default.",
+        minimum=0,
+        advanced=True,
+    ),
+)
+
+AUDIO_FORMAT_FIELDS = (
+    Field(
+        "sample_rate",
+        "integer",
+        "The sample rate, in Hz. Absent, the default.",
+        exclusive_minimum=0,
+    ),
+    Field(
+        "channels",
+        "integer",
+        "The number of channels. Absent, the default.",
+        exclusive_minimum=0,
+    ),
+    Field(
+        "encoding",
+        "string",
+        "The sample encoding. Absent, the default.",
+        choices=ENCODINGS,
+    ),
+)
+
+# engine.audio_source.type → the fields that type takes, besides `type` itself.
+AUDIO_SOURCE_TYPES: dict[str, tuple[str, ...]] = {
+    "input-device": ("device", "audio_format"),
+    "file": ("audio_file", "trailing_silence_s"),
+    "custom": (),
+}
+DEFAULT_AUDIO_SOURCE_TYPE = "input-device"
+
+INPUT_DEVICE_FIELDS = (
+    Field(
+        "device",
+        "string",
+        "The input device, by name. Absent, the system's default.",
+        options="input-devices",
+    ),
+)
+FILE_SOURCE_FIELDS = (
+    Field(
+        "audio_file",
+        "string",
+        "The audio file played into the engine (WAV, MP3, …): its path.",
+        required=True,
+        message="Config is missing required field: engine.audio_source.audio_file "
+        "(type 'file'), the path of an audio file",
+    ),
+    Field(
+        "trailing_silence_s",
+        "number",
+        "Silence added after the file ends, in seconds, so its last words are "
+        "finalized.",
+        default=0.0,
+        minimum=0,
+    ),
+)
+
+_THRESHOLD_MESSAGE = (
+    "Invalid engine.vad.threshold: must be a number strictly between 0 and 1."
+)
+VAD_GATE_FIELDS = (
+    Field(
+        "threshold",
+        "number",
+        "The speech probability above which a frame is speech, strictly between "
+        "0 and 1.",
+        default=0.5,
+        exclusive_minimum=0,
+        maximum=1,
+        message=_THRESHOLD_MESSAGE,
+    ),
+    Field(
+        "min_speech_duration_ms",
+        "integer",
+        "The speech needed to open an utterance, in milliseconds.",
+        default=250,
+        minimum=0,
+        advanced=True,
+    ),
+    Field(
+        "min_silence_duration_ms",
+        "integer",
+        "The silence that ends an utterance, in milliseconds.",
+        default=500,
+        minimum=1,
+    ),
+    Field(
+        "speech_pad_ms",
+        "integer",
+        "The audio kept from before the speech started, in milliseconds.",
+        default=300,
+        minimum=0,
+        advanced=True,
+    ),
+)
+
+SERVER_FIELDS = (
+    Field(
+        "host",
+        "string",
+        "The address the MCP server listens on.",
+        default="127.0.0.1",
+    ),
+    Field(
+        "port",
+        "integer",
+        "The port the MCP server listens on.",
+        default=8000,
+        minimum=0,
+        maximum=65535,
+    ),
+)
+
+
+def _names(fields: tuple[Field, ...], *others: str) -> tuple[str, ...]:
+    return (*(f.name for f in fields), *others)
+
+
+ENGINE_KEYS = _names(
+    ENGINE_FIELDS, "segmentation", "sound_feedback", "audio_source", "module", "vad"
+)
 
 
 def _read_file(path: str) -> str:
@@ -43,7 +267,7 @@ def _read_file(path: str) -> str:
 
 
 def _parse_config_json(text: str, source: str | None = None) -> Any:
-    """Parse *text* as JSON, raising a clear ``ValueError`` on malformed input.
+    """Parse *text* as JSON, raising a clear ``ConfigError`` on malformed input.
 
     *source* (a file path, when the JSON came from a file) is included in the
     error so a bad config file names itself.
@@ -52,51 +276,243 @@ def _parse_config_json(text: str, source: str | None = None) -> Any:
         return json.loads(text)
     except json.JSONDecodeError as exc:
         where = f" ({source})" if source else ""
-        raise ValueError(f"Config is not valid JSON{where}: {exc}") from exc
+        raise ConfigError(f"Config is not valid JSON{where}: {exc}") from exc
 
 
-def _as_object(data: Any, where: str, fields: tuple[str, ...]) -> dict[str, Any]:
-    """Return *data* as a config object holding only *fields* (``None`` = empty).
+# --- Every problem of an engine block ------------------------------------------
 
-    *where* is the object's dotted path, used in the error messages. An unknown
-    key is an error, so a misspelled field is not silently ignored.
-    """
+
+def _at(pointer: str, problems: list[tuple[str, str]]) -> list[Problem]:
+    return [(f"{pointer}/{name}", message) for name, message in problems]
+
+
+def _block_problems(
+    data: Any, pointer: str, where: str, fields: tuple[Field, ...], *others: str
+) -> list[Problem]:
+    """The problems of an optional object: absent or null is fine; an object
+    holds only *fields* and *others* (the caller checks those), each field valid.
+    *where* is the object's dotted path, for the messages."""
     if data is None:
-        return {}
+        return []
     if not isinstance(data, dict):
-        raise ValueError(f"Invalid {where}: must be an object or null.")
-    unknown = sorted(str(key) for key in set(data) - set(fields))
+        return [(pointer, f"Invalid {where}: must be an object or null.")]
+    known = _names(fields, *others)
+    unknown = sorted(str(key) for key in set(data) - set(known))
     if unknown:
-        raise ValueError(
-            f"Invalid {where}: unknown field(s) {', '.join(unknown)}. "
-            f"Fields: {', '.join(fields)}."
-        )
-    return data
+        return [
+            (
+                pointer,
+                f"Invalid {where}: unknown field(s) {', '.join(unknown)}. "
+                f"Fields: {', '.join(known)}.",
+            )
+        ]
+    return _at(pointer, field_problems(data, fields, label=where))
 
 
-def _as_bool(data: dict[str, Any], key: str, default: bool, where: str) -> bool:
-    """A real boolean: ``"false"`` is a non-empty string, and so would be true."""
-    value = data.get(key, default)
-    if not isinstance(value, bool):
-        raise ValueError(f"Invalid {where}.{key}: {value!r}. Must be true or false.")
-    return value
-
-
-def _as_seconds(
-    data: dict[str, Any], key: str, default: float, where: str, *, allow_zero: bool
-) -> float:
-    """A finite duration in seconds, positive (or non-negative with *allow_zero*)."""
-    value = data.get(key, default)
-    valid = (
-        not isinstance(value, bool)
-        and isinstance(value, (int, float))
-        and math.isfinite(value)
-        and (value >= 0 if allow_zero else value > 0)
+def _segmentation_problems(data: Any) -> list[Problem]:
+    where = "engine.segmentation"
+    found = _block_problems(
+        data, "/segmentation", where, SEGMENTATION_FIELDS, "trigger_words"
     )
-    if not valid:
-        bound = "a non-negative number" if allow_zero else "a positive number"
-        raise ValueError(f"Invalid {where}.{key}: {value!r}. Must be {bound}.")
-    return float(value)
+    if not found and isinstance(data, dict) and "trigger_words" in data:
+        words = data["trigger_words"]
+        if not isinstance(words, list) or not all(
+            isinstance(word, str) and word.strip() for word in words
+        ):
+            found.append(
+                (
+                    "/segmentation/trigger_words",
+                    f"Invalid {where}.trigger_words: {words!r}. "
+                    f"Must be a list of non-empty strings.",
+                )
+            )
+    return found
+
+
+def _audio_source_problems(engine_block: dict[str, Any]) -> list[Problem]:
+    if "audio" in engine_block:
+        return [
+            (
+                "/audio",
+                "engine.audio is now engine.audio_source, with a 'type' "
+                '("input-device", "file" or "custom"), e.g. '
+                '"audio_source": {"type": "input-device", "device": null}.',
+            )
+        ]
+    data = engine_block.get("audio_source")
+    if data is None:
+        return []
+    if not isinstance(data, dict):
+        return [
+            ("/audio_source", "Invalid engine.audio_source: must be an object or null.")
+        ]
+    source_type = data.get("type", DEFAULT_AUDIO_SOURCE_TYPE)
+    if source_type not in AUDIO_SOURCE_TYPES:
+        return [
+            (
+                "/audio_source/type",
+                f"Invalid engine.audio_source.type: '{source_type}'. "
+                f"Must be one of {', '.join(AUDIO_SOURCE_TYPES)}.",
+            )
+        ]
+    allowed = AUDIO_SOURCE_TYPES[source_type]
+    misplaced = sorted(set(data) - {"type", *allowed})
+    if misplaced:
+        takes = ", ".join(allowed) if allowed else "no other field"
+        return [
+            (
+                "/audio_source",
+                f"Invalid engine.audio_source: {', '.join(misplaced)} does not apply "
+                f"to type '{source_type}', which takes {takes}.",
+            )
+        ]
+    label = "engine.audio_source"
+    if source_type == "input-device":
+        return _at(
+            "/audio_source", field_problems(data, INPUT_DEVICE_FIELDS, label=label)
+        ) + _block_problems(
+            data.get("audio_format"),
+            "/audio_source/audio_format",
+            "engine.audio_source.audio_format",
+            AUDIO_FORMAT_FIELDS,
+        )
+    if source_type == "file":
+        return _at(
+            "/audio_source", field_problems(data, FILE_SOURCE_FIELDS, label=label)
+        )
+    return []
+
+
+def _module_problems(data: Any) -> list[Problem]:
+    """The engine's part of ``engine.module``: an object with a ``type``, and the
+    ``audio_format`` the engine reads. The rest is the module's to check."""
+    if data is None:
+        data = {}
+    if not isinstance(data, dict):
+        return [("/module", "Invalid engine.module: must be an object.")]
+    module_type = data.get("type")
+    found: list[Problem] = []
+    if not module_type:
+        found.append(
+            ("/module/type", "Config is missing required field: engine.module.type")
+        )
+    elif not isinstance(module_type, str):
+        found.append(
+            (
+                "/module/type",
+                f"Invalid engine.module.type: {module_type!r}. Must be a string.",
+            )
+        )
+    return found + _block_problems(
+        data.get("audio_format"),
+        "/module/audio_format",
+        "engine.module.audio_format",
+        AUDIO_FORMAT_FIELDS,
+    )
+
+
+def _vad_problems(data: Any) -> list[Problem]:
+    """The engine's part of ``engine.vad``: a ``type`` and the gate's parameters.
+    The rest is the VAD module's to check."""
+    if data is None:
+        return []
+    if not isinstance(data, dict):
+        return [("/vad", "Invalid engine.vad: must be an object or null.")]
+    found: list[Problem] = []
+    vad_type = data.get("type")
+    if not isinstance(vad_type, str) or not vad_type:
+        found.append(
+            (
+                "/vad/type",
+                "Config is missing required field: engine.vad.type "
+                "(omit the engine.vad block to run without VAD)",
+            )
+        )
+    found += _at("/vad", field_problems(data, VAD_GATE_FIELDS, label="engine.vad"))
+    threshold = data.get("threshold")
+    if not isinstance(threshold, bool) and threshold == 1:
+        found.append(("/vad/threshold", _THRESHOLD_MESSAGE))
+    return found
+
+
+def engine_problems(engine_block: Any) -> list[Problem]:
+    """Every problem of the engine's own part of an ``engine`` block, each a JSON
+    Pointer into the block and a message; empty when it is accepted.
+
+    This is what ``ASREngineConfig.from_dict`` refuses, in the same words (it
+    raises the first). The module's own fields, and the VAD module's, are theirs
+    to check: ``asr_engine.setup.check_config`` adds them.
+    """
+    if not isinstance(engine_block, dict):
+        return [("", "Invalid engine config: must be an object.")]
+    found: list[Problem] = []
+    unknown = sorted(str(key) for key in set(engine_block) - {*ENGINE_KEYS, "audio"})
+    if unknown:
+        found.append(
+            (
+                "",
+                f"Invalid engine: unknown field(s) {', '.join(unknown)}. "
+                f"Fields: {', '.join(ENGINE_KEYS)}.",
+            )
+        )
+    own = field_problems(engine_block, ENGINE_FIELDS, label="engine")
+    found += _at("", own)
+    if (
+        not own
+        and engine_block.get("auto_start_dictation", False)
+        and not engine_block.get("auto_start", True)
+    ):
+        found.append(
+            (
+                "/auto_start_dictation",
+                "Invalid engine config: auto_start_dictation requires auto_start=true.",
+            )
+        )
+    found += _segmentation_problems(engine_block.get("segmentation"))
+    found += _block_problems(
+        engine_block.get("sound_feedback"),
+        "/sound_feedback",
+        "engine.sound_feedback",
+        SOUND_FEEDBACK_FIELDS,
+    )
+    found += _audio_source_problems(engine_block)
+    found += _module_problems(engine_block.get("module"))
+    found += _vad_problems(engine_block.get("vad"))
+    return found
+
+
+def resolve_paths(engine_block: Any, base_dir: str | os.PathLike[str] | None) -> Any:
+    """The engine block with its relative file paths resolved against *base_dir*:
+    ``audio_source.audio_file``, ``vad.model_path``, and a ``module.model`` written
+    as a relative path (``./models/parakeet``; a bare ``org/name`` is a Hugging
+    Face repository, not a path). ``None`` leaves them relative to the working
+    directory. A copy; anything not an object is returned as is, for the checks
+    to report (specs/configuration.md "Relative paths")."""
+    if base_dir is None or not isinstance(engine_block, dict):
+        return engine_block
+    block = copy.deepcopy(engine_block)
+
+    def resolve(holder: Any, key: str, *, explicit: bool = False) -> None:
+        if not isinstance(holder, dict):
+            return
+        value = holder.get(key)
+        if not isinstance(value, str) or not value:
+            return
+        if explicit and not value.startswith(("./", "../", ".\\", "..\\")):
+            return
+        path = Path(value).expanduser()
+        if not path.is_absolute():
+            holder[key] = str(Path(base_dir) / path)
+
+    resolve(block.get("audio_source"), "audio_file")
+    resolve(block.get("vad"), "model_path")
+    resolve(block.get("module"), "model", explicit=True)
+    return block
+
+
+def _raise_first(problems: list[Problem]) -> None:
+    if problems:
+        raise ConfigError(problems[0][1])
 
 
 @dataclass
@@ -116,53 +532,6 @@ class AudioFormatConfig:
     sample_rate: int | None = None
     channels: int | None = None
     encoding: str | None = None  # "linear16" | "mulaw"
-
-
-def _parse_audio_format(data: Any, where: str) -> AudioFormatConfig:
-    """Parse and validate an ``audio_format`` object (absent or null = nothing set).
-
-    *where* is the object's dotted path (``engine.module.audio_format``), used in
-    the error messages. An unknown key is an error, so a typo is not silently
-    ignored.
-    """
-    if data is None:
-        return AudioFormatConfig()
-    if not isinstance(data, dict):
-        raise ValueError(f"Invalid {where}: must be an object or null.")
-    unknown = sorted(set(data) - set(_AUDIO_FORMAT_FIELDS))
-    if unknown:
-        raise ValueError(
-            f"Invalid {where}: unknown field(s) {', '.join(unknown)}. "
-            f"Fields: {', '.join(_AUDIO_FORMAT_FIELDS)}."
-        )
-    for key in ("sample_rate", "channels"):
-        value = data.get(key)
-        if value is not None and (
-            isinstance(value, bool) or not isinstance(value, int) or value <= 0
-        ):
-            raise ValueError(
-                f"Invalid {where}.{key}: must be a positive integer or null."
-            )
-    encoding = data.get("encoding")
-    if encoding is not None and encoding not in _ENCODINGS:
-        raise ValueError(
-            f"Invalid {where}.encoding: '{encoding}'. "
-            f"Must be one of {', '.join(_ENCODINGS)}, or null."
-        )
-    return AudioFormatConfig(
-        sample_rate=data.get("sample_rate"),
-        channels=data.get("channels"),
-        encoding=encoding,
-    )
-
-
-# engine.audio_source.type → the fields that type takes, besides `type` itself.
-AUDIO_SOURCE_TYPES: dict[str, tuple[str, ...]] = {
-    "input-device": ("device", "audio_format"),
-    "file": ("audio_file", "trailing_silence_s"),
-    "custom": (),
-}
-DEFAULT_AUDIO_SOURCE_TYPE = "input-device"
 
 
 @dataclass
@@ -185,62 +554,6 @@ class AudioSourceConfig:
     audio_file: str | None = None
     trailing_silence_s: float = 0.0
     audio_format: AudioFormatConfig = field(default_factory=AudioFormatConfig)
-
-
-def _parse_audio_source(engine_block: dict[str, Any]) -> AudioSourceConfig:
-    if "audio" in engine_block:
-        raise ValueError(
-            "engine.audio is now engine.audio_source, with a 'type' "
-            '("input-device", "file" or "custom"), e.g. '
-            '"audio_source": {"type": "input-device", "device": null}.'
-        )
-    data = engine_block.get("audio_source")
-    if data is None:
-        return AudioSourceConfig()
-    if not isinstance(data, dict):
-        raise ValueError("Invalid engine.audio_source: must be an object or null.")
-    source_type = data.get("type", DEFAULT_AUDIO_SOURCE_TYPE)
-    if source_type not in AUDIO_SOURCE_TYPES:
-        raise ValueError(
-            f"Invalid engine.audio_source.type: '{source_type}'. "
-            f"Must be one of {', '.join(AUDIO_SOURCE_TYPES)}."
-        )
-    allowed = AUDIO_SOURCE_TYPES[source_type]
-    misplaced = sorted(set(data) - {"type", *allowed})
-    if misplaced:
-        takes = ", ".join(allowed) if allowed else "no other field"
-        raise ValueError(
-            f"Invalid engine.audio_source: {', '.join(misplaced)} does not apply "
-            f"to type '{source_type}', which takes {takes}."
-        )
-    if source_type == "file" and not data.get("audio_file"):
-        raise ValueError(
-            "Config is missing required field: engine.audio_source.audio_file "
-            "(type 'file')"
-        )
-    device = data.get("device")
-    if device is not None and not isinstance(device, str):
-        raise ValueError(
-            f"Invalid engine.audio_source.device: {device!r}. "
-            f"Must be a device name or null."
-        )
-    audio_file = data.get("audio_file")
-    if audio_file is not None and not isinstance(audio_file, str):
-        raise ValueError(
-            f"Invalid engine.audio_source.audio_file: {audio_file!r}. "
-            f"Must be a path, as a string."
-        )
-    return AudioSourceConfig(
-        type=source_type,
-        device=device,
-        audio_file=audio_file,
-        trailing_silence_s=_as_seconds(
-            data, "trailing_silence_s", 0.0, "engine.audio_source", allow_zero=True
-        ),
-        audio_format=_parse_audio_format(
-            data.get("audio_format"), "engine.audio_source.audio_format"
-        ),
-    )
 
 
 @dataclass
@@ -281,128 +594,51 @@ class VadConfig:
     extra: dict[str, Any] = field(default_factory=dict)
 
 
-_VAD_GATE_FIELDS = (
-    "type",
-    "threshold",
-    "min_speech_duration_ms",
-    "min_silence_duration_ms",
-    "speech_pad_ms",
-)
+def _read(data: Any, fields: tuple[Field, ...], label: str) -> dict[str, Any]:
+    """The values of an object whose problems were found empty."""
+    return read_fields(data or {}, fields, label=label, error=ConfigError)
 
 
-def _vad_duration(data: dict[str, Any], key: str, default: int, minimum: int) -> int:
-    value = data.get(key, default)
-    if isinstance(value, bool) or not isinstance(value, int) or value < minimum:
-        bound = "a positive integer" if minimum > 0 else "a non-negative integer"
-        raise ValueError(f"Invalid engine.vad.{key}: {value!r}. Must be {bound}.")
-    return value
+def _audio_format(data: Any) -> AudioFormatConfig:
+    return AudioFormatConfig(**_read(data, AUDIO_FORMAT_FIELDS, "audio_format"))
 
 
-def _parse_vad(data: object) -> VadConfig | None:
-    """Parse and validate the ``engine.vad`` block (``None``/absent → no VAD)."""
+def _audio_source(data: Any) -> AudioSourceConfig:
+    if data is None:
+        return AudioSourceConfig()
+    source_type = data.get("type", DEFAULT_AUDIO_SOURCE_TYPE)
+    if source_type == "input-device":
+        values = _read(data, INPUT_DEVICE_FIELDS, "engine.audio_source")
+        return AudioSourceConfig(
+            type=source_type,
+            device=values["device"],
+            audio_format=_audio_format(data.get("audio_format")),
+        )
+    if source_type == "file":
+        values = _read(data, FILE_SOURCE_FIELDS, "engine.audio_source")
+        return AudioSourceConfig(
+            type=source_type,
+            audio_file=values["audio_file"],
+            trailing_silence_s=values["trailing_silence_s"],
+        )
+    return AudioSourceConfig(type=source_type)
+
+
+def _vad(data: Any) -> VadConfig | None:
     if data is None:
         return None
-    if not isinstance(data, dict):
-        raise ValueError("Invalid engine.vad: must be an object or null.")
-    vad_type = data.get("type")
-    if not isinstance(vad_type, str) or not vad_type:
-        raise ValueError(
-            "Config is missing required field: engine.vad.type "
-            "(omit the engine.vad block to run without VAD)"
-        )
-    threshold = data.get("threshold", 0.5)
-    if (
-        isinstance(threshold, bool)
-        or not isinstance(threshold, (int, float))
-        or not 0 < threshold < 1
-    ):
-        raise ValueError(
-            f"Invalid engine.vad.threshold: {threshold!r}. "
-            f"Must be a number strictly between 0 and 1."
-        )
+    values = _read(data, VAD_GATE_FIELDS, "engine.vad")
     return VadConfig(
-        type=vad_type,
-        threshold=float(threshold),
-        min_speech_duration_ms=_vad_duration(data, "min_speech_duration_ms", 250, 0),
-        min_silence_duration_ms=_vad_duration(data, "min_silence_duration_ms", 500, 1),
-        speech_pad_ms=_vad_duration(data, "speech_pad_ms", 300, 0),
-        extra={k: v for k, v in data.items() if k not in _VAD_GATE_FIELDS},
-    )
-
-
-_ENGINE_FIELDS = (
-    "auto_start",
-    "auto_start_dictation",
-    "listen_default_segmentation_mode",
-    "dictation_default_segmentation_mode",
-    "segmentation",
-    "sound_feedback",
-    "audio_source",
-    "module",
-    "vad",
-)
-_SEGMENTATION_FIELDS = (
-    "trigger_words",
-    "initial_silence_timeout_s",
-    "end_of_speech_timeout_s",
-)
-_SOUND_FEEDBACK_FIELDS = ("enabled", "output_device")
-_SERVER_FIELDS = ("host", "port")
-
-
-def _parse_segmentation(data: Any) -> SegmentationConfig:
-    """Parse and validate ``engine.segmentation`` (absent or null = the defaults)."""
-    where = "engine.segmentation"
-    block = _as_object(data, where, _SEGMENTATION_FIELDS)
-    words = block.get("trigger_words", list(_DEFAULT_TRIGGER_WORDS))
-    if not isinstance(words, list) or not all(
-        isinstance(word, str) and word.strip() for word in words
-    ):
-        raise ValueError(
-            f"Invalid {where}.trigger_words: {words!r}. "
-            f"Must be a list of non-empty strings."
-        )
-    return SegmentationConfig(
-        trigger_words=list(words),
-        initial_silence_timeout_s=_as_seconds(
-            block, "initial_silence_timeout_s", 10.0, where, allow_zero=False
-        ),
-        end_of_speech_timeout_s=_as_seconds(
-            block, "end_of_speech_timeout_s", 5.0, where, allow_zero=False
-        ),
-    )
-
-
-def _parse_sound_feedback(data: Any) -> SoundFeedbackConfig:
-    """Parse and validate ``engine.sound_feedback`` (absent or null = the defaults)."""
-    where = "engine.sound_feedback"
-    block = _as_object(data, where, _SOUND_FEEDBACK_FIELDS)
-    device = block.get("output_device")
-    if device is not None and (
-        isinstance(device, bool) or not isinstance(device, (str, int))
-    ):
-        raise ValueError(
-            f"Invalid {where}.output_device: {device!r}. "
-            f"Must be a device name, a device index or null."
-        )
-    return SoundFeedbackConfig(
-        enabled=_as_bool(block, "enabled", True, where),
-        output_device=device,
+        type=data["type"],
+        **values,
+        extra={k: v for k, v in data.items() if k not in ("type", *values)},
     )
 
 
 def _parse_server(data: Any) -> ServerConfig:
     """Parse and validate the ``server`` block (absent or null = the defaults)."""
-    block = _as_object(data, "server", _SERVER_FIELDS)
-    host = block.get("host", "127.0.0.1")
-    if not isinstance(host, str) or not host:
-        raise ValueError(f"Invalid server.host: {host!r}. Must be a non-empty string.")
-    port = block.get("port", 8000)
-    if isinstance(port, bool) or not isinstance(port, int) or not 0 <= port <= 65535:
-        raise ValueError(
-            f"Invalid server.port: {port!r}. Must be an integer from 0 to 65535."
-        )
-    return ServerConfig(host=host, port=port)
+    _raise_first(_block_problems(data, "/server", "server", SERVER_FIELDS))
+    return ServerConfig(**_read(data, SERVER_FIELDS, "server"))
 
 
 @dataclass
@@ -420,7 +656,12 @@ class ASREngineConfig:
     vad: VadConfig | None = None  # None: no VAD stage (specs/vad.md)
 
     @classmethod
-    def from_dict(cls, engine_block: dict[str, Any]) -> ASREngineConfig:
+    def from_dict(
+        cls,
+        engine_block: dict[str, Any],
+        *,
+        base_dir: str | os.PathLike[str] | None = None,
+    ) -> ASREngineConfig:
         """Build (and validate) an ``ASREngineConfig`` from a raw ``engine`` block dict.
 
         This is the public in-memory constructor for direct importers of the
@@ -434,107 +675,84 @@ class ASREngineConfig:
         over it, and ``MCPServerConfig.from_dict`` delegates its ``engine`` block
         here, so every entry point validates identically.
 
-        No environment variables are read: ``module`` extra fields are carried
-        through unchanged, and the module resolves its own ``api_key``/``api_key_env``
-        later at engine construction — so a config with unset credentials still
-        builds here.
+        Every problem is a ``ConfigError`` (a ``ValueError``): the first of
+        ``engine_problems``. No environment variables are read: ``module`` extra
+        fields are carried through unchanged, and the module resolves its key
+        (``api_key_env``) later at engine construction — so a config with unset
+        credentials still builds here.
         """
-        if not isinstance(engine_block, dict):
-            raise ValueError("Invalid engine config: must be an object.")
-        # `audio` is the old name of `audio_source`: _parse_audio_source refuses
-        # it with a message naming the new block, so it is let through here.
-        _as_object(engine_block, "engine", (*_ENGINE_FIELDS, "audio"))
+        _raise_first(engine_problems(engine_block))
+        # Relative file paths are relative to base_dir (the folder of the config
+        # file), as the setup checks read them (specs/configuration.md).
+        engine_block = resolve_paths(engine_block, base_dir)
+        # Valid from here on: each part is read with its defaults.
+        from asr_engine.modules import canonical_module_type
 
-        auto_start = _as_bool(engine_block, "auto_start", True, "engine")
-        auto_start_dictation = _as_bool(
-            engine_block, "auto_start_dictation", False, "engine"
-        )
-        if auto_start_dictation and not auto_start:
-            raise ValueError(
-                "Invalid engine config: auto_start_dictation requires auto_start=true."
-            )
-
-        listen_default = engine_block.get(
-            "listen_default_segmentation_mode", "trigger_word"
-        )
-        if listen_default not in _SEGMENT_MODES:
-            raise ValueError(
-                f"Invalid engine.listen_default_segmentation_mode: '{listen_default}'. "
-                f"Must be one of {', '.join(_SEGMENT_MODES)}."
-            )
-
-        dictation_default = engine_block.get(
-            "dictation_default_segmentation_mode", "trigger_word"
-        )
-        if dictation_default not in _SEGMENT_MODES:
-            raise ValueError(
-                f"Invalid engine.dictation_default_segmentation_mode: "
-                f"'{dictation_default}'. Must be one of {', '.join(_SEGMENT_MODES)}."
-            )
-
-        segmentation = _parse_segmentation(engine_block.get("segmentation"))
-        sound_feedback = _parse_sound_feedback(engine_block.get("sound_feedback"))
-
-        module_data = engine_block.get("module")
-        if module_data is None:
-            module_data = {}
-        if not isinstance(module_data, dict):
-            raise ValueError("Invalid engine.module: must be an object.")
-        module_type = module_data.get("type")
-        if not module_type:
-            raise ValueError("Config is missing required field: engine.module.type")
-        if not isinstance(module_type, str):
-            raise ValueError(
-                f"Invalid engine.module.type: {module_type!r}. Must be a string."
-            )
-        # `type` and `audio_format` are the engine's; the rest is the module's own.
-        extra = {
-            k: v for k, v in module_data.items() if k not in ("type", "audio_format")
-        }
-        # An old key (`deepgram_v1`) is stored as its new one, with a warning.
-        module = ModuleConfig(
-            type=canonical_module_type(module_type),
-            audio_format=_parse_audio_format(
-                module_data.get("audio_format"), "engine.module.audio_format"
-            ),
-            extra=extra,
-        )
-
-        audio_source = _parse_audio_source(engine_block)
-        vad = _parse_vad(engine_block.get("vad"))
-
+        values = _read(engine_block, ENGINE_FIELDS, "engine")
+        segmentation = engine_block.get("segmentation") or {}
+        sound_feedback = engine_block.get("sound_feedback")
+        module_data = engine_block.get("module") or {}
         return cls(
-            auto_start=auto_start,
-            auto_start_dictation=auto_start_dictation,
-            listen_default_segmentation_mode=listen_default,
-            dictation_default_segmentation_mode=dictation_default,
-            segmentation=segmentation,
-            sound_feedback=sound_feedback,
-            audio_source=audio_source,
-            module=module,
-            vad=vad,
+            **values,
+            segmentation=SegmentationConfig(
+                trigger_words=list(
+                    segmentation.get("trigger_words", _DEFAULT_TRIGGER_WORDS)
+                ),
+                **_read(segmentation, SEGMENTATION_FIELDS, "engine.segmentation"),
+            ),
+            sound_feedback=SoundFeedbackConfig(
+                **_read(sound_feedback, SOUND_FEEDBACK_FIELDS, "engine.sound_feedback")
+            ),
+            audio_source=_audio_source(engine_block.get("audio_source")),
+            # `type` and `audio_format` are the engine's; the rest is the
+            # module's own. An old key (`deepgram_v1`) is stored as its new one,
+            # with a warning.
+            module=ModuleConfig(
+                type=canonical_module_type(module_data["type"]),
+                audio_format=_audio_format(module_data.get("audio_format")),
+                extra={
+                    k: v
+                    for k, v in module_data.items()
+                    if k not in ("type", "audio_format")
+                },
+            ),
+            vad=_vad(engine_block.get("vad")),
         )
 
     @classmethod
-    def from_json(cls, text: str) -> ASREngineConfig:
+    def from_json(
+        cls, text: str, *, base_dir: str | os.PathLike[str] | None = None
+    ) -> ASREngineConfig:
         """Build an ``ASREngineConfig`` from a JSON string holding an ``engine`` block.
 
         The JSON's top-level object is the ``engine`` block itself (the shape found
         under a config file's ``"engine"`` key) — **not** a whole MCP server config
         file. Parses the string and delegates to :meth:`from_dict` (same validation).
         """
-        return cls.from_dict(_parse_config_json(text))
+        return cls.from_dict(_parse_config_json(text), base_dir=base_dir)
 
     @classmethod
-    def from_json_file(cls, path: str) -> ASREngineConfig:
+    def from_json_file(
+        cls, path: str, *, base_dir: str | os.PathLike[str] | None = None
+    ) -> ASREngineConfig:
         """Build an ``ASREngineConfig`` from a JSON *file* holding an ``engine`` block.
 
         The file's top-level object is the ``engine`` block itself (``module``,
         ``segmentation``, …) — **not** an MCP ``config.json`` with ``server``/``engine``
         wrappers. To load a whole server config file and take its engine, use
-        :meth:`MCPServerConfig.from_json_file` and read ``.engine`` instead.
+        :meth:`MCPServerConfig.from_json_file` and read ``.engine`` instead. Its
+        relative paths are relative to the file's folder unless *base_dir* names
+        another.
         """
-        return cls.from_dict(_parse_config_json(_read_file(path), source=path))
+        return cls.from_dict(
+            _parse_config_json(_read_file(path), source=path),
+            base_dir=_folder_of(path) if base_dir is None else base_dir,
+        )
+
+
+def _folder_of(path: str) -> str:
+    """The folder a config file's relative paths are relative to: its own."""
+    return str(Path(path).resolve().parent)
 
 
 @dataclass
@@ -550,7 +768,9 @@ class MCPServerConfig:
     engine: ASREngineConfig = field(default_factory=ASREngineConfig)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> MCPServerConfig:
+    def from_dict(
+        cls, data: dict[str, Any], *, base_dir: str | os.PathLike[str] | None = None
+    ) -> MCPServerConfig:
         """Build an ``MCPServerConfig`` from a whole-file dict (``server`` + ``engine``).
 
         Parses the optional ``server`` block (host/port) and delegates the ``engine``
@@ -558,30 +778,47 @@ class MCPServerConfig:
         engine validation.
         """
         if not isinstance(data, dict):
-            raise ValueError("Invalid config: must be an object.")
-        _as_object(data, "config", ("server", "engine"))
+            raise ConfigError("Invalid config: must be an object.")
+        unknown = sorted(str(key) for key in set(data) - {"server", "engine"})
+        if unknown:
+            raise ConfigError(
+                f"Invalid config: unknown field(s) {', '.join(unknown)}. "
+                f"Fields: server, engine."
+            )
         server = _parse_server(data.get("server"))
         engine_block = data.get("engine")
-        engine = ASREngineConfig.from_dict({} if engine_block is None else engine_block)
+        engine = ASREngineConfig.from_dict(
+            {} if engine_block is None else engine_block, base_dir=base_dir
+        )
         return cls(server=server, engine=engine)
 
     @classmethod
-    def from_json(cls, text: str) -> MCPServerConfig:
+    def from_json(
+        cls, text: str, *, base_dir: str | os.PathLike[str] | None = None
+    ) -> MCPServerConfig:
         """Build an ``MCPServerConfig`` from a whole-file JSON string."""
-        return cls.from_dict(_parse_config_json(text))
+        return cls.from_dict(_parse_config_json(text), base_dir=base_dir)
 
     @classmethod
-    def from_json_file(cls, path: str) -> MCPServerConfig:
-        """Load and parse the MCP server JSON config file at *path*."""
-        return cls.from_dict(_parse_config_json(_read_file(path), source=path))
+    def from_json_file(
+        cls, path: str, *, base_dir: str | os.PathLike[str] | None = None
+    ) -> MCPServerConfig:
+        """Load and parse the MCP server JSON config file at *path*; its relative
+        paths are relative to the file's folder unless *base_dir* names another."""
+        return cls.from_dict(
+            _parse_config_json(_read_file(path), source=path),
+            base_dir=_folder_of(path) if base_dir is None else base_dir,
+        )
 
 
 def validate_asr_type(config: ASREngineConfig, registry: dict) -> None:
-    """Raise ValueError if config.module.type is not a key in *registry*.
+    """Raise ConfigError if config.module.type is not a key in *registry*.
 
     An old key from ``RENAMED_MODULE_TYPES`` is checked under its new key.
     """
+    from asr_engine.modules import RENAMED_MODULE_TYPES
+
     module_type = RENAMED_MODULE_TYPES.get(config.module.type, config.module.type)
     if module_type not in registry:
         available = ", ".join(sorted(registry.keys())) or "(none)"
-        raise ValueError(f"Unknown ASR type '{module_type}'. Available: {available}")
+        raise ConfigError(f"Unknown ASR type '{module_type}'. Available: {available}")

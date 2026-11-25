@@ -2,26 +2,22 @@ from __future__ import annotations
 
 import asyncio
 import logging
-
-from deepgram import AsyncDeepgramClient
-from deepgram.core.events import EventType
-from deepgram.listen.v1.types.listen_v1results import ListenV1Results
+from collections.abc import Mapping
 
 from asr_engine.audio import DEFAULT_AUDIO_FORMAT, AudioFormat, EndOfSpeech
 from asr_engine.modules.base import (
-    ASRModule,
     AudioQueue,
     ConnectedCallback,
     SpeechUtterance,
     UtteranceCallback,
-    resolve_api_key,
 )
-from asr_engine.modules.deepgram import _config
+from asr_engine.modules.deepgram._config import KEY_FIELD, DeepgramModule
+from asr_engine.modules.fields import Field
 
 log = logging.getLogger(__name__)
 
 
-class DeepgramV1Module(ASRModule):
+class DeepgramV1Module(DeepgramModule):
     """ASR module backed by the Deepgram Listen v1 WebSocket API.
 
     Uses Nova-3 (or any v1-compatible model) with is_final-based segment
@@ -43,14 +39,43 @@ class DeepgramV1Module(ASRModule):
     DEFAULT_ENCODING = "linear16"
     VAD_GATING = "supported"
 
-    def __init__(self, config: dict) -> None:
+    title = "Deepgram Nova"
+    fields = (
+        KEY_FIELD,
+        Field("model", "string", "The Deepgram v1 model.", default="nova-3"),
+        Field(
+            "language",
+            "string",
+            "The language, as a BCP-47 code, or 'multi' to detect it.",
+            default="multi",
+        ),
+        Field(
+            "punctuate",
+            "boolean",
+            "Add punctuation to the transcripts.",
+            default=True,
+            advanced=True,
+        ),
+        Field(
+            "interim_results",
+            "boolean",
+            "Send interim transcripts while a sentence is spoken.",
+            default=True,
+            advanced=True,
+        ),
+    )
+
+    def __init__(
+        self, config: dict, *, secrets: Mapping[str, str] | None = None
+    ) -> None:
         super().__init__(config)
-        label = "deepgram-v1"
-        self._api_key: str = resolve_api_key(config, label)
-        self._model = _config.non_empty_str(config, "model", "nova-3", label)
-        self._language = _config.non_empty_str(config, "language", "multi", label)
-        self._punctuate = _config.boolean(config, "punctuate", True, label)
-        self._interim_results = _config.boolean(config, "interim_results", True, label)
+        values = self.validated(config)
+        self.imports(config)
+        self._api_key: str = self.resolve_api_key(config, secrets)
+        self._model: str = values["model"]
+        self._language: str = values["language"]
+        self._punctuate: bool = values["punctuate"]
+        self._interim_results: bool = values["interim_results"]
 
         self._stop_event = asyncio.Event()
         self._conn: object | None = None  # the open connection, for finalize()
@@ -63,6 +88,10 @@ class DeepgramV1Module(ASRModule):
         *,
         audio_format: AudioFormat = DEFAULT_AUDIO_FORMAT,
     ) -> None:
+        from deepgram import AsyncDeepgramClient
+        from deepgram.core.events import EventType
+        from deepgram.listen.v1.types.listen_v1results import ListenV1Results
+
         self._stop_event.clear()
         client = AsyncDeepgramClient(api_key=self._api_key)
         attempt = 0

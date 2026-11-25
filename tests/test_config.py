@@ -169,12 +169,12 @@ def test_the_module_audio_format_is_the_engines_not_the_modules() -> None:
 @pytest.mark.parametrize(
     "audio_format, message",
     [
-        ({"sample_rate": 0}, "sample_rate: must be a positive integer"),
-        ({"sample_rate": "16000"}, "sample_rate: must be a positive integer"),
-        ({"sample_rate": 16000.0}, "sample_rate: must be a positive integer"),
-        ({"channels": -1}, "channels: must be a positive integer"),
-        ({"channels": True}, "channels: must be a positive integer"),
-        ({"encoding": "opus"}, "encoding: 'opus'"),
+        ({"sample_rate": 0}, "'sample_rate' must be an integer > 0"),
+        ({"sample_rate": "16000"}, "'sample_rate' must be an integer > 0"),
+        ({"sample_rate": 16000.0}, "'sample_rate' must be an integer > 0"),
+        ({"channels": -1}, "'channels' must be an integer > 0"),
+        ({"channels": True}, "'channels' must be an integer > 0"),
+        ({"encoding": "opus"}, "'encoding' must be one of"),
         ({"rate": 16000}, r"unknown field\(s\) rate"),
         ([16000, 1], "must be an object or null"),
     ],
@@ -341,7 +341,9 @@ def test_load_config_invalid_dictation_default_mode(tmp_path: Path) -> None:
     path = write_config(
         tmp_path, _min({"dictation_default_segmentation_mode": "bad_mode"})
     )
-    with pytest.raises(ValueError, match="engine.dictation_default_segmentation_mode"):
+    with pytest.raises(
+        ValueError, match="engine 'dictation_default_segmentation_mode'"
+    ):
         MCPServerConfig.from_json_file(path)
 
 
@@ -349,7 +351,7 @@ def test_load_config_invalid_listen_default_mode(tmp_path: Path) -> None:
     path = write_config(
         tmp_path, _min({"listen_default_segmentation_mode": "bad_mode"})
     )
-    with pytest.raises(ValueError, match="engine.listen_default_segmentation_mode"):
+    with pytest.raises(ValueError, match="engine 'listen_default_segmentation_mode'"):
         MCPServerConfig.from_json_file(path)
 
 
@@ -452,7 +454,7 @@ def test_from_dict_empty_module_type() -> None:
 
 
 def test_from_dict_invalid_listen_default_mode() -> None:
-    with pytest.raises(ValueError, match="engine.listen_default_segmentation_mode"):
+    with pytest.raises(ValueError, match="engine 'listen_default_segmentation_mode'"):
         ASREngineConfig.from_dict(
             {
                 "listen_default_segmentation_mode": "bad",
@@ -463,7 +465,9 @@ def test_from_dict_invalid_listen_default_mode() -> None:
 
 
 def test_from_dict_invalid_dictation_default_mode() -> None:
-    with pytest.raises(ValueError, match="engine.dictation_default_segmentation_mode"):
+    with pytest.raises(
+        ValueError, match="engine 'dictation_default_segmentation_mode'"
+    ):
         ASREngineConfig.from_dict(
             {
                 "dictation_default_segmentation_mode": "bad",
@@ -690,21 +694,21 @@ def test_vad_block_carries_gate_fields_and_passes_the_rest_to_the_module() -> No
         ({"type": "silero", "threshold": True}, "engine.vad.threshold"),
         (
             {"type": "silero", "min_speech_duration_ms": -1},
-            "engine.vad.min_speech_duration_ms",
+            "engine.vad 'min_speech_duration_ms'",
         ),
         (
             {"type": "silero", "min_speech_duration_ms": 2.5},
-            "engine.vad.min_speech_duration_ms",
+            "engine.vad 'min_speech_duration_ms'",
         ),
         (
             {"type": "silero", "min_silence_duration_ms": 0},
-            "engine.vad.min_silence_duration_ms",
+            "engine.vad 'min_silence_duration_ms'",
         ),
         (
             {"type": "silero", "min_silence_duration_ms": True},
-            "engine.vad.min_silence_duration_ms",
+            "engine.vad 'min_silence_duration_ms'",
         ),
-        ({"type": "silero", "speech_pad_ms": -5}, "engine.vad.speech_pad_ms"),
+        ({"type": "silero", "speech_pad_ms": -5}, "engine.vad 'speech_pad_ms'"),
         ("silero", "engine.vad"),
     ],
 )
@@ -740,10 +744,10 @@ _FAKE = {"module": {"type": "fake"}}
     ("block", "message"),
     [
         # A string is truthy: "false" would silently mean true.
-        ({"auto_start": "false"}, "engine.auto_start"),
-        ({"auto_start_dictation": 1}, "engine.auto_start_dictation"),
-        ({"sound_feedback": {"enabled": "false"}}, "engine.sound_feedback.enabled"),
-        ({"sound_feedback": {"output_device": 1.5}}, "sound_feedback.output_device"),
+        ({"auto_start": "false"}, "engine 'auto_start'"),
+        ({"auto_start_dictation": 1}, "engine 'auto_start_dictation'"),
+        ({"sound_feedback": {"enabled": "false"}}, "engine.sound_feedback 'enabled'"),
+        ({"sound_feedback": {"output_device": 1.5}}, "sound_feedback 'output_device'"),
         ({"sound_feedback": []}, "engine.sound_feedback: must be an object"),
         ({"segmentation": "timeout"}, "engine.segmentation: must be an object"),
         ({"segmentation": {"trigger_words": "go"}}, "segmentation.trigger_words"),
@@ -751,21 +755,21 @@ _FAKE = {"module": {"type": "fake"}}
         ({"segmentation": {"trigger_words": [" "]}}, "segmentation.trigger_words"),
         (
             {"segmentation": {"initial_silence_timeout_s": -1}},
-            "segmentation.initial_silence_timeout_s",
+            "segmentation 'initial_silence_timeout_s'",
         ),
         (
             {"segmentation": {"end_of_speech_timeout_s": 0}},
-            "segmentation.end_of_speech_timeout_s",
+            "segmentation 'end_of_speech_timeout_s'",
         ),
         (
             {"segmentation": {"end_of_speech_timeout_s": "5"}},
-            "segmentation.end_of_speech_timeout_s",
+            "segmentation 'end_of_speech_timeout_s'",
         ),
         (
             {"segmentation": {"end_of_speech_timeout_s": float("nan")}},
-            "segmentation.end_of_speech_timeout_s",
+            "segmentation 'end_of_speech_timeout_s'",
         ),
-        ({"audio_source": {"device": 3}}, "engine.audio_source.device"),
+        ({"audio_source": {"device": 3}}, "engine.audio_source 'device'"),
         (
             {
                 "audio_source": {
@@ -774,7 +778,7 @@ _FAKE = {"module": {"type": "fake"}}
                     "trailing_silence_s": -1,
                 }
             },
-            "audio_source.trailing_silence_s",
+            "audio_source 'trailing_silence_s'",
         ),
         (
             {"audio_source": {"type": "file", "audio_file": 3}},
@@ -822,9 +826,9 @@ def test_an_engine_config_that_is_not_an_object_is_refused():
 @pytest.mark.parametrize(
     ("data", "message"),
     [
-        ({"server": {"port": "8000"}}, "server.port"),
-        ({"server": {"port": 70000}}, "server.port"),
-        ({"server": {"host": ""}}, "server.host"),
+        ({"server": {"port": "8000"}}, "server 'port'"),
+        ({"server": {"port": 70000}}, "server 'port'"),
+        ({"server": {"host": ""}}, "server 'host'"),
         ({"server": {"hots": "127.0.0.1"}}, "server: unknown field.*hots"),
         ({"sever": {}}, "config: unknown field.*sever"),
         ({"server": [8000]}, "server: must be an object"),
@@ -833,3 +837,76 @@ def test_an_engine_config_that_is_not_an_object_is_refused():
 def test_the_server_block_is_validated(data, message):
     with pytest.raises(ValueError, match=message):
         MCPServerConfig.from_dict({"engine": _FAKE, **data})
+
+
+# --- Relative paths: base_dir ---------------------------------------------------------
+
+
+def test_relative_paths_are_resolved_against_base_dir(tmp_path: Path) -> None:
+    from asr_engine.config import ASREngineConfig
+
+    block = {
+        "module": {"type": "mlx-audio", "model": "./models/parakeet"},
+        "audio_source": {"type": "file", "audio_file": "speech.wav"},
+        "vad": {"type": "silero", "model_path": "vad/silero.onnx"},
+    }
+
+    config = ASREngineConfig.from_dict(block, base_dir=tmp_path)
+    untouched = ASREngineConfig.from_dict(block)
+
+    assert config.audio_source.audio_file == str(tmp_path / "speech.wav")
+    assert config.vad is not None
+    assert config.vad.extra["model_path"] == str(tmp_path / "vad" / "silero.onnx")
+    assert config.module.extra["model"] == str(tmp_path / "models" / "parakeet")
+    assert untouched.audio_source.audio_file == "speech.wav"
+    assert block["audio_source"]["audio_file"] == "speech.wav"  # not mutated
+
+
+def test_a_hub_repository_and_an_absolute_path_are_left_alone(tmp_path: Path) -> None:
+    from asr_engine.config import ASREngineConfig
+
+    absolute = str(tmp_path / "speech.wav")
+    config = ASREngineConfig.from_dict(
+        {
+            "module": {"type": "mlx-audio", "model": "mlx-community/parakeet"},
+            "audio_source": {"type": "file", "audio_file": absolute},
+            "vad": {"type": "silero"},
+        },
+        base_dir=tmp_path / "elsewhere",
+    )
+
+    assert config.module.extra["model"] == "mlx-community/parakeet"
+    assert config.audio_source.audio_file == absolute
+
+
+def test_a_config_file_s_relative_paths_are_relative_to_its_folder(
+    tmp_path: Path, monkeypatch
+) -> None:
+    from asr_engine.config import ASREngineConfig
+
+    folder = tmp_path / "conf"
+    folder.mkdir()
+    path = folder / "engine.json"
+    path.write_text(
+        '{"module": {"type": "fake"}, '
+        '"audio_source": {"type": "file", "audio_file": "speech.wav"}}',
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+
+    whole = write_config(
+        folder,
+        {
+            "engine": {
+                "module": {"type": "fake"},
+                "audio_source": {"type": "file", "audio_file": "a.wav"},
+            }
+        },
+    )
+
+    assert ASREngineConfig.from_json_file(str(path)).audio_source.audio_file == str(
+        (folder / "speech.wav").resolve()
+    )
+    assert MCPServerConfig.from_json_file(whole).engine.audio_source.audio_file == str(
+        (Path(whole).resolve().parent / "a.wav")
+    )

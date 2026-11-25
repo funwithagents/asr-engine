@@ -9,6 +9,7 @@ The documentation of `asr-engine`, by what you want to do. The [README](../READM
 | keep the audio on my machine | [local-speech-recognition.md](local-speech-recognition.md): in process, a local batch server or a local streaming server; each solution, where it runs and what it is best used for |
 | set up one module | its page under [modules/](modules/index.md): install, a minimal config, every field, troubleshooting |
 | write or load a configuration | [configuration.md](configuration.md): the engine block, loading it from a dict or a JSON file, credentials |
+| let a person set the engine up from my application (a form, a check of what is missing) | [setup.md](setup.md): the config's schema, its problems, the extras, keys and models it needs, a light real check |
 | decide when a segment ends (a trigger word, a silence) | [segmentation.md](segmentation.md): the three modes and their settings |
 | read a file, or feed audio my application already has | [audio-input.md](audio-input.md): the microphone, file input, a custom `AudioSource`, the audio format |
 | stop paying for silence, or run a batch model | [vad.md](vad.md): the optional speech gate and the setting that suits each module |
@@ -20,5 +21,5 @@ The documentation of `asr-engine`, by what you want to do. The [README](../READM
 Beyond the user documentation:
 
 - [specs/](../specs/_index.md) is the normative design: every guarantee, with its rationale, one spec per concept and per module.
-- [examples/](../examples/README.md) has three runnable applications and, under [examples/config/](../examples/config/), one complete server config per module.
+- [examples/](../examples/README.md) has three runnable applications and, under [examples/configs/](../examples/configs/), one complete server config per module.
 - [AGENTS.md](../AGENTS.md) is the operating manual for working in the repository.

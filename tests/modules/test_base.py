@@ -14,7 +14,6 @@ from asr_engine.modules.base import (
     AudioQueue,
     SpeechUtterance,
     parse_sample_rate_overrides,
-    resolve_api_key,
     resolve_module_audio_format,
 )
 
@@ -45,40 +44,6 @@ def test_utterance_inequality() -> None:
     a = SpeechUtterance(transcript="x", is_final=True, confidence=0.5)
     b = SpeechUtterance(transcript="y", is_final=True, confidence=0.5)
     assert a != b
-
-
-# ---------------------------------------------------------------------------
-# resolve_api_key
-# ---------------------------------------------------------------------------
-
-
-def test_resolve_api_key_literal_wins(monkeypatch) -> None:
-    monkeypatch.setenv("SOME_ENV", "from-env")
-    key = resolve_api_key({"api_key": "literal", "api_key_env": "SOME_ENV"}, "mod")
-    assert key == "literal"
-
-
-def test_resolve_api_key_from_env(monkeypatch) -> None:
-    monkeypatch.setenv("MY_KEY_VAR", "secret-value")
-    key = resolve_api_key({"api_key_env": "MY_KEY_VAR"}, "mod")
-    assert key == "secret-value"
-
-
-def test_resolve_api_key_env_unset_raises(monkeypatch) -> None:
-    monkeypatch.delenv("MISSING_KEY_VAR", raising=False)
-    with pytest.raises(ValueError, match="MISSING_KEY_VAR"):
-        resolve_api_key({"api_key_env": "MISSING_KEY_VAR"}, "mod")
-
-
-def test_resolve_api_key_env_empty_raises(monkeypatch) -> None:
-    monkeypatch.setenv("EMPTY_KEY_VAR", "")
-    with pytest.raises(ValueError, match="EMPTY_KEY_VAR"):
-        resolve_api_key({"api_key_env": "EMPTY_KEY_VAR"}, "mod")
-
-
-def test_resolve_api_key_neither_raises() -> None:
-    with pytest.raises(ValueError, match="api_key.*or.*api_key_env"):
-        resolve_api_key({}, "mod")
 
 
 # ---------------------------------------------------------------------------

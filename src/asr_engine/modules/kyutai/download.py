@@ -15,6 +15,8 @@ import json
 import sys
 from typing import Any
 
+from asr_engine.modules.downloads import Progress, fetch
+
 DEFAULT_REPO = "kyutai/stt-1b-en_fr-candle"
 
 
@@ -42,15 +44,21 @@ def is_cached(repo: str, *, cache_dir: str | None = None) -> bool:
     )
 
 
-def download(repo: str, *, cache_dir: str | None = None) -> None:
-    """Download every file the backends load into the Hugging Face cache."""
+def download(
+    repo: str,
+    *,
+    cache_dir: str | None = None,
+    on_progress: Progress | None = None,
+) -> None:
+    """Download every file the backends load into the Hugging Face cache: its
+    ``config.json``, then the files it names, their bytes reported to
+    *on_progress* against their total size."""
     from huggingface_hub import hf_hub_download
 
     config_path = hf_hub_download(repo, "config.json", cache_dir=cache_dir)
     with open(config_path, encoding="utf-8") as f:
         raw_config = json.load(f)
-    for name in weight_files(raw_config):
-        hf_hub_download(repo, name, cache_dir=cache_dir)
+    fetch(repo, weight_files(raw_config), on_progress, cache_dir=cache_dir)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -60,7 +68,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("repo", nargs="?", default=DEFAULT_REPO)
     args = parser.parse_args(argv)
-    download(args.repo)
+    download(args.repo, on_progress=lambda event: print(event["message"]))
     print(f"{args.repo}: cached")
     return 0
 

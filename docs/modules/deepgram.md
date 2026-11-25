@@ -30,8 +30,7 @@ pip install 'asr-engine[deepgram]'
 
 | Field | Required | Default | Description |
 |---|---|---|---|
-| `api_key_env` | one of `api_key_env` or `api_key` | — | Name of the environment variable holding the API key. Recommended for file-based configuration |
-| `api_key` | one of `api_key_env` or `api_key` | — | Literal API key. Takes precedence over `api_key_env` |
+| `api_key_env` | no | `DEEPGRAM_API_KEY` | Name of the environment variable holding the API key. The key itself is never written in a config |
 | `model` | no | `nova-3` | A Deepgram model served by Listen v1 |
 | `language` | no | `multi` | BCP-47 language code, or `multi` for automatic multilingual detection |
 | `punctuate` | no | `true` | Automatic punctuation |
@@ -53,8 +52,7 @@ pip install 'asr-engine[deepgram]'
 
 | Field | Required | Default | Description |
 |---|---|---|---|
-| `api_key_env` | one of `api_key_env` or `api_key` | — | Name of the environment variable holding the API key |
-| `api_key` | one of `api_key_env` or `api_key` | — | Literal API key. Takes precedence over `api_key_env` |
+| `api_key_env` | no | `DEEPGRAM_API_KEY` | Name of the environment variable holding the API key |
 | `model` | no | `flux-general-en` | A Deepgram Flux-family model |
 | `eot_threshold` | no | `0.7` | End-of-turn confidence threshold, 0.5 to 0.9. Higher waits for more certainty before closing the turn |
 | `eot_timeout_ms` | no | `2000` | Silence after which the turn is closed whatever the confidence, in milliseconds |
@@ -68,12 +66,12 @@ pip install 'asr-engine[deepgram]'
 
 ## Troubleshooting
 
-- `environment variable 'DEEPGRAM_API_KEY' (api_key_env) is not set or is empty`: the variable must be set in the process that runs the engine, not only in your interactive shell.
-- `requires 'api_key' or 'api_key_env' in config`: the module block has neither field.
-- `deepgram-v1 module: 'punctuate' must be true or false` (or another field): a field has the wrong type or is out of range. Booleans are `true`/`false`, not strings; `eot_threshold` is from 0.5 to 0.9; `eot_timeout_ms` is a positive integer.
+- `Deepgram Nova module: no key under 'DEEPGRAM_API_KEY'`: the variable must be set in the process that runs the engine, not only in your interactive shell, or the key passed in code (`ASREngine(config, secrets={"DEEPGRAM_API_KEY": key})`).
+- `Deepgram Nova module does not take 'api_key'`: a key written in the config is refused; keep it in an environment variable, named by `api_key_env`.
+- `Deepgram Nova module 'punctuate' must be a boolean` (or another field; `Deepgram Flux` for `deepgram-v2`): a field has the wrong type or is out of range. Booleans are `true`/`false`, not strings; `eot_threshold` is from 0.5 to 0.9; `eot_timeout_ms` is a positive integer.
 - The engine starts but `connected` stays `false`: the key is rejected or the network is unreachable; the log names the cause at each retry.
 
 ## See also
 
 - [specs/modules/deepgram.md](../../specs/modules/deepgram.md): the modules' contract, with the WebSocket details and the message mapping.
-- [examples/config/deepgram-v1.json](../../examples/config/deepgram-v1.json) and [examples/config/deepgram-v2.json](../../examples/config/deepgram-v2.json): complete server configs, with the VAD gate on.
+- [examples/configs/deepgram-v1.json](../../examples/configs/deepgram-v1.json) and [examples/configs/deepgram-v2.json](../../examples/configs/deepgram-v2.json): complete server configs, with the VAD gate on.

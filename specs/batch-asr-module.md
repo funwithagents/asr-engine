@@ -66,7 +66,7 @@ Every subclass accepts these, beside its own:
 | `max_utterance_s` | float | `30.0` | Cut an utterance that grows this long: decode it as a final and start a new one |
 | `stop_timeout_s` | float | `10.0` | How long `stop()` waits for the last decodes |
 
-Validation in `__init__`: `interim_interval_s` is a number ≥ 0; `max_utterance_s` and `stop_timeout_s` are numbers > 0 (never booleans). Each failure raises `ValueError` naming the field.
+These three are declared once by `batch_fields(interim_interval_s)` (`modules/batch.py`), which a subclass appends to its own `fields` with its interim default. `BatchASRModule.__init__` validates every field of the subclass (`self.validated(config)`, [setup.md](setup.md) "On a module") and keeps the values in `self._values` for the subclass to read: `interim_interval_s` is a number ≥ 0; `max_utterance_s` and `stop_timeout_s` are numbers > 0 (never booleans). Each failure raises `ConfigError` naming the field.
 
 ## Runtime
 

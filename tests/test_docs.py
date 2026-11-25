@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from asr_engine.modules import REGISTRY, LazyModule
+from asr_engine.modules import REGISTRY
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -84,10 +84,10 @@ def test_relative_links_resolve(path: Path):
 
 # --- Paths named in code ------------------------------------------------------
 
-# The documentation names example configs as code (`examples/config/x.json`,
-# `cp examples/config/x.json config.json`) at least as often as it links them,
+# The documentation names example configs as code (`examples/configs/x.json`,
+# `cp examples/configs/x.json config.json`) at least as often as it links them,
 # and a rename breaks those silently: the copy command fails for the reader.
-_EXAMPLE_CONFIG = re.compile(r"examples/config/[\w.-]+\.json")
+_EXAMPLE_CONFIG = re.compile(r"examples/configs/[\w.-]+\.json")
 
 
 @pytest.mark.parametrize(
@@ -152,12 +152,12 @@ def test_module_table_lists_exactly_the_registered_modules(path: Path):
     "path", _MODULE_TABLES, ids=lambda p: p.relative_to(_REPO_ROOT).as_posix()
 )
 def test_module_table_names_the_extra_the_registry_asks_for(path: Path):
-    # The registry names an extra only where it raises the install hint itself;
-    # kyutai and mlx-audio raise their own, and fake needs none.
+    # Every module declares its extra; kyutai picks one of two by backend and
+    # platform (its `required_extras`), and fake needs none.
     rows = _module_rows(path)
-    for name, entry in REGISTRY.items():
-        if isinstance(entry, LazyModule) and entry.extra is not None:
-            assert _NAME.findall(rows[name]["Extra"]) == [entry.extra], name
+    for name, cls in REGISTRY.items():
+        if cls.extra is not None:
+            assert _NAME.findall(rows[name]["Extra"]) == [cls.extra], name
 
 
 @pytest.mark.parametrize(
@@ -194,3 +194,32 @@ def test_module_page_lists_the_fields_of_its_spec(spec: Path):
     assert page.exists(), f"no page for {spec.stem}: add docs/modules/{spec.name}"
     assert _fields(spec), f"{spec.name} has no `| Field |` table to compare with"
     assert _fields(page) == _fields(spec)
+
+
+# The modules each page documents: a backend with several modules has one page.
+_PAGE_MODULES = {
+    "deepgram": ("deepgram-v1", "deepgram-v2"),
+    "fake": ("fake",),
+    "kyutai": ("kyutai",),
+    "mistral": ("mistral-realtime",),
+    "mlx-audio": ("mlx-audio",),
+    "openai-realtime-compatible": ("openai-realtime-compatible",),
+    "openai-transcriptions-compatible": ("openai-transcriptions-compatible",),
+}
+
+
+@pytest.mark.parametrize("spec", _MODULE_SPECS, ids=lambda p: p.stem)
+def test_a_module_spec_lists_exactly_the_fields_its_modules_declare(spec: Path):
+    # The declaration is what the constructors, the setup checks and the form
+    # read (specs/setup.md "Fields are declared once"); the tables are its prose.
+    declared: set[str] = set()
+    for name in _PAGE_MODULES[spec.stem]:
+        cls = REGISTRY[name]
+        declared |= {field.name for field in cls.fields} | set(cls.schema_extras)
+    documented = {
+        name
+        for name in _fields(spec)
+        if "[" not in name and "." not in name  # a list entry's own fields
+    }
+    # A table may group fields in one row ("`max_utterance_s`, `stop_timeout_s`").
+    assert documented == declared

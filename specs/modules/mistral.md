@@ -122,7 +122,7 @@ On the turn path a final lands at `turn.end + final_margin_ms`: measured `turn.e
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `api_key` / `api_key_env` | string | — (one required) | Resolved via `resolve_api_key`, the same rules as [deepgram.md](deepgram.md) |
+| `api_key_env` | string | `"MISTRAL_API_KEY"` | Name of the env var holding the key; the key itself is never in the config ([setup.md](../setup.md) "Keys") |
 | `model` | string | `"voxtral-mini-transcribe-realtime-3"` | The API also accepts `-3-0` (pinned) and `-latest` |
 | `url` | string | `"wss://api.mistral.ai/v1/audio/transcriptions/realtime"` | Endpoint override (proxies, a future self-hosted server) |
 | `language` | string \| null | `null` (auto-detect) | ISO 639-1 two-letter code |
@@ -134,9 +134,9 @@ On the turn path a final lands at `turn.end + final_margin_ms`: measured `turn.e
 | `idle_close_s` | float | `20.0` | Park the session after this long with no audio. Must stay under the server's ≈ 30 s idle kill. |
 | `stop_timeout_s` | float | `5.0` | How long ending a session waits for `transcription.done` |
 
-**Validation in `__init__`** (per the [constructor contract](../asr-module-interface.md#module-constructor-contract)), so that config mistakes fail at construction rather than as a server `error` mid-session. Each failure raises `ValueError` naming the field:
+**Validation in `__init__`** (per the [constructor contract](../asr-module-interface.md#module-constructor-contract)), so that config mistakes fail at construction rather than as a server `error` mid-session. They are declared as `fields` (title "Mistral Voxtral Realtime"), `context_bias` and `turn_detection` as `schema_extras`, and the rules a `Field` cannot state are `config_rules` ([setup.md](../setup.md) "On a module"). Each failure raises `ConfigError` naming the field:
 
-- the API key resolves;
+- no `api_key` is written in the config, and the key resolves (`MissingSecretError` naming the variable otherwise);
 - `model` is a non-empty string, and `url` is a string starting with `ws://` or `wss://`;
 - `language` is null or two ASCII letters;
 - `streaming_delay_ms` is an int (not a bool) in 80–1200 or exactly 2400;
@@ -172,7 +172,7 @@ The module sends `audio_format: {"encoding": "pcm_s16le", "sample_rate": <reconc
 - **Ending a session** (on stop or idle) sends `input_audio.end` and waits up to `stop_timeout_s` for `transcription.done`, so deltas still in flight land in the accumulator. It then emits whatever has accumulated as a final and closes the socket. `transcription.done.text` is the whole session transcript, so it isn't re-emitted.
 - **`stop()`** asks the running session to end as above and **returns only once it has**, so the flushed final is delivered before the engine cancels the module task (the engine calls `module.stop()` and then cancels `start()`). It then calls `on_connected(False)`. A `stop()` while reconnecting returns at once.
 - **Idle parking.** When no chunk arrives for `idle_close_s`, the session ends as above. The module stays *running* and `on_connected` is **not** set to `False`, because nothing is wrong and `is_running` should not report an outage. The next chunk opens a fresh session (connect → `session.created` → `session.update`), and is sent first once it is ready. A connect failure here enters normal reconnection. Parking only happens when the input actually stops (a speech-only injected source, an exhausted file source, a stalled device). The live mic and `ScriptableAudioSource` stream continuously, silence included, and never park.
-- **Reconnection** follows the [reconnection contract](../asr-module-interface.md#reconnection-contract) (1, 2, 4, 8 s backoff, draining `audio_queue` meanwhile). On connection loss the module first emits the accumulator as a final, since every delta was already final text, and calls `on_connected(False)`. A reconnect is a **new session**: settings are re-sent, and context from the old session is lost. A rejected handshake logs at error level with the cause: HTTP 401 → "check `api_key` / `api_key_env`", HTTP 403 → "check `model`".
+- **Reconnection** follows the [reconnection contract](../asr-module-interface.md#reconnection-contract) (1, 2, 4, 8 s backoff, draining `audio_queue` meanwhile). On connection loss the module first emits the accumulator as a final, since every delta was already final text, and calls `on_connected(False)`. A reconnect is a **new session**: settings are re-sent, and context from the old session is lost. A rejected handshake logs at error level with the cause: HTTP 401 → "check the variable named by `api_key_env`", HTTP 403 → "check `model`".
 
 ## Endpointing, with and without a VAD stage
 
@@ -222,7 +222,9 @@ mistral = ["websockets>=14"]  # >=14: websockets.connect(..., additional_headers
 
 The extra is light, so it is in both `all` and the `dev` group ([project.md](../project.md) holds what each one names).
 
-`websockets` is already present transitively, but the extra names it so the module never depends on another extra's dependency tree. The module file imports `websockets` at top level, so without the extra the registry's `ImportError` names `mistral`.
+`websockets` is already present transitively, but the extra names it so the module never depends on another extra's dependency tree. The module file imports `websockets` only in `imports()` and when it connects, so without the extra the module's config is still checked, and building it raises the `ImportError` of `imports()`, naming `mistral`.
+
+Its `probe` lists `GET /v1/models` on the `url`'s host with the key and finds the configured `model` there ([setup.md](../setup.md) "probe").
 
 ## Testing
 
@@ -248,11 +250,11 @@ A `MODULES` row: type `mistral-realtime`, `api_key_env: MISTRAL_API_KEY`, the 44
 
 ## Files
 
-- `src/asr_engine/modules/mistral/__init__.py`: imports nothing (keeps the registry lazy)
+- `src/asr_engine/modules/mistral/__init__.py`: imports nothing
 - `src/asr_engine/modules/mistral/realtime.py`: `MistralRealtimeModule`
-- `src/asr_engine/modules/__init__.py`: `"mistral-realtime": LazyModule("asr_engine.modules.mistral.realtime:MistralRealtimeModule", extra="mistral")`
+- `src/asr_engine/modules/__init__.py`: `"mistral-realtime": MistralRealtimeModule`
 - `pyproject.toml`: the `mistral` extra, `all`, `dev`
-- `examples/config/mistral-realtime.json`: a complete server config for this module, with the VAD gate on
+- `examples/configs/mistral-realtime.json`: a complete server config for this module, with the VAD gate on
 - `tests/modules/test_mistral_realtime.py`, `tests-e2e/helpers.py` (`MODULES` row), `.github/workflows/ci.yml` (secret mapping)
 - Spec and doc touch-ups: [asr-module-interface.md](../asr-module-interface.md) (registry snippet, extras table), [configuration.md](../configuration.md) (example), [ci.md](../ci.md), [project.md](../project.md) (package list), `README.md` (module table and section)
 
