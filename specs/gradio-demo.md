@@ -5,14 +5,17 @@ code:
   - examples/gradio_demo/controller.py
   - examples/gradio_demo/app.py
   - examples/gradio_demo/default_config.json
+  - examples/config_app/__init__.py
+  - examples/config_app/__main__.py
   - pyproject.toml
 tests:
   - tests/examples/test_gradio_demo.py
+  - tests/examples/test_config_app.py
 ---
 
 # Gradio Demo App
 
-**Status:** Implemented
+**Status:** Updated
 
 ## Purpose
 
@@ -29,10 +32,19 @@ It is a **direct-import consumer** of the library: it builds an `ASREngine` from
 ## Running it
 
 ```
-uv run python -m examples.gradio_demo [--folder PATH] [--host ADDRESS] [--port N]
+uv run python -m examples.gradio_demo [--folder DIR | --config FILE] [--env PATH] [--host ADDRESS] [--port N]
+uv run python -m examples.config_app FILE [--env PATH] [--host ADDRESS] [--port N]
 ```
 
-(`python -m examples.gradio_demo.app` runs it too.) The page opens on its Setup tab with the `fake` module, which needs nothing installed and no key. The app's folder (its saved `config.json` and its `.env`) is `~/.config/asr-engine-demo` unless `--folder` names another. The page listens on `127.0.0.1` unless `--host` names another address; `--port` defaults to gradio's.
+(`python -m examples.gradio_demo.app` runs the demo too.) The command line is app-setup's (`add_config_arguments`, `open_source`), plus `--host` (`127.0.0.1` by default) and `--port` (gradio's by default). Three launches:
+
+- **From the demo's folder** (`--folder DIR`, by default `~/.config/asr-engine-demo`): its `config.json`, edited and saved on the Setup tab, and its `.env`. The page opens on its Setup tab, with the `fake` module on a new folder; nothing starts at launch (the demo has no autostart).
+- **From a config file** (`--config FILE`), run as it is: a `ConfigFile` that is never written, so the Setup panel is read-only (Check, Install, Prepare and Test still work; there is no Save, and no Reset: a file has no default). The session starts at launch (`starts_at_launch(model, None)` is true for a file): `main` calls `controller.start(model)` before the page is served, so with blockers the Listen tab's message says them instead, exactly as a refused Start does. The page opens on the Listen tab. A file that does not exist or is not a JSON object is refused at launch: `ConfigFileError` becomes `parser.error`, and nothing is served.
+- **The config app** (`examples/config_app/`), one file edited with no session: app-setup's `add_config_app_arguments` and `open_config_app(options, APP)` (a writable `ConfigFile`, the demo's own `APP`), served as `config_page(model)`: the Setup and Secrets tabs, Save writing the file back, Revert reading it again. A missing file is refused the same way. It is a module run with `python -m`, not a console script: the published package does not depend on app-setup.
+
+**The keys.** Each launch reads the `.env` next to its config (the folder's, or the one in the file's directory) unless `--env PATH` names another, and loads it under the shell's variables (the shell wins). The Secrets tab saves keys there. `.env` is git-ignored in the repository, so a key saved next to `examples/configs/` cannot be committed.
+
+**The config is the engine block.** The demo's `App` is `bare=True`: the folder's `config.json`, a `--config` file, the config app's file and `default_config.json` are all the engine block itself, the document `ASREngineConfig.from_json_file` and the setup contract take, so any file of `examples/configs/` runs as it is. app-setup wraps it as `{"asr": block}` for the panels only. A folder made by an earlier version holds the wrapped shape, which the engine refuses (`unknown field(s) asr`, shown as Start's blocker): delete the folder once, and the next launch writes the default config again.
 
 `app-setup[ui]` (and through it gradio) is the `demo` dependency group, synced by default with `dev` (`[tool.uv] default-groups = ["dev", "demo"]`), so pyright and the tests see the page: it is never a dependency of the published package. It cannot share an environment with the `kyutai-mlx` extra (gradio's `huggingface-hub` floor is above moshi-mlx's ceiling), declared in `[tool.uv] conflicts`; the Kyutai environment is synced without the default groups anyway.
 
@@ -40,9 +52,10 @@ uv run python -m examples.gradio_demo [--folder PATH] [--host ADDRESS] [--port N
 
 - **One section, `asr`**, whose document is the engine block (`ASREngineConfig.from_dict`'s), described by `asr_engine.setup`, titled "Speech recognition".
 - **The host is `asr-engine` itself**, so "Install missing extras" installs this project's own extras (`deepgram`, `silero`, …) from its lock.
-- **The default config** is a committed file, `examples/gradio_demo/default_config.json` (one field per line, for review), loaded into `App(default_config=...)`; app-setup writes it into an empty folder at the first launch. It is the `fake` module with a two-utterance script, so Start shows the pipeline working on the microphone's audio clock before any choice.
-- **The page**: three tabs, **Listen** first, then app-setup's Setup panel and its Secrets panel, which follows the Setup panel's draft (a key a newly chosen module needs appears before saving). It opens on Setup.
-- **The model**: `AppModel(APP, ConfigFolder(folder, APP.default_config), locked=controller.locked)`. Building it creates the folder, writes the default config there when there is none, and loads the folder's `.env` under the shell's variables.
+- **The default config** is a committed file, `examples/gradio_demo/default_config.json` (one field per line, for review), the engine block alone, loaded into `App(default_config=...)`; app-setup writes it into an empty folder at the first launch. It is the `fake` module with a two-utterance script, so Start shows the pipeline working on the microphone's audio clock before any choice.
+- **The app is bare** (`App(..., bare=True)`): its one section's document is the whole config (above).
+- **The page**: three tabs, **Listen** first, then app-setup's Setup panel and its Secrets panel, which follows the Setup panel's draft (a key a newly chosen module needs appears before saving). It opens on Setup, or on Listen for a config file run as it is (`model.editable` false).
+- **The model**: `AppModel(APP, open_source(options, APP), locked=controller.locked)`, built by `open_demo(argv, controller)`, which also starts a file's session. Building it makes a folder ready (created, the default config written when there is none) and loads the `.env` under the shell's variables.
 
 The input device is chosen on the Setup panel: the "Input device" branch of the section's `audio_source`, whose `device` field lists the machine's inputs (`options("input-devices")`). The module, its fields, the VAD gate and the segmentation settings are chosen there too; the Listen tab has no config of its own.
 
@@ -50,7 +63,7 @@ The input device is chosen on the Setup panel: the "Input device" branch of the 
 
 Something keeps running between two uses (a microphone stream, a connection), so the demo's tab is a **session with a lock**:
 
-- **Start** (always-on capture) and **Listen** (single-shot) read the **saved** config. With blockers (`model.blockers(saved)`: its problems, then the **required** items the machine is missing; a model not prepared yet is not one, the session downloads it as it starts) they say why, as the message, and start nothing. Else they build an `ASREngine` from `model.used_config(saved)["asr"]`, with `base_dir=model.path`: its relative file paths (an `audio_source.audio_file`, a `vad.model_path`, a local model) are relative to the app's folder, the folder app-setup passes to the setup checks as their `base_dir`, so Check and Start look at the same file. Then they start it. A config the engine still refuses (`ConfigError`), or a missing extra (`ImportError`), is said the same way and leaves nothing behind.
+- **Start** (always-on capture) and **Listen** (single-shot) read the **saved** config. With blockers (`model.blockers(saved)`: its problems, then the **required** items the machine is missing; a model not prepared yet is not one, the session downloads it as it starts) they say why, as the message, and start nothing. Else they build an `ASREngine` from `model.used_config(saved)["asr"]`, with `base_dir=model.path`: its relative file paths (an `audio_source.audio_file`, a `vad.model_path`, a local model) are relative to the app's folder, or to a config file's directory, the directory app-setup passes to the setup checks as their `base_dir`, so Check and Start look at the same file. Then they start it. A config the engine still refuses (`ConfigError`), or a missing extra (`ImportError`), is said the same way and leaves nothing behind.
 - **Stop** stops the session and **releases** the engine: the next Start builds one from the saved config again, so a change saved in between is what the next session runs. A Listen releases its engine when its capture ends or is cancelled.
 - **`locked()`** is true from a Start (or Listen) until the engine is released. The Setup panel polls it and disables Save and Reset meanwhile; `model.save` raises `RuntimeError`.
 
@@ -143,7 +156,7 @@ Start and Stop are greyed by the session's status: a click greys both at once (a
 
 ## Testing
 
-`tests/examples/test_gradio_demo.py` drives `DemoController` over a real app-setup `AppModel` on a temporary folder (its secrets kept off the environment), with `ASREngine` replaced by a fake in-process engine, so no audio device, network or browser is needed:
+`tests/examples/test_gradio_demo.py` drives `DemoController` over a real app-setup `AppModel` on a temporary folder (its secrets kept off the environment) or opened from the demo's command line (`open_demo`), with `ASREngine` replaced by a fake in-process engine, so no audio device, network or browser is needed:
 
 - the default config is accepted and has no blockers on any machine;
 - the page puts Listen first, then Setup and Secrets, and opens on Setup;
@@ -157,12 +170,16 @@ Start and Stop are greyed by the session's status: a click greys both at once (a
 - the default config is the committed file, written into a new folder;
 - Start and Stop both greyed while the session starts and while it stops;
 - a refused start's reasons follow the saved config (a problem fixed and saved leaves the key it names) and the keys (a key saved bumps the store's revision, and nothing is missing any more); a refresh leaves any other message alone;
-- the unsaved-changes line: empty for the saved config, said for an edited draft, empty again once it is saved.
+- the unsaved-changes line: empty for the saved config, said for an edited draft, empty again once it is saved;
+- a config saved in the folder is the engine block alone, and the library reads it as it is;
+- a config file runs as it is: its session started at launch with its config, the page on Listen, never written (a save refused, the file unchanged); a file that cannot run says its blockers at launch and starts nothing; its keys come from the `.env` next to it; a missing file stops the demo at launch with the reason; the folder launch starts nothing and opens on Setup.
+
+`tests/examples/test_config_app.py`: the config app's page has the Setup and Secrets tabs, and a save writes the engine block alone back to the file, which the library reads; a missing file stops it at launch with the reason.
 
 The page was also run and driven through its own endpoints (gradio's client): on the default config, Start replayed the fake module's script on the microphone's clock (interims, finals, `utterance` segments), and Stop released it. It was then driven in headless Chromium (Playwright): Check on the Setup tab, Start (Start greyed, Stop enabled), the script's finals in the log, Save disabled on the Setup tab while running, Stop (Start enabled, Stop greyed), Save enabled again. No request of the page was refused (no response at 400 or above, no console error). The `StarletteDeprecationWarning: 'HTTP_422_UNPROCESSABLE_ENTITY'` line gradio prints is not a rejection: gradio reads that deprecated constant on every queued event to build its error map; `main` filters it.
 
 ## Open questions (deferred)
 
 - **Browser-mic capture**: feed Gradio's streaming-audio component into the engine via a custom `AudioSource`, instead of a server-side device.
-- **Starting at launch**: the demo never started a session at launch, so it has no autostart.
+- **Starting at launch from a folder**: the demo never started a session at launch from its folder, so it has no autostart (`--start`/`--no-start`); only a config file starts at launch.
 - **Releasing a local model at Stop**: the engine has no `close()`; a released engine's local model (kyutai) is freed when it is collected.

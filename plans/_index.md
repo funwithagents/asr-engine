@@ -58,6 +58,7 @@ Implementation plans for ASR MCP — each plan turns a settled part of a spec (s
 | [202611241600_gradio-demo-panels.md](202611241600_gradio-demo-panels.md) | The Gradio demo rebuilt on module-setup's Setup and Secrets panels: a Listen tab running a session over the saved config, locked while it runs; `--folder` replaces `--config`; starts on the `fake` module | Done |
 | [202611241700_setup-items-one-by-one.md](202611241700_setup-items-one-by-one.md) | Setup items one by one: `required` on every `check_setup` item, `prepare(config, item)` one item per call and safe concurrently, download progress measured in bytes (`modules/downloads.py`); the conformance check from `app-setup` | Done |
 | [202611241900_demo-unsaved-and-current-blockers.md](202611241900_demo-unsaved-and-current-blockers.md) | The demo's Listen tab says when the Setup tab has unsaved changes (`unsaved_notice`), and a refused start's reasons stay the saved config's current blockers (refreshed on the tab, on save, on a key change); app-setup on its `draft-and-saved` branch until #10 merges | Done |
+| [202611251529_demo-from-a-config-file.md](202611251529_demo-from-a-config-file.md) | The demo from its folder or a config file run as it is (`--config`, `--env`; its session started at launch), a config app (`python -m examples.config_app FILE`), the demo's config the engine block alone (`bare`); example configs engine-only, one MCP example (`examples/mcp/config.json`); app-setup on its `config-file` branch until its #11 merges | Todo |
 
 ## Status legend
 

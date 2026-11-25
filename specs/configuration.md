@@ -9,7 +9,7 @@ tests:
 
 # Configuration
 
-**Status:** Implemented
+**Status:** Updated
 
 ## Config File
 
@@ -214,7 +214,7 @@ envoyer, valider, confirmer, soumettre, entree, entrée
 
 All three modes are valid for `listen` and dictation. In `utterance` mode a `listen` returns after exactly one final utterance, and a dictation with `end_on_final_segment=true` ends after one — coherent, if degenerate.
 
-Complete server configs for every ASR module ship in `examples/configs/` (`deepgram-v1.json`, `deepgram-v2.json`, `mistral-realtime.json`, `openai-realtime-compatible.json`, `openai-transcriptions-compatible.json`, `kyutai.json`, `mlx-audio.json`), each with the `engine.vad` setting recommended for its module ([vad.md](vad.md) "Which modules to use with VAD"). `tests/examples/test_configs.py` checks they parse and that their module and VAD combination is accepted.
+Complete engine configs for every ASR module ship in `examples/configs/` (`deepgram-v1.json`, `deepgram-v2.json`, `mistral-realtime.json`, `openai-realtime-compatible.json`, `openai-transcriptions-compatible.json`, `kyutai.json`, `mlx-audio.json`): each file is an engine block alone, what `ASREngineConfig.from_json_file` and the setup contract take, with the `vad` setting recommended for its module ([vad.md](vad.md) "Which modules to use with VAD"). The MCP server's own format has one example, `examples/mcp/config.json`: a `server` block and an engine block running the `fake` module; any file of `examples/configs/` can replace that engine block. `tests/examples/test_configs.py` checks that the setup contract's `check_config` finds no problem in each engine config, that its module and VAD combination is accepted, and that the MCP example (and the same with each engine config as its engine block) loads as a server config.
 
 ## Example: Deepgram config
 
