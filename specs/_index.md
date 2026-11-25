@@ -41,7 +41,7 @@ Per-backend ASR module specs live in [`modules/`](modules/), one file per backen
 | [e2e-testing.md](e2e-testing.md) | File-based e2e pipeline: audio source abstraction, fixture format, assertions; module-agnostic scenarios on the `fake` module | Implemented |
 | [asr-to-terminal.md](asr-to-terminal.md) | Progressive terminal injection via xdotool/ydotool, consuming the server's `asr://segment` resource | Implemented |
 | [sound-feedback.md](sound-feedback.md) | Bundled WAV cues at `listen` start/stop, owned by the engine; `engine.sound_feedback` config | Implemented |
-| [gradio-demo.md](gradio-demo.md) | Direct-import Gradio example: in-process `ASREngine`, device/module pickers, start/stop/listen/dictation, live utterances + segments; `--config` required | Implemented |
+| [gradio-demo.md](gradio-demo.md) | The demo page: a Listen tab (a session over the saved config, locked while it runs: start/stop/listen/dictation, live utterances + segments) next to app-setup's Setup and Secrets panels over `asr_engine.setup`; `--folder` or `--config FILE` (run as it is, its session started at launch), a config app; the config is the engine block alone; starts on the `fake` module | Implemented |
 
 Each spec also opens with a YAML **frontmatter** block declaring the `code:` and `tests:` files it governs — the spec → code/tests mapping the spec-drift checks use to scope what they compare. Keep it current when files move, and see [AGENTS.md](../AGENTS.md) ("Spec frontmatter") for the full convention.
 

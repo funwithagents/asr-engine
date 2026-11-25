@@ -74,4 +74,4 @@ pip install 'asr-engine[deepgram]'
 ## See also
 
 - [specs/modules/deepgram.md](../../specs/modules/deepgram.md): the modules' contract, with the WebSocket details and the message mapping.
-- [examples/configs/deepgram-v1.json](../../examples/configs/deepgram-v1.json) and [examples/configs/deepgram-v2.json](../../examples/configs/deepgram-v2.json): complete server configs, with the VAD gate on.
+- [examples/configs/deepgram-v1.json](../../examples/configs/deepgram-v1.json) and [examples/configs/deepgram-v2.json](../../examples/configs/deepgram-v2.json): complete engine configs, with the VAD gate on.

@@ -279,4 +279,4 @@ A refused key reads `"<Service> refused the key (HTTP 401)."`, an unlisted model
 1. **`fields.py` is a copy.** It is shared word for word with the other libraries implementing the contract, until a common package holds it.
 2. **Problems on the right field.** A `config_rules` rule is reported at `/module`, not at the field it is about (the URL scheme, the language code, `turn_detection`'s content); finer pointers need the rule to name its field.
 3. **Deprecated fields and renamed types** are accepted and not offered. Whether `check_config` should report them as warnings is deferred.
-4. **The demo app**, a page with a Setup tab over these functions, is [gradio-demo.md](gradio-demo.md).
+4. **The demo page** built on these functions is [gradio-demo.md](gradio-demo.md).

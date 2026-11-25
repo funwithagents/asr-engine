@@ -1,9 +1,16 @@
 ---
 code:
+  - examples/gradio_demo/__init__.py
+  - examples/gradio_demo/__main__.py
   - examples/gradio_demo/controller.py
   - examples/gradio_demo/app.py
+  - examples/gradio_demo/default_config.json
+  - examples/config_app/__init__.py
+  - examples/config_app/__main__.py
+  - pyproject.toml
 tests:
-  - tests/examples/test_gradio_controller.py
+  - tests/examples/test_gradio_demo.py
+  - tests/examples/test_config_app.py
 ---
 
 # Gradio Demo App
@@ -12,186 +19,167 @@ tests:
 
 ## Purpose
 
-A small, standalone **example** that drives the `ASREngine` from a Gradio web UI, so a person can exercise the whole engine — pick an input device and ASR module, start/stop always-on capture, run a single-shot `listen`, start/stop a dictation session, and watch utterances and segments stream in — without writing code or touching the MCP server.
+A page to try the engine without writing a config by hand: choose a module and an input device, configure them, install their extras, download their models, set the key, then listen. It is the engine's demo, built on [setup.md](setup.md): its Setup and Secrets panels, the app's folder and the checks behind them come from the `app-setup` project, whose specs are the reference for them; this spec says what the engine's demo puts around them: its section, its page and its listening session.
 
-It is a **direct-import consumer** of the library: it builds an `ASREngine` from an `ASREngineConfig` in-process and calls the engine API directly. It is **not** an MCP client and does **not** go through `AsrTools` — those exist for the MCP server and for handing pre-built tool implementations to an agent, not for an in-process caller (see [tools.md](tools.md) and the note there). This demo is the worked example of the "Direct import (no MCP)" usage in [engine.md](engine.md).
-
-It lives in `examples/`, outside the `asr_engine` package: a new top-level directory for runnable examples that depend on the library but are not part of it. It is intentionally kept thin, with all non-UI logic in a UI-agnostic controller so the behavior is testable without Gradio.
+It is a **direct-import consumer** of the library: it builds an `ASREngine` from an `ASREngineConfig` in-process and calls the engine API directly. It is **not** an MCP client and does **not** go through `AsrTools` (see [tools.md](tools.md)). This demo is the worked example of the "Direct import (no MCP)" usage in [engine.md](engine.md).
 
 ## Non-goals
 
 - **Not** an MCP client — see [demo-client.md](demo-client.md) for that.
 - **No** browser-microphone capture. Audio comes from a server-side input device via the engine's normal `AudioCapture`; feeding Gradio's streaming-audio component through a custom `AudioSource` is a deferred idea (Open questions).
-- **No** editing of module-specific fields (model, language, API-key env name) from the UI — the module *type* is chosen in the UI; its other fields come from the loaded config file. (Segmentation *mode* **and** params — trigger words and timeouts — are editable in the UI.)
-- Not shipped as a core dependency: Gradio is an optional dependency group.
+- Not shipped as a dependency of the package: the page is a dependency group.
 
-## Layout
+## Running it
 
 ```
-examples/
-  gradio_demo/
-    __init__.py
-    controller.py   # UI-agnostic DemoController: owns the engine + event state
-    app.py          # thin Gradio wiring + entry point (main)
+uv run python -m examples.gradio_demo [--folder DIR | --config FILE] [--env PATH] [--host ADDRESS] [--port N]
+uv run python -m examples.config_app FILE [--env PATH] [--host ADDRESS] [--port N]
 ```
 
-- `controller.py` imports `asr_engine`, never `gradio`. It is the testable unit.
-- `app.py` imports both; it builds the Gradio `Blocks`, binds widgets to controller methods, and polls the controller for display state. It contains no segmentation/engine logic of its own.
+(`python -m examples.gradio_demo.app` runs the demo too.) The command line is app-setup's (`add_config_arguments`, `open_source`), plus `--host` (`127.0.0.1` by default) and `--port` (gradio's by default). Three launches:
+
+- **From the demo's folder** (`--folder DIR`, by default `~/.config/asr-engine-demo`): its `config.json`, edited and saved on the Setup tab, and its `.env`. The page opens on its Setup tab, with the `fake` module on a new folder; nothing starts at launch (the demo has no autostart).
+- **From a config file** (`--config FILE`), run as it is: a `ConfigFile` that is never written, so the Setup panel is read-only (Check, Install, Prepare and Test still work; there is no Save, and no Reset: a file has no default). The session starts at launch (`starts_at_launch(model, None)` is true for a file): `main` calls `controller.start(model)` before the page is served, so with blockers the Listen tab's message says them instead, exactly as a refused Start does. The page opens on the Listen tab. A file that does not exist or is not a JSON object is refused at launch: `ConfigFileError` becomes `parser.error`, and nothing is served.
+- **The config app** (`examples/config_app/`), one file edited with no session: app-setup's `add_config_app_arguments` and `open_config_app(options, APP)` (a writable `ConfigFile`, the demo's own `APP`), served as `config_page(model)`: the Setup and Secrets tabs, Save writing the file back, Revert reading it again. A missing file is refused the same way. It is a module run with `python -m`, not a console script: the published package does not depend on app-setup.
+
+**The keys.** Each launch reads the `.env` next to its config (the folder's, or the one in the file's directory) unless `--env PATH` names another, and loads it under the shell's variables (the shell wins). The Secrets tab saves keys there. `.env` is git-ignored in the repository, so a key saved next to `examples/configs/` cannot be committed.
+
+**The config is the engine block.** The demo's `App` is `bare=True`: the folder's `config.json`, a `--config` file, the config app's file and `default_config.json` are all the engine block itself, the document `ASREngineConfig.from_json_file` and the setup contract take, so any file of `examples/configs/` runs as it is. app-setup wraps it as `{"asr": block}` for the panels only. A folder made by an earlier version holds the wrapped shape, which the engine refuses (`unknown field(s) asr`, shown as Start's blocker): delete the folder once, and the next launch writes the default config again.
+
+`app-setup[ui]` (and through it gradio) is the `demo` dependency group, synced by default with `dev` (`[tool.uv] default-groups = ["dev", "demo"]`), so pyright and the tests see the page: it is never a dependency of the published package. It cannot share an environment with the `kyutai-mlx` extra (gradio's `huggingface-hub` floor is above moshi-mlx's ceiling), declared in `[tool.uv] conflicts`; the Kyutai environment is synced without the default groups anyway.
+
+## What the demo declares
+
+- **One section, `asr`**, whose document is the engine block (`ASREngineConfig.from_dict`'s), described by `asr_engine.setup`, titled "Speech recognition".
+- **The host is `asr-engine` itself**, so "Install missing extras" installs this project's own extras (`deepgram`, `silero`, …) from its lock.
+- **The default config** is a committed file, `examples/gradio_demo/default_config.json` (one field per line, for review), the engine block alone, loaded into `App(default_config=...)`; app-setup writes it into an empty folder at the first launch. It is the `fake` module with a two-utterance script, so Start shows the pipeline working on the microphone's audio clock before any choice.
+- **The app is bare** (`App(..., bare=True)`): its one section's document is the whole config (above).
+- **The page**: three tabs, **Listen** first, then app-setup's Setup panel and its Secrets panel, which follows the Setup panel's draft (a key a newly chosen module needs appears before saving). It opens on Setup, or on Listen for a config file run as it is (`model.editable` false).
+- **The model**: `AppModel(APP, open_source(options, APP), locked=controller.locked)`, built by `open_demo(argv, controller)`, which also starts a file's session. Building it makes a folder ready (created, the default config written when there is none) and loads the `.env` under the shell's variables.
+
+The input device is chosen on the Setup panel: the "Input device" branch of the section's `audio_source`, whose `device` field lists the machine's inputs (`options("input-devices")`). The module, its fields, the VAD gate and the segmentation settings are chosen there too; the Listen tab has no config of its own.
+
+## The session: a lock while it runs
+
+Something keeps running between two uses (a microphone stream, a connection), so the demo's tab is a **session with a lock**:
+
+- **Start** (always-on capture) and **Listen** (single-shot) read the **saved** config. With blockers (`model.blockers(saved)`: its problems, then the **required** items the machine is missing; a model not prepared yet is not one, the session downloads it as it starts) they say why, as the message, and start nothing. Else they build an `ASREngine` from `model.used_config(saved)["asr"]`, with `base_dir=model.path`: its relative file paths (an `audio_source.audio_file`, a `vad.model_path`, a local model) are relative to the app's folder, or to a config file's directory, the directory app-setup passes to the setup checks as their `base_dir`, so Check and Start look at the same file. Then they start it. A config the engine still refuses (`ConfigError`), or a missing extra (`ImportError`), is said the same way and leaves nothing behind.
+- **Stop** stops the session and **releases** the engine: the next Start builds one from the saved config again, so a change saved in between is what the next session runs. A Listen releases its engine when its capture ends or is cancelled.
+- **`locked()`** is true from a Start (or Listen) until the engine is released. The Setup panel polls it and disables Save and Reset meanwhile; `model.save` raises `RuntimeError`.
+
+### What the Listen tab says about the Setup tab
+
+- **Unsaved changes.** Above Start, a line says "The Setup tab has unsaved changes: Start uses the saved config." while the Setup panel's draft differs from the saved config, and nothing otherwise: app-setup's `unsaved_notice(model, setup.draft)`, on `setup.draft.change` and `setup.saved.change`.
+- **A refused start's reasons stay current.** When the last message is the blockers of a refused Start or Listen, `controller.refresh_blockers(model)` replaces them with the saved config's current blockers, or with "The saved config has nothing missing any more: Start can run it." when there are none; any other message is left as it is. The page calls it when the Listen tab is selected, on `setup.saved.change`, and when a key changes: each tick compares the store's `model.secrets.revision` with the one this browser tab last saw (a `gr.State`) and refreshes only when it moved, so the blockers are not worked out on every tick.
 
 ## Concurrency model
 
-The `ASREngine` is async and expects a running event loop; Gradio callbacks are synchronous. The controller owns a **dedicated asyncio event loop running in a background thread** and marshals every engine call onto it with `asyncio.run_coroutine_threadsafe(...)`, blocking the calling Gradio handler until it completes (with a timeout). Engine callbacks (`on_speech_utterance`, `on_speech_segment`) fire on that loop thread; the controller appends to thread-safe buffers that the UI reads. This keeps the engine on one loop (the "asyncio throughout" invariant) while Gradio stays synchronous.
+The `ASREngine` is async and expects a running event loop; Gradio callbacks are synchronous. The controller owns a **dedicated asyncio event loop running in a background thread** and marshals every engine call onto it with `asyncio.run_coroutine_threadsafe(...)`, blocking the calling handler until it completes (with a timeout). Engine callbacks (`on_speech_utterance`, `on_speech_segment`) fire on that loop thread; the controller appends to thread-safe buffers that the UI reads. This keeps the engine on one loop (the "asyncio throughout" invariant) while Gradio stays synchronous.
 
 ## `DemoController`
 
-The UI-agnostic core. Holds the loop thread, the current `ASREngineConfig`, at most one live `ASREngine`, the current segmentation mode, and rolling event state.
+The UI-agnostic core (`controller.py`, which imports `asr_engine` and `app_setup.app`, never gradio). Holds the loop thread, at most one session's engine and its config, and rolling event state.
 
 ```python
 class DemoController:
-    def __init__(self, base_config: ASREngineConfig) -> None: ...
+    def __init__(self) -> None: ...
 
-    # --- configuration (only while stopped) ---
-    def available_devices(self) -> list[str]:        # AudioCapture.list_devices()
-    def available_modules(self) -> list[str]:        # sorted(REGISTRY)
-    def set_device(self, device: str | None) -> None
-    def set_module(self, module_type: str) -> None
+    # A session uses the saved config.
+    def locked(self) -> bool: ...
 
-    # --- lifecycle ---
-    def start(self) -> None                          # build engine if needed, engine.start()
-    def stop(self) -> None                           # engine.stop(), or cancel an in-progress listen
-    def listen(self, mode: str | None = None) -> None  # single-shot, background + cancelable
+    # The session: blockers, else built from the saved config and started.
+    def start(self, model: AppModel) -> None: ...
+    # engine.stop() then release, or cancel a listen.
+    def stop(self) -> None: ...
+    # Single-shot, in the background, cancelable.
+    def listen(self, model: AppModel, mode: str | None = None) -> None: ...
 
-    # --- dictation (marshaled onto the loop thread; engine must be running) ---
-    def start_dictation(                             # engine.start_dictation
-        self, mode: str | None = None, end_on_final_segment: bool = False,
-    ) -> None
-    def stop_dictation(self) -> None                 # engine.stop_dictation
+    # Dictation, marshaled onto the loop thread; the session must be running.
+    def start_dictation(
+        self, mode: str | None = None, end_on_final_segment: bool = False
+    ) -> None: ...
+    def stop_dictation(self) -> None: ...
 
-    # --- segmentation params (marshaled onto the loop thread) ---
-    def set_segmentation_params(                     # engine.set_segmentation_params
-        self, trigger_words: str, initial_silence_timeout_s: float,
-        end_of_speech_timeout_s: float,
-    ) -> None
+    # A refused start's message made the saved config's current blockers.
+    def refresh_blockers(self, model: AppModel) -> None: ...
 
-    # --- results ---
-    def clear_logs(self) -> None                     # empty the utterance/segment logs
-
-    # --- state for the UI ---
-    def state(self) -> ControllerState               # snapshot: see below
+    def clear_logs(self) -> None: ...
+    def state(self, model: AppModel) -> ControllerState: ...
 ```
-
-### Rebuild-on-config-change
-
-The engine is built from a fixed `config.module` / `config.audio_source.device`, with no runtime module- or device-switch API. So:
-
-- `set_device` and `set_module` mutate the controller's pending `ASREngineConfig` and **discard any existing engine instance**. They raise `RuntimeError` (surfaced as a UI message) if called while the engine is running — the UI also disables those widgets while running.
-- The next `start()` (or `listen()`) constructs a fresh `ASREngine` from the current config. Module-specific fields (e.g. Deepgram's `api_key_env`, `model`, `language`) come from the loaded base config; switching `module.type` keeps the rest of the `module` block only if compatible, otherwise falls back to that module's own config defaults. Construction errors (unknown module, module extra not installed, unsupported audio format, missing API key) are caught and shown in the UI, not raised past the handler.
 
 ### `listen`
 
-`listen` requires the engine **not** running (engine raises `ValueError` otherwise). It is **non-blocking**: it schedules `engine.listen(mode)` as a task on the loop thread and returns immediately, so the UI stays responsive. The controller enters the `listening` phase; when the capture completes, its closed `SpeechSegment` is stored as `last_listen` and the phase returns to `stopped`. `mode` is the value of the shared **Segmentation mode** dropdown (any of the three modes, `utterance` included); when the UI passes `None` the engine falls back to its `listen_default_segmentation_mode`.
+`listen` requires no session running. It is **non-blocking**: it schedules `engine.listen(mode)` as a task on the loop thread and returns immediately. The controller enters the `listening` phase; when the capture completes, its closed `SpeechSegment` is stored as `last_listen`, the engine is released and the phase returns to `stopped`. `mode` is the value of the **Segmentation mode** dropdown; with `None` the engine falls back to its `listen_default_segmentation_mode`.
 
-A listen can be **cancelled**: `stop()` cancels the listen task, which unwinds `engine.listen`'s own cleanup (it stops the engine and restores the prior mode); the phase then returns to `stopped` with a "Listen cancelled." message. This is why Stop is enabled during `listening` (see the enablement table).
+A listen can be **cancelled**: `stop()` cancels the listen task, which unwinds `engine.listen`'s own cleanup; the phase then returns to `stopped` with a "Listen cancelled." message.
 
-### Dictation control
+### Dictation
 
-`start_dictation(mode, end_on_final_segment)` and `stop_dictation()` map to the engine methods of the same names and are only valid **while the engine is running** (phase `running` → `dictating`). `start_dictation` resolves `mode` against the config's `dictation_default_segmentation_mode` when `None`; the demo defaults `end_on_final_segment` to `False` so a dictation runs until Stop dictation (the natural "watch it aggregate" demo). Their `ValueError`s (not running, already/not dictating, unknown mode) are caught and shown as a message. When a dictation with `end_on_final_segment=True` self-ends, the phase returns to `running` — the controller reads `engine.dictating` in its snapshot so the UI follows the engine.
+`start_dictation(mode, end_on_final_segment)` and `stop_dictation()` map to the engine methods of the same names and are only valid **while a session runs** (phase `running` → `dictating`). Their `ValueError`s are caught and shown as a message. When a dictation with `end_on_final_segment=True` ends by itself, the phase returns to `running`: the controller reads `engine.dictating` in its snapshot.
 
-`set_segmentation_params(trigger_words, initial_silence_timeout_s, end_of_speech_timeout_s)` still changes the shared segmentation params live (it maps to the engine method of the same name, safe while running). `trigger_words` is a comma-separated string, split into a list; timeouts must be numbers greater than 0 (rejected with a message otherwise). It persists to the pending config so a not-yet-built engine and the state snapshot reflect it.
-
-**These engine methods schedule work on the engine's event loop, so the controller must invoke them on the loop thread** (via the same `run_coroutine_threadsafe` helper), not directly from the Gradio handler thread — calling them off-loop raises `RuntimeError: no current event loop`.
+**These engine methods schedule work on the engine's event loop, so the controller invokes them on the loop thread**, not from the Gradio handler thread.
 
 ### `ControllerState`
 
-A plain snapshot the UI renders. Fields:
-
 | Field | Source |
 |---|---|
-| `phase: str` | `"stopped"` / `"running"` / `"dictating"` / `"listening"` — the primary status |
-| `connected: bool` | `engine.status()["connected"]` (False if no engine) |
-| `segmentation_mode: str` | `engine.segmentation_mode` (read-only property; see [engine.md](engine.md)) — the dictation/listen mode while active, else `utterance` |
-| `trigger_words: str` | pending config's segmentation trigger words, comma-joined (for the textbox) |
-| `initial_silence_timeout_s`, `end_of_speech_timeout_s: float` | pending config's segmentation timeouts |
-| `device: str \| None`, `module_type: str` | current pending config |
-| `vad: str` | the pending config's `engine.vad`, one line (`format_vad_config`) |
-| `voice_activity: str` | `engine.vad_state` ([engine.md](engine.md)) and whether the engine is capturing (`format_voice_activity`) |
-| `utterance_log: list[str]` | **every** utterance formatted (interim + final), most-recent last (bounded deque) |
-| `segment_log: list[str]` | **every** segment formatted (interim `[open]` + closed `[end_reason]`), most-recent last (bounded deque) |
-| `last_listen: str` | formatted result of the last `listen` |
-| `message: str` | last action/error message for the UI |
-| `can_start` / `can_stop` / `can_listen` / `config_enabled` / `can_dictate: bool` | derived enablement (see table); `can_dictate` gates the dictation controls |
+| `phase: str` | `"stopped"` / `"starting"` / `"running"` / `"dictating"` / `"stopping"` / `"listening"` |
+| `connected: bool` | `engine.status()["connected"]` (False without a session) |
+| `segmentation_mode: str` | `engine.segmentation_mode` while a session runs, else `utterance` |
+| `module_type: str` | the session's module, else the saved config's |
+| `vad: str` | the session's `engine.vad`, else the saved config's, one line (`format_vad_config`) |
+| `voice_activity: str` | `engine.vad_state` and whether a session is capturing (`format_voice_activity`) |
+| `utterance_log`, `segment_log: list[str]` | every event formatted, interims included, most recent last (bounded deques) |
+| `last_listen: str` | the last `listen` result |
+| `message: str` | the last action's result, a blocker list, or an error |
+| `dictating: bool` | `engine.dictating` |
+| `can_start` / `can_stop` / `can_listen` / `can_dictate: bool` | derived enablement (below) |
 
-The current segmentation mode is read from the engine's read-only `segmentation_mode` property (see [engine.md](engine.md)), so the controller doesn't shadow engine state. When there is no live engine (not yet started after a config change), the snapshot reports `"utterance"` (the at-rest mode).
+## The Listen tab (`app.py`)
 
-## UI (`app.py`)
+Top to bottom: a line saying the session runs the saved config; **Start** and **Stop**; read-only fields for the **session** phase (with the active mode while `dictating`/`listening`), the **module**, and whether the backend is **connected**; the **voice activity detection** gate in one line and what it is doing right now (`SPEECH`, `silence`, `FAILED OPEN`, `idle`, `no VAD`); the **Segmentation mode** dropdown and the "end dictation on first final segment" checkbox beside Start-dictation / Stop-dictation and **Listen (single-shot)**; the **last activity** message; the utterance and segment logs with a **Clear** button; the last listen result.
 
-A single Gradio `Blocks` page, top to bottom:
+Start and Stop are greyed by the session's status: a click greys both at once (an unqueued first step), the handler then renders the state it left, and the timer keeps them in step with a session started or stopped from another tab. Live results refresh by polling `controller.state(model)` every 0.25 s (`gr.Timer`), which also lets the voice-activity field show a short utterance. The poll never rewrites the dropdown's value.
 
-- **Config row** (disabled while running): input-device dropdown (`available_devices()`, defaulting to the **first** device rather than the system default), module dropdown (`available_modules()`).
-- **Params row**: a trigger-words textbox (comma-separated), two timeout number inputs, and an "Apply params" button calling `set_segmentation_params`. The timer only toggles these inputs' *enablement* — it never rewrites their value, so it can't clobber what the user is typing; the current values seed them at build time.
-- **Engine row**: Start and Stop buttons (always-on capture).
-- **State row**: read-only fields for the engine **phase** (`stopped` / `running` / `dictating` / `listening`) and backend connection. Because the mode dropdown is a free input (not a mirror of engine state), the phase field shows the **active** mode next to the phase while `dictating`/`listening` (e.g. `dictating · trigger_word`), so the user still sees what is running.
-- **VAD row**: two read-only fields for the optional VAD gate ([vad.md](vad.md)).
-  - **VAD gate:** the configured `engine.vad` in one line (type, threshold, open/close durations, pre-roll), or "off" when the config has none. The demo does not edit it: the gate is set in the config file.
-  - **Voice activity:** what the gate is doing right now: `SPEECH` (audio is reaching the module), `silence` (held back), `FAILED OPEN` (the VAD raised and everything is sent), `idle` when not capturing, `no VAD` without one.
-
-  The timer polls every 0.25 s, so the voice-activity field follows the gate closely enough to show even a short utterance (the gate stays open at least `min_silence_duration_ms`).
-- **Segmentation + actions row** (two columns): on the **left**, a **Segmentation mode** dropdown (`utterance` / `trigger_word` / `timeout`) beside an "end dictation on first final segment" checkbox (two columns on one line); on the **right**, Start-dictation / Stop-dictation buttons on the first line and the Listen (single-shot) button on the second. The dropdown is a free user choice that drives **both** `listen` (the mode passed to `controller.listen`) and `start_dictation`; it stays editable in every phase and the poll timer **never** overwrites its value (that would clobber the selection — same rule as the params inputs). Start-dictation is enabled while `running` and not yet dictating; Stop-dictation while `dictating`.
-- **Last activity**: a read-only line carrying the controller's message (result of the most recent action or an error).
-- **Results**: two scrolling, read-only log panels — utterances and segments — each showing **every** event including interims (autoscrolled to the newest, so the last line is the latest), a **Clear** button beneath them (`clear_logs`), plus the last `listen` result. There are no separate "latest" single-line boxes; the log's tail is the latest.
-
-Live results refresh by polling `controller.state()` on a timer (Gradio's `gr.Timer` / periodic tick), since engine callbacks arrive on the loop thread and the demo needs no lossless stream — a rolling snapshot matches the engine's own rolling-resource semantics. Interim events are frequent, so each log is a bounded deque (latest N lines).
-
-### Button / widget enablement
-
-| State | Start | Stop | Listen | Device / Module | Dictation | Params |
-|---|---|---|---|---|---|---|
-| stopped | on | off | on | on | off | on |
-| running (always-on) | off | on | off | off | **Start** on | on |
-| dictating | off | on | off | off | **Stop** on | on |
-| listening (single-shot) | off | **on** (cancels listen) | off | off | off | off |
-
-`can_dictate` is true in the `running` and `dictating` phases; within the dictation controls, Start-dictation is enabled while `running` and Stop-dictation while `dictating`. The **Segmentation mode** dropdown is **always editable** (it is a free input for Listen and Start-dictation, not gated by phase), and the params inputs are editable in every phase except `listening`.
-
-Enablement is derived from `ControllerState`; the controller is the single source of truth.
-
-## Configuration
-
-The app takes a **required** `--config` path to the same JSON schema the MCP server uses (see [configuration.md](configuration.md)); only the `engine` block is used (the `server` block is ignored). It builds the base `ASREngineConfig` from that block.
-
-There is **no built-in fallback config**: running without `--config` is an argparse usage error (exit 2). A fallback would have to pick a module, which would make that module the implicit default — exactly what [asr-module-interface.md](asr-module-interface.md) rules out (no backend is the default). The user chooses the backend, and installs its extra, in their config file.
-
-The module dropdown lists every registered type (`sorted(REGISTRY)`, which does not import anything), including modules whose extra is not installed and the `fake` test double. Selecting an uninstalled module is allowed; the registry's `ImportError` (naming the extra to install) is raised at the next engine build and shown as the UI message, like any other construction error.
-
-## Dependencies and running
-
-Gradio lives in the `demo` dependency group, kept out of `[project.dependencies]` so `import asr_engine` and the server stay lean and library consumers never pull it. Because pyright type-checks `examples/`, `demo` is a **default sync group** (`[tool.uv] default-groups = ["dev", "demo"]`), so the dev venv always has gradio and `uv run pyright` / Pylance resolve it. Run the demo with:
-
-```bash
-uv run python -m examples.gradio_demo.app --config config.json
-```
-
-The examples directory is not built into the wheel (`[tool.uv_build].include` covers only the package + sounds).
+| State | Start | Stop | Listen | Dictation |
+|---|---|---|---|---|
+| stopped | on | off | on | off |
+| starting | off | off | off | off |
+| running | off | on | off | **Start** on |
+| stopping | off | off | off | off |
+| dictating | off | on | off | **Stop** on |
+| listening | off | **on** (cancels) | off | off |
 
 ## Logging
 
-`controller.py` logs through a module logger (`log = logging.getLogger(__name__)`) — engine/device errors at `exception`, no `print`. As an application entry point, `app.py`'s `main()` configures logging itself via its own `logging.basicConfig(...)` (project-standard format), **not** the library's private `asr_engine._logging.setup_logging`, so the demo depends only on the public library — the same boundary the other example CLIs follow (see [project.md](project.md) "Logging").
+`controller.py` logs through a module logger. As an application entry point, `app.py`'s `main()` configures logging itself (`logging.basicConfig`), not through the library's private `asr_engine._logging`, so the demo depends only on the public library ([project.md](project.md) "Logging").
 
 ## Testing
 
-`app.py` (the Gradio wiring) has **no automated tests** — it's thin UI glue, verified manually by running the command above with a real input device, a config selecting an installed provider module, and that provider's API key, then exercising start/stop/listen and dictation.
+`tests/examples/test_gradio_demo.py` drives `DemoController` over a real app-setup `AppModel` on a temporary folder (its secrets kept off the environment) or opened from the demo's command line (`open_demo`), with `ASREngine` replaced by a fake in-process engine, so no audio device, network or browser is needed:
 
-`controller.py` **is** tested. The `controller.py` / `app.py` split exists precisely so the demo's logic is testable without Gradio, and `tests/examples/test_gradio_controller.py` (fast tier) pins it by driving `DemoController`'s public methods against a **fake in-process engine** — no Gradio import, no real audio device, no ASR backend. It asserts on `state()` snapshots (public API, per [testing.md](testing.md)), covering:
+- the default config is accepted and has no blockers on any machine;
+- the page puts Listen first, then Setup and Secrets, and opens on Setup;
+- Start builds the engine from the saved section and locks the config (a save is refused) until Stop, which unlocks it;
+- a config saved between two sessions is the one the next runs;
+- a config with problems says why and starts nothing; an engine that cannot be built is said and leaves nothing locked;
+- Listen runs locked, and Stop cancels it and releases the engine; Listen is refused while a session runs;
+- the enablement of each phase; a dictation round trip; dictation refused without a session;
+- the gate's view without a gate, from the saved config, then following the session's;
+- a relative path runs against the app's folder;
+- the default config is the committed file, written into a new folder;
+- Start and Stop both greyed while the session starts and while it stops;
+- a refused start's reasons follow the saved config (a problem fixed and saved leaves the key it names) and the keys (a key saved bumps the store's revision, and nothing is missing any more); a refresh leaves any other message alone;
+- the unsaved-changes line: empty for the saved config, said for an edited draft, empty again once it is saved;
+- a config saved in the folder is the engine block alone, and the library reads it as it is;
+- a config file runs as it is: its session started at launch with its config, the page on Listen, never written (a save refused, the file unchanged); a file that cannot run says its blockers at launch and starts nothing; its keys come from the `.env` next to it; a missing file stops the demo at launch with the reason; the folder launch starts nothing and opens on Setup.
 
-- **Rebuild-on-config-change**: `set_device` / `set_module` mutate the pending config and discard any built engine while stopped, and raise `RuntimeError` (surfaced as a message) while running.
-- **`listen` cancellation**: `stop()` during the `listening` phase cancels the listen task and returns the phase to `stopped` with the cancelled message.
-- **Param validation**: `set_segmentation_params` rejects non-positive timeouts with a message and leaves prior params intact.
-- **Phase transitions**: `stopped` → `running` → `dictating` → `running`, and the `can_start` / `can_stop` / `can_listen` / `can_dictate` / `config_enabled` enablement derived from each phase.
-- **VAD view**: without `engine.vad` the fields say there is none; with one, they show the configured gate before any engine exists, then follow the engine's `vad_state` through silence, speech and fail-open, and return to idle after Stop.
+`tests/examples/test_config_app.py`: the config app's page has the Setup and Secrets tabs, and a save writes the engine block alone back to the file, which the library reads; a missing file stops it at launch with the reason.
 
-The engine behavior the demo relies on (the `segmentation_mode` / `dictating` getters, `start_dictation` / `stop_dictation`, `listen`) is separately covered by the engine's own tests in `tests/test_engine.py`; the controller tests use a fake engine so they stay fast and deterministic and pin the *controller's* logic, not the engine's.
+The page was also run and driven through its own endpoints (gradio's client): on the default config, Start replayed the fake module's script on the microphone's clock (interims, finals, `utterance` segments), and Stop released it. It was then driven in headless Chromium (Playwright): Check on the Setup tab, Start (Start greyed, Stop enabled), the script's finals in the log, Save disabled on the Setup tab while running, Stop (Start enabled, Stop greyed), Save enabled again. No request of the page was refused (no response at 400 or above, no console error). The `StarletteDeprecationWarning: 'HTTP_422_UNPROCESSABLE_ENTITY'` line gradio prints is not a rejection: gradio reads that deprecated constant on every queued event to build its error map; `main` filters it.
 
 ## Open questions (deferred)
 
-- **Browser-mic capture**: feed Gradio's streaming-audio component into the engine via a custom `AudioSource` adapter (16 kHz / s16 chunking), instead of a server-side device. Bigger lift; deferred.
-- **Per-module config editing**: edit module-specific fields (model, language, API-key env name) in the UI rather than only the module `type`.
+- **Browser-mic capture**: feed Gradio's streaming-audio component into the engine via a custom `AudioSource`, instead of a server-side device.
+- **Starting at launch from a folder**: the demo never started a session at launch from its folder, so it has no autostart (`--start`/`--no-start`); only a config file starts at launch.
+- **Releasing a local model at Stop**: the engine has no `close()`; a released engine's local model (kyutai) is freed when it is collected.

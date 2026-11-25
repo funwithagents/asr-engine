@@ -56,6 +56,6 @@ pip install 'asr-engine[openai-compatible,silero]'
 
 - [specs/modules/openai-transcriptions-compatible.md](../../specs/modules/openai-transcriptions-compatible.md): the module's contract.
 - [specs/batch-asr-module.md](../../specs/batch-asr-module.md): how batch modules buffer, decode and produce interims.
-- [examples/configs/openai-transcriptions-compatible.json](../../examples/configs/openai-transcriptions-compatible.json): a complete server config.
+- [examples/configs/openai-transcriptions-compatible.json](../../examples/configs/openai-transcriptions-compatible.json): a complete engine config.
 - [local-speech-recognition.md](../local-speech-recognition.md): recipes for local servers.
 - [`openai-realtime-compatible`](openai-realtime-compatible.md): the streaming protocol, for servers that speak OpenAI's Realtime API.

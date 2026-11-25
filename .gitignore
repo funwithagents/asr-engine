@@ -1,4 +1,7 @@
 config.json
+# The MCP server's example config is committed.
+!examples/mcp/config.json
+.env
 .venv/
 __pycache__/
 *.pyc

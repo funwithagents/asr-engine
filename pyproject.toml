@@ -127,6 +127,8 @@ filterwarnings = [
     "ignore::DeprecationWarning:websockets",
     "ignore::DeprecationWarning:uvicorn",
     "ignore::DeprecationWarning:deepgram",
+    # gradio's typer (through app-setup[ui]), on click's 8.2 deprecations.
+    "ignore::DeprecationWarning:typer",
 ]
 
 [tool.uv]
@@ -147,6 +149,10 @@ conflicts = [
     [{ extra = "kyutai-torch" }, { extra = "all" }],
     [{ extra = "kyutai-mlx" }, { group = "dev" }],
     [{ extra = "kyutai-torch" }, { group = "dev" }],
+    # The demo's panels need gradio>=6, whose huggingface-hub floor (0.33.5)
+    # is above moshi-mlx's ceiling (<0.29). The Kyutai environment is synced
+    # with --no-default-groups anyway (AGENTS.md "Live/e2e tests").
+    [{ extra = "kyutai-mlx" }, { group = "demo" }],
 ]
 
 [dependency-groups]
@@ -177,10 +183,12 @@ dev = [
     # never a runtime one: the contract is plain data.
     "app-setup",
 ]
-# Optional: the examples/ Gradio demo (see specs/gradio-demo.md). Not a core
-# dependency — `import asr_engine` and the MCP server stay lean without it.
+# The examples/ Gradio demo (see specs/gradio-demo.md): app-setup's Setup and
+# Secrets panels, gradio included. Synced by default with dev, so the demo is
+# type-checked and tested; never a dependency of the published package —
+# `import asr_engine` and the MCP server stay lean without it.
 demo = [
-    "gradio",
+    "app-setup[ui]",
 ]
 
 [tool.uv.sources]

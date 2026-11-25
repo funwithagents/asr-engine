@@ -1,28 +1,24 @@
 {
-  "server": {
-    "host": "0.0.0.0",
-    "port": 8000
+  "auto_start": true,
+  "auto_start_dictation": false,
+  "dictation_default_segmentation_mode": "trigger_word",
+  "audio_source": {
+    "type": "input-device",
+    "device": null
   },
-  "engine": {
-    "auto_start": true,
-    "auto_start_dictation": false,
-    "dictation_default_segmentation_mode": "trigger_word",
-    "audio_source": {
-      "type": "input-device",
-      "device": null
-    },
-    "module": {
-      "type": "openai-realtime-compatible",
-      "api_key_env": "OPENAI_API_KEY",
-      "url": "wss://api.openai.com/v1/realtime?intent=transcription",
-      "model": "gpt-4o-transcribe",
-      "language": "en",
-      "prompt": "validate",
-      "supported_sample_rates": [24000],
-      "default_sample_rate": 24000
-    },
-    "vad": {
-      "type": "silero"
-    }
+  "module": {
+    "type": "openai-realtime-compatible",
+    "api_key_env": "OPENAI_API_KEY",
+    "url": "wss://api.openai.com/v1/realtime?intent=transcription",
+    "model": "gpt-4o-transcribe",
+    "language": "en",
+    "prompt": "validate",
+    "supported_sample_rates": [
+      24000
+    ],
+    "default_sample_rate": 24000
+  },
+  "vad": {
+    "type": "silero"
   }
 }

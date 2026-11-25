@@ -58,5 +58,5 @@ python -m asr_engine.modules.mlx_audio.download <model>    # another one
 
 - [specs/modules/mlx-audio.md](../../specs/modules/mlx-audio.md): the module's contract and the models measured.
 - [specs/batch-asr-module.md](../../specs/batch-asr-module.md): how batch modules buffer, decode and produce interims.
-- [examples/configs/mlx-audio.json](../../examples/configs/mlx-audio.json): a complete server config.
+- [examples/configs/mlx-audio.json](../../examples/configs/mlx-audio.json): a complete engine config.
 - [`kyutai`](kyutai.md): the other local module, streaming, for English and French.

@@ -365,7 +365,7 @@ Its `silence_s` is 4.0 s: it must exceed `audio_delay_seconds + finalize_after_s
 | `scripts/benchmark_kyutai.py` | Real-time-factor benchmark (MLX) |
 | `tests/modules/test_kyutai.py` | Fast tier, on the scripted fake backend |
 | `tests-e2e/fixtures/sample_24000_*.wav` | 24 kHz conformance fixtures |
-| `examples/configs/kyutai.json` | A complete server config for this module (`engine.vad` left `null`) |
+| `examples/configs/kyutai.json` | A complete engine config for this module (its `vad` left `null`) |
 
 ## Non-goals
 

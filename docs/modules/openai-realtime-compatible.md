@@ -55,5 +55,5 @@ Hosted OpenAI takes 24 kHz only. There is nothing to set: the microphone is open
 ## See also
 
 - [specs/modules/openai-realtime-compatible.md](../../specs/modules/openai-realtime-compatible.md): the module's contract and the protocol messages it uses.
-- [examples/configs/openai-realtime-compatible.json](../../examples/configs/openai-realtime-compatible.json): a complete server config, with the VAD gate on.
+- [examples/configs/openai-realtime-compatible.json](../../examples/configs/openai-realtime-compatible.json): a complete engine config, with the VAD gate on.
 - [`openai-transcriptions-compatible`](openai-transcriptions-compatible.md): the batch HTTP endpoint, for servers that only implement `/v1/audio/transcriptions`.

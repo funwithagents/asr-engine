@@ -1,22 +1,16 @@
 {
-  "server": {
-    "host": "0.0.0.0",
-    "port": 8000
+  "auto_start": true,
+  "auto_start_dictation": false,
+  "dictation_default_segmentation_mode": "trigger_word",
+  "audio_source": {
+    "type": "input-device",
+    "device": null
   },
-  "engine": {
-    "auto_start": true,
-    "auto_start_dictation": false,
-    "dictation_default_segmentation_mode": "trigger_word",
-    "audio_source": {
-      "type": "input-device",
-      "device": null
-    },
-    "module": {
-      "type": "kyutai",
-      "backend": "auto",
-      "hf_repo": "kyutai/stt-1b-en_fr-candle",
-      "vad": true
-    },
-    "vad": null
-  }
+  "module": {
+    "type": "kyutai",
+    "backend": "auto",
+    "hf_repo": "kyutai/stt-1b-en_fr-candle",
+    "vad": true
+  },
+  "vad": null
 }

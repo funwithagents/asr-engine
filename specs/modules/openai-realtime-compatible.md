@@ -268,7 +268,7 @@ A `MODULES` row: type `openai-realtime-compatible`, `api_key_env: OPENAI_API_KEY
 - `pyproject.toml`: the extra, `all`, `dev`
 - `scripts/probe_openai_realtime.py`: the live probe behind [Measured](#measured-live-probe-hosted-openai-2026-11-13)
 - `scripts/check_local_server.py`: runs the engine with this module (or `openai-transcriptions-compatible`) against a local server; behind [Measured against local servers](#measured-against-local-servers-2026-11-16)
-- `examples/configs/openai-realtime-compatible.json`: a complete server config, with the VAD gate on
+- `examples/configs/openai-realtime-compatible.json`: a complete engine config, with the VAD gate on
 - `tests/modules/test_openai_realtime_compatible.py`, `tests-e2e/helpers.py` (`MODULES` row), `.github/workflows/ci.yml` (secret mapping)
 - Spec and doc touch-ups: [asr-module-interface.md](../asr-module-interface.md) (registry snippet, extras table and naming rule), [configuration.md](../configuration.md), [ci.md](../ci.md), [e2e-testing.md](../e2e-testing.md), [vad.md](../vad.md) (module tables), [project.md](../project.md) (package and extras lists), `README.md`, `AGENTS.md`
 

@@ -45,9 +45,9 @@ _DECLARED: dict[str, type[Declared]] = {
 
 
 def _examples() -> dict[str, dict[str, Any]]:
-    """The engine block of every example config, by file name."""
+    """Every example config (an engine block), by file name."""
     return {
-        path.name: json.loads(path.read_text(encoding="utf-8"))["engine"]
+        path.name: json.loads(path.read_text(encoding="utf-8"))
         for path in sorted((_ROOT / "examples" / "configs").glob("*.json"))
     }
 

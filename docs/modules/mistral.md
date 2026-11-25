@@ -51,4 +51,4 @@ pip install 'asr-engine[mistral]'
 ## See also
 
 - [specs/modules/mistral.md](../../specs/modules/mistral.md): the module's contract, with the protocol and the measurements it rests on.
-- [examples/configs/mistral-realtime.json](../../examples/configs/mistral-realtime.json): a complete server config, with the VAD gate on.
+- [examples/configs/mistral-realtime.json](../../examples/configs/mistral-realtime.json): a complete engine config, with the VAD gate on.

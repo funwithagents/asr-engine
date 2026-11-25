@@ -66,5 +66,5 @@ To check that a machine keeps up with real time, run `uv run python scripts/benc
 ## See also
 
 - [specs/modules/kyutai.md](../../specs/modules/kyutai.md): the module's contract, the models and the measurements.
-- [examples/configs/kyutai.json](../../examples/configs/kyutai.json): a complete server config.
+- [examples/configs/kyutai.json](../../examples/configs/kyutai.json): a complete engine config.
 - [`mlx-audio`](mlx-audio.md): the other local module, for multilingual batch models on Apple Silicon.
